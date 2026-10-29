@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Voo Livre</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><circle cx='44' cy='14' r='8' fill='%23ffcf3f'/><path d='M44 14 L20 46' stroke='white' stroke-width='3'/><circle cx='20' cy='48' r='7' fill='%23ff5d7c'/></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800;900&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<canvas id="c"></canvas>
+
+<div id="hud" class="hidden">
+  <div id="hud-left">
+    <div id="hud-biome">PÔR DO SOL</div>
+    <div id="hud-dist"><span>0</span><small>m</small></div>
+    <div id="hud-speed">0 km/h</div>
+    <div id="hud-best">recorde 0 m</div>
+    <div id="hud-hp" class="hidden"></div>
+  </div>
+  <div id="hud-right">
+    <div id="hud-net"></div>
+    <div id="hud-players"></div>
+    <div id="pip-wrap" class="hidden"><canvas id="pip"></canvas><div id="pip-label"></div></div>
+  </div>
+  <div id="feed"></div>
+  <div id="hint"></div>
+  <div id="title"><div class="t1"></div><div class="t2"></div></div>
+</div>
+
+<div id="music" class="hidden">
+  <div class="mhead">
+    <span id="music-title">♫ carregando…</span>
+    <button id="music-play" class="hidden" title="liberar som">▶</button>
+    <button id="music-stop" title="parar pra todos">■</button>
+  </div>
+  <div id="yt-frame"></div>
+</div>
+
+<div id="lobby">
+  <div class="panel">
+    <div class="logo">VOO<span>LIVRE</span></div>
+    <div class="tag">gancho · momentum · céu aberto</div>
+    <label class="field">
+      <span>Seu nome</span>
+      <input id="name" maxlength="16" autocomplete="off" spellcheck="false" placeholder="Jogador">
+    </label>
+    <div class="field">
+      <span>Roupa</span>
+      <div id="skins"></div>
+    </div>
+    <div class="field">
+      <span>Sua cor</span>
+      <div id="colors"></div>
+    </div>
+    <button id="play">Entrar na casinha</button>
+    <a class="go3d" href="3d.html">Testar a versão 3D (beta) →</a>
+    <div id="status" class="status">conectando ao host…</div>
+    <div id="invite" class="invite hidden">
+      <div>Seu amigo entra por:</div>
+      <div id="invite-links"></div>
+    </div>
+  </div>
+  <div class="controls">
+    <div><b>Clique (segure)</b> perto de um ponto brilhante, drone ou do seu amigo → gancho · <b>solte</b> → voa · <b>Espaço</b> pulo duplo</div>
+    <div><b>A / D</b> andar e impulso no balanço · <b>W</b> encurta / <b>S</b> alonga a corda · <b>botão direito</b> atira (PVP)</div>
+    <div><b>T</b> ir até o amigo · <b>R</b> casinha · <b>C</b> câmera · <b>M</b> som · <b>F</b> fps · <b>Esc</b> menu</div>
+  </div>
+</div>
+
+<div id="menu" class="hidden">
+  <div class="panel wide">
+    <div class="logo small">VOO<span>LIVRE</span></div>
+    <button data-act="resume" class="primary">Continuar</button>
+    <div class="grid2">
+      <button data-act="friend">Ir até o amigo <kbd>T</kbd></button>
+      <button data-act="cabin">Voltar à casinha <kbd>R</kbd></button>
+    </div>
+    <a class="go3d" href="3d.html">Ir para a versão 3D (beta) →</a>
+
+    <div class="opt">
+      <span>Câmera <kbd>C</kbd></span>
+      <div class="seg" data-opt="cam">
+        <button data-v="center">Centralizada em você</button>
+        <button data-v="dynamic">Dinâmica</button>
+        <button data-v="friend">Sempre ver o amigo</button>
+      </div>
+    </div>
+    <div class="opt">
+      <span>Mapa <small>(muda pra party toda)</small></span>
+      <div class="seg" data-opt="mode">
+        <button data-v="course">Percurso</button>
+        <button data-v="drones">Céu de Drones</button>
+      </div>
+    </div>
+    <div class="opt">
+      <span>PVP <small>(party · botão direito atira · 10 tiros eliminam)</small></span>
+      <div class="seg" data-opt="pvp">
+        <button data-v="off">Desligado</button>
+        <button data-v="on">Ligado</button>
+      </div>
+    </div>
+    <div class="opt">
+      <span>Roupa</span>
+      <div class="seg" data-opt="skin">
+        <button data-v="scarf">Cachecol</button>
+        <button data-v="spider">Aranha Clássico</button>
+        <button data-v="miles">Aranha Miles</button>
+      </div>
+    </div>
+    <div class="opt">
+      <span>Visão do amigo <small>(tela no canto direito)</small></span>
+      <div class="seg" data-opt="pip">
+        <button data-v="on">Mostrar</button>
+        <button data-v="off">Esconder</button>
+      </div>
+    </div>
+    <div class="opt">
+      <span>♫ Música da party <small>(YouTube · toca pra todo mundo)</small></span>
+      <div class="musicrow">
+        <input id="yt-url" placeholder="cole um link do YouTube" autocomplete="off" spellcheck="false">
+        <button data-act="play-music" class="primary small">Tocar</button>
+        <button data-act="stop-music" class="small">Parar</button>
+      </div>
+      <div class="musicrow">
+        <label class="vol">volume <input type="range" id="yt-vol" min="0" max="100"></label>
+        <span id="music-status">nada tocando</span>
+      </div>
+    </div>
+    <div class="opt">
+      <span>Corda <small>(recolher a folga deixa mais fácil manter o embalo)</small></span>
+      <div class="seg" data-opt="rope">
+        <button data-v="free">Livre (só W/S)</button>
+        <button data-v="takeup">Recolhe a folga sozinha</button>
+      </div>
+    </div>
+    <div class="opt">
+      <span>Som do jogo <kbd>M</kbd></span>
+      <div class="seg" data-opt="sound">
+        <button data-v="on">Ligado</button>
+        <button data-v="off">Desligado</button>
+      </div>
+    </div>
+    <div class="controls inline">
+      <div><b>Segure o clique</b> perto de um ponto brilhante, drone ou do amigo pra prender o gancho; <b>solte</b> pra se lançar.</div>
+      <div><b>Espaço</b> no ar = pulo duplo · <b>A / D</b> impulso no balanço · <b>W</b> encurta e <b>S</b> alonga a corda · <b>S</b> solto no ar mergulha.</div>
+      <div>Caiu? Você volta perto do seu amigo. No PVP, quem é eliminado volta no último ponto.</div>
+    </div>
+  </div>
+</div>
+
+<script type="module" src="js/main.js"></script>
+</body>
+</html>

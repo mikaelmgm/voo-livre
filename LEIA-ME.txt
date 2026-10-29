@@ -1,0 +1,63 @@
+VOO LIVRE — gancho, momentum e céu aberto (2 jogadores online)
+=================================================================
+
+COMO JOGAR COM SEU AMIGO (Radmin VPN)
+1. Vocês dois entram na mesma rede do Radmin VPN.
+2. Quem for o HOST dá dois cliques em JOGAR.bat
+   (precisa do Node.js instalado: https://nodejs.org).
+   Uma janela preta abre mostrando os endereços, e o jogo abre no navegador.
+3. Se o Windows perguntar sobre o firewall, marque "Redes privadas" E "Redes públicas"
+   e clique em Permitir (o Radmin às vezes aparece como rede pública).
+4. Mande pro seu amigo o endereço que começa com 26. (o IP do Radmin), por exemplo:
+       http://26.123.45.67:3000
+   Ele só abre esse endereço no navegador (Chrome/Edge/Firefox). Não precisa instalar nada.
+   O endereço também aparece na tela inicial do jogo, com um botão "copiar".
+5. Deixe a janela preta aberta enquanto jogam.
+
+Se o amigo não conseguir abrir: clique com o botão direito em LIBERAR-FIREWALL.bat >
+"Executar como administrador" (libera a porta 3000 no Firewall do Windows).
+Porta ocupada? Rode no terminal:  node server.js 3001  e use :3001 no endereço.
+
+CONTROLES
+  Segure o CLIQUE perto de um ponto brilhante,
+  de um drone ou do seu amigo ................... prende o gancho (mira assistida)
+  Solte o clique ................................ se lança com todo o embalo
+  Espaço no ar .................................. pulo duplo (1 por voo, recarrega ao prender o gancho)
+  A / D ......................................... andar / impulso no balanço / controle no ar
+  W / S (pendurado) ............................. W encurta, S alonga a corda
+  S no ar ....................................... mergulho (ganha velocidade)
+  W ou Espaço ................................... pular (na casinha)
+  Botão direito ................................. atira laser (PVP ligado, recarga de 0,6 s)
+  T ............................................. ir até o amigo
+  R ............................................. voltar à casinha
+  C ............................................. troca a câmera
+  M ............................................. liga/desliga o som
+  F ............................................. mostra fps
+  Esc ........................................... menu (câmera, mapa, PVP, roupa, música...)
+
+MENU (Esc)
+  Câmera ........ Centralizada em você / Dinâmica / Sempre ver o amigo (enquanto estiverem no mesmo cenário)
+  Mapa .......... Percurso (cenários em sequência) ou Céu de Drones (quase infinito, drones longe uns
+                  dos outros em várias alturas; caiu, pegue um mais embaixo). Vale pra party toda.
+  PVP ........... liga/desliga pra party toda. 10 tiros de laser eliminam.
+  Roupa ......... Cachecol, Aranha Clássico ou Aranha Miles (as de aranha usam corda de teia).
+  Visão do amigo  mini tela no canto direito mostrando o que o seu amigo está vendo.
+  Música ........ cole um link do YouTube e toca pra todo mundo, sincronizado (precisa de internet).
+
+O PERCURSO
+  Casinha no penhasco (pôr do sol) -> pule -> atravesse as nuvens ->
+  Praia Tropical (pixel art) -> Grand Canyon -> Cidade (pixel art) -> Picos Nevados -> Pôr do Sol -> ...
+  No fim de cada cenário um paredão de vento te joga numa queda livre pelas nuvens;
+  ao sair delas tudo fica em câmera lenta e aparece o primeiro ponto brilhante.
+  Caiu? Você reaparece perto do seu amigo.
+
+VERSÃO 3D (TESTE)
+  Na tela inicial, clique em "Testar a versão 3D (beta)" (ou abra http://IP:3000/3d.html).
+  Mesma mecânica numa cidade 3D infinita: segure o clique mirando num ponto brilhante, solte pra voar.
+  Mouse olha · W A S D anda/impulso (diagonais) · Espaço pulo/pulo duplo · Q cambalhota
+  Shift PRESO NA CORDA = BOOST (prende, boosta rapidinho, solta e acumula velocidade)
+  Shift solto no ar = mergulho (no chão corre) · E ou rodinha = corda · T ir até o amigo · R voltar ao início
+  CINEMA: o prédio gigante na frente do início. Entre pelas portas laterais (perto do chão).
+    F perto de uma cadeira = senta / levanta · Y = cola um link do YouTube e passa no telão pra todo mundo
+    (também dá pelo Esc, na caixa "Telão do cinema"). O som fica cheio dentro da sala e some longe do prédio.
+  Precisa de internet (a biblioteca 3D vem da internet). Quem está no 3D vê só quem também está no 3D.

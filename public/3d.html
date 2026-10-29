@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Voo Livre 3D</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800;900&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+<style>
+  /* camadas: vídeo do telão (CSS 3D) < canvas do jogo < HUD < menu */
+  #css3 { position: fixed !important; inset: 0; z-index: 0; pointer-events: none; }
+  #c3 { position: fixed; inset: 0; width: 100vw; height: 100vh; display: block; z-index: 1; }
+  #hud3 { position: fixed; inset: 0; pointer-events: none; z-index: 2; }
+  #screen3 { width: 1280px; height: 720px; background: #000; position: relative; overflow: hidden; }
+  #screen3 .ph { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 28px; color: #ffd9ef; font-family: Outfit, system-ui, sans-serif; background: radial-gradient(circle at 50% 40%, #2a0d34, #000 70%); }
+  #screen3 .ph b { font-size: 170px; font-weight: 900; letter-spacing: 0.18em; color: #ff4fa3; text-shadow: 0 0 50px #ff4fa3; }
+  #screen3 .ph span { font-size: 44px; font-weight: 600; }
+  #screen3 .ph kbd { font-size: 40px; padding: 2px 16px; color: #ffcf3f; border-color: #ffcf3f; }
+  #yt-wrap, #yt-wrap iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
+  .cine { display: flex; flex-direction: column; gap: 8px; border-top: 1px solid var(--line); padding-top: 12px; }
+  .cine-h { font-weight: 800; font-size: 15px; }
+  .cine-h small { font-weight: 400; color: var(--muted); }
+  #cine-url { flex: 1; min-width: 0; font-size: 14px; padding: 9px 12px; }
+  #start3 button.small { padding: 9px 12px; font-size: 14px; flex: none; }
+  #start3 button.primary { background: linear-gradient(180deg, #ffe08a, #ff9f5a); color: #2a1020; justify-content: center; }
+  #cine-status { font-size: 12.5px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #cross { position: absolute; left: 50%; top: 50%; width: 22px; height: 22px; margin: -11px 0 0 -11px; border: 2px solid rgba(255, 255, 255, 0.85); border-radius: 50%; }
+  #cross::after { content: ''; position: absolute; left: 8px; top: 8px; width: 2px; height: 2px; background: #fff; border-radius: 50%; }
+  #cross.on { border-color: #4ff7ff; transform: scale(1.25); box-shadow: 0 0 12px #4ff7ff; }
+  .mark3 { position: absolute; transform: translate(-50%, -50%); font-size: 12px; font-weight: 700; text-align: center; padding: 4px 8px; border-radius: 10px; background: rgba(15, 8, 30, 0.6); white-space: nowrap; }
+  .mark3 b { display: block; font-size: 16px; line-height: 1; }
+  #start3 { position: fixed; inset: 0; z-index: 3; display: flex; align-items: center; justify-content: center; padding: 16px; background: rgba(10, 4, 24, 0.45); backdrop-filter: blur(2px); }
+  #start3 .panel { width: min(580px, 100%); max-height: calc(100vh - 32px); overflow-y: auto; }
+  #start3 .controls { text-align: left; font-size: 13.5px; }
+  #start3 a { color: #9fe8ff; text-align: center; font-size: 14px; font-weight: 600; text-decoration: none; }
+  #err3 { color: #ffb0a0; text-align: center; font-size: 13px; }
+</style>
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+} }
+</script>
+</head>
+<body>
+<canvas id="c3"></canvas>
+
+<div id="hud3">
+  <div id="hud-left">
+    <div id="hud-biome">CIDADE · 3D (TESTE)</div>
+    <div id="hud-dist"><span id="d3">0</span><small>m</small></div>
+    <div id="hud-speed"><span id="s3">0</span> km/h</div>
+  </div>
+  <div id="hud-right">
+    <div id="hud-net"></div>
+    <div id="hud-players"></div>
+  </div>
+  <div id="cross"></div>
+  <div id="marks3"></div>
+  <div id="hint" class="on"></div>
+</div>
+
+<div id="start3">
+  <div class="panel">
+    <div class="logo small">VOO<span>LIVRE 3D</span></div>
+    <div class="tag">versão de teste · bonecos sem modelo</div>
+    <div class="controls inline">
+      <div><b>Mouse</b> olha em volta · <b>segure o clique</b> mirando num ponto brilhante (ou no amigo) → gancho · <b>solte</b> → voa</div>
+      <div><b>Shift preso na corda = BOOST</b> (prende, boosta rapidinho, solta e acumula velocidade) · Shift solto no ar = mergulho · no chão = correr</div>
+      <div><b>W A S D</b> andar / impulso no balanço / controle no ar (combine pra ir na diagonal)</div>
+      <div><b>Espaço</b> pula · no ar = pulo duplo · <b>Q</b> cambalhota · <b>E</b> ou <b>rodinha</b> encurta / alonga a corda</div>
+      <div><b>Cinema</b> (o prédio gigante na frente do início): entre pelas portas laterais · <b>F</b> senta / levanta · <b>Y</b> coloca vídeo no telão</div>
+      <div><b>T</b> ir até o amigo · <b>R</b> voltar ao início · <b>Esc</b> solta o mouse</div>
+    </div>
+    <button id="go3">Clique pra jogar</button>
+    <div class="cine">
+      <div class="cine-h">🎬 Telão do cinema <small>(toca pra todo mundo no 3D)</small></div>
+      <div class="musicrow">
+        <input id="cine-url" placeholder="cole um link do YouTube" autocomplete="off" spellcheck="false">
+        <button id="cine-play" class="primary small">Passar no telão</button>
+        <button id="cine-stop" class="small">Parar</button>
+      </div>
+      <div class="musicrow">
+        <label class="vol">volume <input type="range" id="cine-vol" min="0" max="100"></label>
+        <span id="cine-status">nada passando</span>
+      </div>
+    </div>
+    <div id="err3"></div>
+    <a href="index.html">← voltar pro 2D</a>
+  </div>
+</div>
+
+<script type="module" src="js3d/game3d.js"></script>
+</body>
+</html>
