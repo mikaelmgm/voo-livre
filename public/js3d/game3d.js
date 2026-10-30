@@ -3,16 +3,24 @@
 import * as THREE from 'three';
 import { CSS3DRenderer, CSS3DObject } from 'three/addons/renderers/CSS3DRenderer.js';
 import { Net } from '../js/net.js';
-import { Music, parseYouTube } from '../js/music.js';
+import { Music, SpotifyPlayer, parseYouTube, parseYouTubeList, parseSpotify } from '../js/music.js';
+import { Sound } from '../js/audio.js';
+import { Voice } from '../js/voice.js';
+import { clamp, rnd, Boxes, solid, softDot } from './lib3d.js';
+import { DayCycle, hourLabel } from './daycycle.js';
+import { CELL, styleLot, cityMaterials, lightCity, newKit, dressLot, kitMeshes, Crowd, Traffic } from './street.js';
+import { groundTexture } from './textures.js';
+import { roofLayout, courtLayout, groundLift, buildRoof, buildCourt } from './roof.js';
+import { Whiteboard } from './board.js';
+import { Sinuca, Pong, Basket } from './games.js';
 
 const $ = s => document.querySelector(s);
-const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
 const V3 = THREE.Vector3;
 
 // ------------------------------------------------------------------ constantes (em metros)
-const CELL = 52;              // lote + rua
 const CHUNK = 8;              // lotes por pedaço de cidade
 const VIEW = 2;               // pedaços carregados em volta do jogador
+const DETAIL = 620;           // até onde aparecem os detalhes da rua
 const G = 26;
 const ROPE_MAX = 70, ROPE_MIN = 3;
 const WALK = 10, SPRINT = 18, JUMP = 11, AIR_JUMP = 13;
@@ -26,16 +34,14 @@ try { prefs = JSON.parse(localStorage.getItem('voolivre') || '{}'); } catch { /*
 const NAME = prefs.name || 'Jogador';
 const COLOR = /^#[0-9a-f]{6}$/i.test(prefs.color) ? prefs.color : '#ffcf3f';
 const SKIN = ['scarf', 'spider', 'miles'].includes(prefs.skin) ? prefs.skin : 'scarf';
+function savePrefs() {
+  try {
+    const p = JSON.parse(localStorage.getItem('voolivre') || '{}');
+    localStorage.setItem('voolivre', JSON.stringify(Object.assign(p, prefs)));
+  } catch { /* sem storage */ }
+}
 
 // ------------------------------------------------------------------ cidade procedural
-
-function fmix(h) {
-  h ^= h >>> 16; h = Math.imul(h, 0x85ebca6b);
-  h ^= h >>> 13; h = Math.imul(h, 0xc2b2ae35);
-  h ^= h >>> 16;
-  return h >>> 0;
-}
-const rnd = (i, j, s) => fmix(Math.imul(i, 73856093) ^ fmix(Math.imul(j, 19349663) ^ fmix(s * 83492791 + 1))) / 4294967296;
 
 const lots = new Map();
 function lot(i, j) {
@@ -44,9 +50,12 @@ function lot(i, j) {
   if (L) return L;
   const cx = (i + 0.5) * CELL, cz = (j + 0.5) * CELL;
   if (i === CINEMA.i && j === CINEMA.j) { L = cinemaLot(cx, cz); lots.set(key, L); return L; }
+  if (i === COURT.i && j === COURT.j) { L = courtLot(cx, cz); lots.set(key, L); return L; }
   let park = rnd(i, j, 1) < 0.07;
+  let low = !park && rnd(i, j, 12) < 0.13;    // sobradinho comercial no meio dos prédios
   let w = 14 + rnd(i, j, 2) * 12, d = 14 + rnd(i, j, 3) * 12, h = 16 + Math.pow(rnd(i, j, 4), 2.2) * 120;
-  if (i === 0 && j === 0) { park = false; w = 22; d = 22; h = 95; }
+  if (low) { w = 22 + rnd(i, j, 2) * 7; d = 22 + rnd(i, j, 3) * 7; h = 8 + rnd(i, j, 4) * 6; }
+  if (i === 0 && j === 0) { park = false; low = false; w = 22; d = 22; h = 95; }
   const anchors = [];
   if (!park) {
     // pontos brilhantes em "braços" nos cantos do telhado, pendurados sobre a rua
@@ -58,7 +67,8 @@ function lot(i, j) {
   }
   // caixas de colisão [x0, y0, z0, x1, y1, z1]
   const boxes = park ? [] : [[cx - w / 2 - 0.4, 0, cz - d / 2 - 0.4, cx + w / 2 + 0.4, h + 0.8, cz + d / 2 + 0.4]];
-  L = { cx, cz, w, d, h, park, anchors, boxes };
+  L = { cx, cz, w, d, h, park, low, anchors, boxes };
+  styleLot(L, i, j);
   if (lots.size > 20000) lots.clear();
   lots.set(key, L);
   return L;
@@ -67,10 +77,23 @@ function lot(i, j) {
 // ------------------------------------------------------------------ cinema: prédio altão no meio do mapa, com telão do YouTube
 
 const CINEMA = { i: 0, j: -1, hw: 18, hd: 20, h: 170, hall: 24, scrW: 32, scrH: 18 };
+const COURT = { i: 1, j: -1, hw: 18, hd: 20, h: 170 };   // na mesma altura da laje, ligado por uma passarela
+
+// pontos pra se pendurar nos cantos, em vários andares (dá pra escalar o prédio)
+function towerAnchors(cx, cz, hw, hd, h, id) {
+  const anchors = [];
+  for (const lv of [34, 70, 106, 142, h]) {
+    for (const [sx, sz] of [[1, 1], [1, -1], [-1, 1], [-1, -1]]) {
+      const bx = cx + sx * hw, bz = cz + sz * hd;
+      anchors.push({ x: bx + sx * 2.5, y: lv + 3, z: bz + sz * 2.5, bx, bz, roof: lv, id: id++ });
+    }
+  }
+  return anchors;
+}
 
 function cinemaLot(cx, cz) {
   const { hw, hd, h, hall } = CINEMA;
-  const boxes = [], seats = [], anchors = [];
+  const boxes = [], seats = [];
   const B = (kind, x0, y0, z0, x1, y1, z1) => boxes.push(Object.assign([cx + x0, y0, cz + z0, cx + x1, y1, cz + z1], { kind }));
   // paredes do salão, com uma porta em cada lateral (perto do telão)
   B('wall', -hw, 0, -hd, hw, hall, -hd + 1);
@@ -81,7 +104,8 @@ function cinemaLot(cx, cz) {
     B('wall', x0, 0, -10, x1, hall, hd);
     B('wall', x0, 6, -16, x1, hall, -10);
   }
-  B('tower', -hw, hall, -hd, hw, h + 0.8, hd);
+  const roof = roofLayout(cx, cz, h);
+  B('tower', -hw, hall, -hd, hw, roof.Y - 1.35, hd);                               // o resto é a laje, com o buraco da piscina
   B('floor', -16, 0, -hd + 1, 16, 0.6, -16);                                       // palco
   for (let k = 1; k <= 8; k++) B('floor', -hw + 1, 0, -4 + 2.6 * k, hw - 1, 0.5 * k, hd - 1); // degraus da plateia
   for (let k = 0; k <= 8; k++) {
@@ -89,17 +113,21 @@ function cinemaLot(cx, cz) {
       for (let m = 0; m < 14; m++) seats.push({ x: cx + s * (1.8 + 0.95 * m), floor: 0.5 * k, z: cz - 2.5 + 2.6 * k });
     }
   }
-  // pontos pra se pendurar nos cantos, em vários andares (dá pra escalar o prédio)
-  let id = 900000;
-  for (const lv of [34, 70, 106, 142, h]) {
-    for (const [sx, sz] of [[1, 1], [1, -1], [-1, 1], [-1, -1]]) {
-      const bx = cx + sx * hw, bz = cz + sz * hd;
-      anchors.push({ x: bx + sx * 2.5, y: lv + 3, z: bz + sz * 2.5, bx, bz, roof: lv, id: id++ });
-    }
-  }
+  const hallBoxes = boxes.slice();
+  const lift = groundLift(cx, cz);
+  boxes.push(...roof.boxes, Object.assign(lift.box, { kind: 'wall' }));
   return {
-    cx, cz, w: hw * 2, d: hd * 2, h, park: false, cinema: true, anchors, boxes, seats,
+    cx, cz, w: hw * 2, d: hd * 2, h, park: false, cinema: true, anchors: towerAnchors(cx, cz, hw, hd, h, 900000), boxes, hall: hallBoxes, seats, roof, lift,
     screen: new V3(cx, 3.3 + CINEMA.scrH / 2, cz - hd + 1.15),
+  };
+}
+
+function courtLot(cx, cz) {
+  const { hw, hd, h } = COURT;
+  const data = courtLayout(cx, cz, h);
+  return {
+    cx, cz, w: hw * 2, d: hd * 2, h, park: false, court: true, courtData: data, anchors: towerAnchors(cx, cz, hw, hd, h, 910000),
+    boxes: [[cx - hw, 0, cz - hd, cx + hw, data.Y, cz + hd], ...data.boxes],
   };
 }
 
@@ -116,149 +144,40 @@ function lotsAround(x, z, r) {
   return out;
 }
 
-// texturas de janelas (cor + brilho), geradas em canvas
-function windowTextures() {
-  const W = 128, H = 256;
-  const a = document.createElement('canvas'), b = document.createElement('canvas');
-  a.width = b.width = W; a.height = b.height = H;
-  const g1 = a.getContext('2d'), g2 = b.getContext('2d');
-  g1.fillStyle = '#2a1f48'; g1.fillRect(0, 0, W, H);
-  g2.fillStyle = '#000000'; g2.fillRect(0, 0, W, H);
-  const lit = ['#ffd27a', '#ffd27a', '#ffd27a', '#8ff3ff', '#ff8ad8'];
-  let s = 7;
-  const R2 = () => { s = (s * 16807) % 2147483647; return s / 2147483647; };
-  for (let y = 0; y < 16; y++) {
-    for (let x = 0; x < 8; x++) {
-      const px = x * 16 + 5, py = y * 16 + 4;
-      if (R2() < 0.42) {
-        const c = lit[(R2() * lit.length) | 0];
-        g1.fillStyle = c; g1.fillRect(px, py, 9, 10);
-        g2.fillStyle = c; g2.fillRect(px, py, 9, 10);
-      } else {
-        g1.fillStyle = '#140e26'; g1.fillRect(px, py, 9, 10);
-      }
-    }
-  }
-  const t1 = new THREE.CanvasTexture(a), t2 = new THREE.CanvasTexture(b);
-  for (const t of [t1, t2]) { t.wrapS = t.wrapT = THREE.RepeatWrapping; t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4; }
-  return [t1, t2];
-}
-
-// Junta muitas caixas numa geometria só (rápido de desenhar).
-class Boxes {
-  constructor() { this.pos = []; this.nor = []; this.uv = []; this.idx = []; }
-  quad(o, a, b, n, windows) {
-    const base = this.pos.length / 3;
-    const la = Math.hypot(...a), lb = Math.hypot(...b);
-    const u1 = windows ? la / 24 : 0.01, v1 = windows ? lb / 56 : 0.01;
-    const u0 = windows ? 0.04 : 0.01, v0 = windows ? 0 : 0.01;
-    const pts = [o, [o[0] + a[0], o[1] + a[1], o[2] + a[2]], [o[0] + a[0] + b[0], o[1] + a[1] + b[1], o[2] + a[2] + b[2]], [o[0] + b[0], o[1] + b[1], o[2] + b[2]]];
-    const uvs = [[u0, v0], [u0 + u1, v0], [u0 + u1, v0 + v1], [u0, v0 + v1]];
-    for (let k = 0; k < 4; k++) { this.pos.push(...pts[k]); this.nor.push(...n); this.uv.push(...(windows ? uvs[k] : [0.01, 0.01])); }
-    this.idx.push(base, base + 1, base + 2, base, base + 2, base + 3);
-  }
-  box(x0, y0, z0, x1, y1, z1, windows, bottom) {
-    const dx = x1 - x0, dy = y1 - y0, dz = z1 - z0;
-    this.quad([x1, y0, z1], [0, 0, -dz], [0, dy, 0], [1, 0, 0], windows);
-    this.quad([x0, y0, z0], [0, 0, dz], [0, dy, 0], [-1, 0, 0], windows);
-    this.quad([x0, y0, z1], [dx, 0, 0], [0, dy, 0], [0, 0, 1], windows);
-    this.quad([x1, y0, z0], [-dx, 0, 0], [0, dy, 0], [0, 0, -1], windows);
-    this.quad([x0, y1, z1], [dx, 0, 0], [0, 0, -dz], [0, 1, 0], false);
-    if (bottom) this.quad([x0, y0, z0], [dx, 0, 0], [0, 0, dz], [0, -1, 0], false);
-  }
-  build() {
-    const g = new THREE.BufferGeometry();
-    g.setAttribute('position', new THREE.Float32BufferAttribute(this.pos, 3));
-    g.setAttribute('normal', new THREE.Float32BufferAttribute(this.nor, 3));
-    g.setAttribute('uv', new THREE.Float32BufferAttribute(this.uv, 2));
-    g.setIndex(this.idx);
-    g.computeBoundingSphere();
-    return g;
-  }
-}
-
 // ------------------------------------------------------------------ cena
 
 const canvas = $('#c3');
 // alpha: o telão é um "buraco" transparente no canvas, e o vídeo do YouTube (CSS 3D) aparece por trás
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
 renderer.setClearColor(0x000000, 0);
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5));
 const cssRenderer = new CSS3DRenderer();
 cssRenderer.domElement.id = 'css3';
 document.body.prepend(cssRenderer.domElement);
 const cssScene = new THREE.Scene();
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = 1.1;
 const scene = new THREE.Scene();
-scene.fog = new THREE.FogExp2(0x8a3a74, 0.0024);
 const camera = new THREE.PerspectiveCamera(72, 1, 0.1, 4500);
 camera.rotation.order = 'YXZ';
 
-const SUN = new V3(-0.35, 0.1, -1).normalize();
-const sky = new THREE.Mesh(
-  new THREE.SphereGeometry(4000, 32, 16),
-  new THREE.ShaderMaterial({
-    side: THREE.BackSide, depthWrite: false, fog: false,
-    uniforms: {
-      top: { value: new THREE.Color('#120c30') }, mid: { value: new THREE.Color('#4a1f6a') },
-      hor: { value: new THREE.Color('#e0647c') }, low: { value: new THREE.Color('#2a1640') },
-      sun: { value: SUN }, sunCol: { value: new THREE.Color('#ffd07a') },
-    },
-    vertexShader: 'varying vec3 vDir; void main(){ vDir = normalize(position); gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
-    fragmentShader: `uniform vec3 top, mid, hor, low, sun, sunCol; varying vec3 vDir;
-      void main(){ float h = vDir.y; vec3 c = mix(hor, mid, smoothstep(0.0, 0.22, h)); c = mix(c, top, smoothstep(0.22, 0.75, h));
-      c = mix(c, low, smoothstep(0.0, -0.25, h)); float s = max(dot(vDir, normalize(sun)), 0.0);
-      c += sunCol * (pow(s, 900.0) * 3.0 + pow(s, 14.0) * 0.45); gl_FragColor = vec4(c, 1.0); }`,
-  }),
-);
-scene.add(sky);
-scene.add(new THREE.HemisphereLight(0x9a7ad8, 0x1a1030, 1.0));
-const sunLight = new THREE.DirectionalLight(0xffb27a, 1.7);
-sunLight.position.copy(SUN).multiplyScalar(100);
-scene.add(sunLight);
-
-const [winMap, winGlow] = windowTextures();
-const cityMat = new THREE.MeshLambertMaterial({ map: winMap, emissiveMap: winGlow, emissive: 0xffffff, emissiveIntensity: 1.1 });
+const day = new DayCycle(scene, renderer);
+const mats = cityMaterials();
 const orbGeo = new THREE.SphereGeometry(0.75, 14, 10);
+orbGeo.userData.shared = true;
 const orbMat = new THREE.MeshBasicMaterial({ color: 0xbffbff });
 // brilho suave em volta dos pontos (sprites de pontos com textura radial)
 const glowMat = new THREE.PointsMaterial({
   size: 9, sizeAttenuation: true, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
-  color: 0x4ff7ff, map: (() => {
-    const c = document.createElement('canvas');
-    c.width = c.height = 64;
-    const g = c.getContext('2d');
-    const gr = g.createRadialGradient(32, 32, 0, 32, 32, 32);
-    gr.addColorStop(0, 'rgba(255,255,255,1)');
-    gr.addColorStop(0.25, 'rgba(255,255,255,0.45)');
-    gr.addColorStop(1, 'rgba(255,255,255,0)');
-    g.fillStyle = gr;
-    g.fillRect(0, 0, 64, 64);
-    return new THREE.CanvasTexture(c);
-  })(),
+  color: 0x4ff7ff, map: softDot(),
 });
 
 // chão com ruas (textura de um quarteirão que se repete)
-const ground = (() => {
-  const c = document.createElement('canvas');
-  c.width = c.height = 256;
-  const g = c.getContext('2d');
-  g.fillStyle = '#231d33'; g.fillRect(0, 0, 256, 256);
-  g.fillStyle = '#3a3150'; g.fillRect(34, 34, 188, 188);
-  g.fillStyle = '#2c2440'; g.fillRect(44, 44, 168, 168);
-  g.fillStyle = '#e8d070';
-  for (let k = 0; k < 256; k += 32) { g.fillRect(k, 0, 16, 3); g.fillRect(0, k, 3, 16); }
-  const t = new THREE.CanvasTexture(c);
-  t.wrapS = t.wrapT = THREE.RepeatWrapping;
-  t.repeat.set(120, 120);
-  t.colorSpace = THREE.SRGBColorSpace;
-  t.anisotropy = 8;
-  const m = new THREE.Mesh(new THREE.PlaneGeometry(CELL * 120, CELL * 120), new THREE.MeshLambertMaterial({ map: t }));
-  m.rotation.x = -Math.PI / 2;
-  scene.add(m);
-  return m;
-})();
+const ground = new THREE.Mesh(new THREE.PlaneGeometry(CELL * 120, CELL * 120), new THREE.MeshLambertMaterial({ map: groundTexture() }));
+ground.rotation.x = -Math.PI / 2;
+ground.receiveShadow = true;
+scene.add(ground);
 
 // ---- o prédio do cinema
 const hallMat = new THREE.MeshLambertMaterial({ color: '#3a2147' });
@@ -299,6 +218,7 @@ function cinemaSigns() {
   signs = {
     tall: signTexture(160, 960, (g, w, h) => { bg(g, w, h); bulbs(g, w, h, 26); [...'CINEMA'].forEach((ch, k) => neon(g, ch, w / 2, 110 + k * 148, 128, '#ff4fa3')); }),
     door: signTexture(512, 128, (g, w, h) => { bg(g, w, h); bulbs(g, w, h, 18); neon(g, 'CINEMA', w / 2, 58, 64, '#ffcf3f'); g.font = '600 22px Outfit, system-ui'; g.fillStyle = '#ffd9ef'; g.fillText('entrada · telão gigante', w / 2, 100); }),
+    lift: signTexture(512, 128, (g, w, h) => { bg(g, w, h); neon(g, '▲ LAJE', w / 2, 58, 64, '#ffcf3f'); g.font = '600 22px Outfit, system-ui'; g.fillStyle = '#ffd9ef'; g.fillText('elevador · piscina e churrasco', w / 2, 104); }),
     front: signTexture(1024, 128, (g, w, h) => { bg(g, w, h); bulbs(g, w, h, 18); neon(g, '◀  ENTRADA PELAS LATERAIS  ▶', w / 2, 66, 58, '#4ff7ff'); }),
   };
   return signs;
@@ -308,11 +228,13 @@ function buildCinema(L) {
   const { hw, hd, h } = CINEMA;
   const cx = L.cx, cz = L.cz;
   const tower = new Boxes(), walls = new Boxes(), floor = new Boxes(), seats = new Boxes(), frame = new Boxes(), lamps = new Boxes();
-  for (const b of L.boxes) {
-    if (b.kind === 'tower') tower.box(b[0], b[1], b[2], b[3], h, b[5], true, true);
+  tower.tint('#a896c8');
+  for (const b of L.hall) {
+    if (b.kind === 'tower') tower.box(b[0], b[1], b[2], b[3], b[4], b[5], true, true);
     else (b.kind === 'wall' ? walls : floor).box(b[0], b[1], b[2], b[3], b[4], b[5], false);
   }
-  tower.box(cx - hw - 0.4, h, cz - hd - 0.4, cx + hw + 0.4, h + 0.8, cz + hd + 0.4, false);
+  const lift = L.lift.box;
+  tower.box(lift[0], lift[1], lift[2], lift[3], lift[4], lift[5], false);
   floor.box(cx - hw + 1, 0, cz - hd + 1, cx + hw - 1, 0.02, cz + hd - 1, false);          // carpete
   const sw = CINEMA.scrW / 2 + 0.5, sy = L.screen.y, sh = CINEMA.scrH / 2 + 0.5;
   frame.box(cx - sw, sy - sh, cz - hd + 1, cx + sw, sy + sh, cz - hd + 1.1, false);       // moldura do telão
@@ -334,7 +256,7 @@ function buildCinema(L) {
     lamps.box(x0, 0, cz - 10, x0 + 0.3, 6, cz - 9.7, false);
   }
   const g = new THREE.Group();
-  g.add(new THREE.Mesh(tower.build(), cityMat), new THREE.Mesh(walls.build(), hallMat), new THREE.Mesh(floor.build(), carpetMat),
+  g.add(solid(tower.build(), mats.facades[1]), solid(walls.build(), hallMat), new THREE.Mesh(floor.build(), carpetMat),
     new THREE.Mesh(seats.build(), seatMat), new THREE.Mesh(frame.build(), frameMat), new THREE.Mesh(lamps.build(), lampMat));
   const sg = cinemaSigns();
   const plane = (tex, w, hh, x, y, z, ry) => {
@@ -347,6 +269,7 @@ function buildCinema(L) {
   plane(sg.front, 22, 2.75, cx, 8, cz + hd + 0.2, 0);
   plane(sg.door, 8, 2, cx + hw + 0.2, 7.6, cz - 13, Math.PI / 2);
   plane(sg.door, 8, 2, cx - hw - 0.2, 7.6, cz - 13, -Math.PI / 2);
+  plane(sg.lift, 3.6, 0.9, lift[3] + 0.04, 2.6, (lift[2] + lift[5]) / 2, Math.PI / 2);
   const hole = new THREE.Mesh(new THREE.PlaneGeometry(CINEMA.scrW, CINEMA.scrH), holeMat);
   hole.position.copy(L.screen);
   g.add(hole);
@@ -355,27 +278,29 @@ function buildCinema(L) {
 
 const chunks = new Map();
 function buildChunk(ci, cj) {
-  const bx = new Boxes(), anchors = [];
+  const kit = newKit(mats), anchors = [];
   const group = new THREE.Group();
   for (let a = 0; a < CHUNK; a++) {
     for (let b = 0; b < CHUNK; b++) {
-      const L = lot(ci * CHUNK + a, cj * CHUNK + b);
-      if (L.park) continue;
+      const i = ci * CHUNK + a, j = cj * CHUNK + b;
+      const L = lot(i, j);
       if (L.cinema) group.add(buildCinema(L));
-      else {
-        const x0 = L.cx - L.w / 2, x1 = L.cx + L.w / 2, z0 = L.cz - L.d / 2, z1 = L.cz + L.d / 2;
-        bx.box(x0, 0, z0, x1, L.h, z1, true);
-        bx.box(x0 - 0.4, L.h, z0 - 0.4, x1 + 0.4, L.h + 0.8, z1 + 0.4, false);
-        if (rnd(ci * CHUNK + a, cj * CHUNK + b, 9) > 0.45) bx.box(L.cx - 2.5, L.h, L.cz - 2, L.cx + 2.5, L.h + 3.5, L.cz + 2, false);
+      else if (L.court) {
+        const F = kit.facade[2];
+        F.tint('#e8d8c8');
+        F.uvo = [0, 0];
+        F.box(L.cx - L.w / 2, 0, L.cz - L.d / 2, L.cx + L.w / 2, L.h, L.cz + L.d / 2, true);
       }
+      dressLot(L, i, j, kit);
+      kit.plain.tint('#54585e');
       for (const an of L.anchors) {
-        bx.box(an.x - 0.22, an.roof, an.z - 0.22, an.x + 0.22, an.y - 0.4, an.z + 0.22, false);
-        bx.box(Math.min(an.x, an.bx) - 0.2, an.roof + 0.4, Math.min(an.z, an.bz) - 0.2, Math.max(an.x, an.bx) + 0.2, an.roof + 0.8, Math.max(an.z, an.bz) + 0.2, false);
+        kit.plain.box(an.x - 0.22, an.roof, an.z - 0.22, an.x + 0.22, an.y - 0.4, an.z + 0.22, false);
+        kit.plain.box(Math.min(an.x, an.bx) - 0.2, an.roof + 0.4, Math.min(an.z, an.bz) - 0.2, Math.max(an.x, an.bx) + 0.2, an.roof + 0.8, Math.max(an.z, an.bz) + 0.2, false);
         anchors.push(an);
       }
     }
   }
-  group.add(new THREE.Mesh(bx.build(), cityMat));
+  const detail = kitMeshes(kit, group);
   if (anchors.length) {
     const orbs = new THREE.InstancedMesh(orbGeo, orbMat, anchors.length);
     const m = new THREE.Matrix4();
@@ -384,20 +309,26 @@ function buildChunk(ci, cj) {
     group.add(orbs, glows);
   }
   scene.add(group);
-  return { group, ci, cj };
+  return { group, detail, ci, cj };
 }
 
 function updateChunks(x, z) {
   const size = CELL * CHUNK;
   const ci = Math.floor(x / size), cj = Math.floor(z / size);
+  // um pedaço por quadro (o mais perto primeiro) pra não dar tranco ao atravessar a cidade
+  const missing = [];
   for (let a = -VIEW; a <= VIEW; a++) for (let b = -VIEW; b <= VIEW; b++) {
-    const k = (ci + a) + ',' + (cj + b);
-    if (!chunks.has(k)) chunks.set(k, buildChunk(ci + a, cj + b));
+    if (!chunks.has((ci + a) + ',' + (cj + b))) missing.push([ci + a, cj + b, a * a + b * b]);
   }
+  missing.sort((p, q) => p[2] - q[2]);
+  const budget = chunks.size ? 1 : missing.length;
+  for (const [a, b] of missing.slice(0, budget)) chunks.set(a + ',' + b, buildChunk(a, b));
   for (const [k, c] of chunks) {
+    // carros, árvores e mobília só existem por perto: de longe ninguém vê e pesa bastante
+    c.detail.visible = Math.hypot((c.ci + 0.5) * size - x, (c.cj + 0.5) * size - z) < DETAIL;
     if (Math.abs(c.ci - ci) > VIEW + 1 || Math.abs(c.cj - cj) > VIEW + 1) {
       scene.remove(c.group);
-      c.group.traverse(o => { if ((o.isMesh || o.isPoints) && o.geometry !== orbGeo) o.geometry.dispose(); if (o.isInstancedMesh) o.dispose(); });
+      c.group.traverse(o => { if ((o.isMesh || o.isPoints) && !o.geometry.userData.shared) o.geometry.dispose(); if (o.isInstancedMesh) o.dispose(); });
       chunks.delete(k);
     }
   }
@@ -457,8 +388,10 @@ function makeDummy(skin, color) {
   const glow = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTexture(color), transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }));
   glow.scale.set(4, 4, 1);
   g.add(glow);
+  g.traverse(o => { if (o.isMesh) o.castShadow = true; });
   const root = new THREE.Group();
   root.add(g);
+  root.userData.glow = glow;
   root.userData.body = g;
   root.userData.legs = legs;
   return root;
@@ -529,7 +462,7 @@ function orient(obj, pos, vel, hook, onGround, dt, flip) {
 // ------------------------------------------------------------------ jogador local
 
 const me = {
-  pos: new V3(), vel: new V3(), onGround: false, hook: null, airJumps: 1, flipT: 0, boosting: false, seat: null,
+  pos: new V3(), vel: new V3(), onGround: false, hook: null, airJumps: 1, flipT: 0, boosting: false, seat: null, wet: false,
   mesh: makeDummy(SKIN, COLOR), rope: makeRope(SKIN, COLOR),
 };
 scene.add(me.mesh);
@@ -545,11 +478,13 @@ function start() {
   yaw = 0;
   pitch = -0.12;
 }
-// cadeiras do cinema
+// cadeiras do cinema e da laje
 function nearestSeat() {
-  if (!inCinema(me.pos)) return null;
+  const C = lot(CINEMA.i, CINEMA.j);
+  const list = inCinema(me.pos) ? C.seats : Math.abs(me.pos.y - C.roof.Y) < 3 ? C.roof.seats : null;
+  if (!list) return null;
   let best = null, bd = 1.6;
-  for (const s of lot(CINEMA.i, CINEMA.j).seats) {
+  for (const s of list) {
     if (Math.abs(me.pos.y - R - s.floor) > 0.9) continue;
     const d = Math.hypot(me.pos.x - s.x, me.pos.z - s.z);
     if (d < bd) { bd = d; best = s; }
@@ -561,16 +496,17 @@ function sitDown(s) {
   me.hook = null;
   me.vel.set(0, 0, 0);
   me.pos.set(s.x, s.floor + SIT_Y, s.z);
-  me.mesh.quaternion.identity();
+  me.mesh.quaternion.setFromAxisAngle(UP, s.ry || 0);
   me.mesh.userData.body.quaternion.identity();
   setSit(me.mesh, true);
   const C = lot(CINEMA.i, CINEMA.j);
-  yaw = 0;
-  pitch = Math.atan2(C.screen.y - (me.pos.y + 0.95), me.pos.z - C.screen.z);
+  yaw = s.ry || 0;
+  pitch = s.ry === undefined ? Math.atan2(C.screen.y - (me.pos.y + 0.95), me.pos.z - C.screen.z) : -0.1;
 }
 function standUp() {
   if (!me.seat) return;
-  me.pos.set(me.seat.x, me.seat.floor + R + 0.05, me.seat.z - 0.75);
+  const ry = me.seat.ry || 0;
+  me.pos.set(me.seat.x - Math.sin(ry) * 0.75, me.seat.floor + R + 0.05, me.seat.z - Math.cos(ry) * 0.75);
   me.seat = null;
   setSit(me.mesh, false);
 }
@@ -640,6 +576,12 @@ function collide() {
   if (me.onGround) me.airJumps = 1;
 }
 
+// piscina da laje: água no peito, boia e dá pra pular pra fora
+function inPool() {
+  const W = lot(CINEMA.i, CINEMA.j).roof.pool, p = me.pos;
+  return p.x > W.x0 && p.x < W.x1 && p.z > W.z0 && p.z < W.z1 && p.y < W.water + 0.3 && p.y > W.floor - 0.5;
+}
+
 function step(dt) {
   const fwd = new V3(-Math.sin(yaw), 0, -Math.cos(yaw));
   const right = new V3(Math.cos(yaw), 0, -Math.sin(yaw));
@@ -648,8 +590,18 @@ function step(dt) {
     .addScaledVector(right, (keys.KeyD ? 1 : 0) - (keys.KeyA ? 1 : 0));
   if (wish.lengthSq() > 0) wish.normalize();
   const acc = new V3(0, -G, 0);
+  const wet = inPool();
+  if (wet && !me.wet && me.vel.y < -3) { sound.splash(); splash(me.pos); }
+  me.wet = wet;
 
-  if (me.onGround && !me.hook) {
+  if (wet && !me.hook) {
+    const W = lot(CINEMA.i, CINEMA.j).roof.pool, k = Math.min(1, dt * 5);
+    me.vel.x += (wish.x * 5.5 - me.vel.x) * k;
+    me.vel.z += (wish.z * 5.5 - me.vel.z) * k;
+    acc.y = me.pos.y < W.water - 0.35 ? G * 0.8 : -G * 0.5;
+    me.vel.y *= Math.exp(-dt * 3.5);
+    if (jumpPressed) { me.vel.y = JUMP; me.onGround = false; }
+  } else if (me.onGround && !me.hook) {
     const sp = keys.ShiftLeft || keys.ShiftRight ? SPRINT : WALK;
     const k = Math.min(1, dt * 12);
     me.vel.x += (wish.x * sp - me.vel.x) * k;
@@ -721,6 +673,56 @@ const net = new Net(onNet, s => { netStatus = s; });
 let netStatus = 'connecting';
 
 let clockOffset = 0;
+const sound = new Sound();
+const voice = new Voice(o => net.send(o), prefs, savePrefs);
+voice.mount($('#voice-box'));
+
+// a laje e a quadra ficam sempre na cena (não entram e saem com os pedaços de cidade)
+const CINE = lot(CINEMA.i, CINEMA.j), COURT_LOT = lot(COURT.i, COURT.j);
+const roofFx = buildRoof(CINE, mats, scene, day);
+const courtFx = buildCourt(COURT_LOT, mats, scene, day);
+const crowd = new Crowd(scene);
+const traffic = new Traffic(scene);
+const ctx = { scene, mats, sound, send: o => net.send(o), toast: t => showToast(t), myId: () => myId, myName: () => NAME };
+const board = new Whiteboard(ctx, CINE.roof.board);
+const sinuca = new Sinuca(ctx, CINE.roof.sinuca);
+const pong = new Pong(ctx, CINE.roof.pong);
+const basket = new Basket(ctx, COURT_LOT.courtData);
+
+// respingo da piscina
+const splashN = 26, drops = [];
+const splashPos = new Float32Array(splashN * 3).fill(-999);
+const splashGeo = new THREE.BufferGeometry();
+splashGeo.setAttribute('position', new THREE.BufferAttribute(splashPos, 3));
+const splashPts = new THREE.Points(splashGeo, new THREE.PointsMaterial({ map: softDot(), size: 0.5, sizeAttenuation: true, color: 0xdffaff, transparent: true, depthWrite: false }));
+splashPts.frustumCulled = false;
+scene.add(splashPts);
+function splash(p) {
+  const y = CINE.roof.pool.water;
+  drops.length = 0;
+  for (let k = 0; k < splashN; k++) {
+    const a = Math.random() * 7, s = 1.5 + Math.random() * 3;
+    drops.push({ x: p.x, y, z: p.z, vx: Math.cos(a) * s, vy: 3 + Math.random() * 5, vz: Math.sin(a) * s });
+  }
+}
+function updateSplash(dt) {
+  if (!drops.length) return;
+  drops.forEach((d, k) => {
+    d.vy -= 15 * dt;
+    d.x += d.vx * dt; d.y += d.vy * dt; d.z += d.vz * dt;
+    splashPos.set(d.y > CINE.roof.pool.water - 0.1 ? [d.x, d.y, d.z] : [0, -999, 0], k * 3);
+  });
+  splashGeo.attributes.position.needsUpdate = true;
+  if (drops.every(d => d.y < CINE.roof.pool.water - 0.1)) drops.length = 0;
+}
+
+// o horário é da party inteira: ou corre sozinho (1 minuto real = 1 hora do jogo) ou fica travado
+let timeState = { locked: false, hour: 15, at: Date.now() };
+const hourNow = () => (timeState.locked ? timeState.hour : (timeState.hour + (Date.now() + clockOffset - timeState.at) / 60000) % 24);
+function setTime(hour, locked) {
+  if (net.connected) net.send({ t: 'party', time: { hour, locked } });
+  else timeState = { hour, locked, at: Date.now() };
+}
 
 function onNet(m) {
   switch (m.t) {
@@ -729,11 +731,36 @@ function onNet(m) {
       clockOffset = m.now - Date.now();
       for (const p of m.players) infos.set(p.id, p);
       net.send({ t: 'join', name: NAME, color: COLOR, skin: SKIN });
+      net.send({ t: 'wb-get' });
+      voice.onWelcome();
+      voice.autoJoin();
       applyCinema(m.party && m.party.cinema, null);
+      applyRadio(m.party && m.party.radio, null);
+      if (m.party?.time) timeState = m.party.time;
+      if (m.shared?.sinuca) sinuca.onNet(m.shared.sinuca, true);
+      if (m.shared?.pong) pong.onNet(m.shared.pong);
+      if (m.shared?.bola) basket.onNet(m.shared.bola);
       break;
     case 'party':
       clockOffset = m.now - Date.now();
       if (m.changed.includes('cinema')) applyCinema(m.party.cinema, m.by);
+      if (m.changed.includes('radio')) applyRadio(m.party.radio, m.by);
+      if (m.changed.includes('time')) {
+        timeState = m.party.time;
+        if (m.by && m.by !== NAME) showToast(`🕑 ${m.by} ${timeState.locked ? 'travou' : 'mudou'} o horário: ${hourLabel(timeState.hour)}`);
+      }
+      break;
+    case 'vc': case 'vc-list': case 'rtc':
+      voice.handle(m);
+      break;
+    case 'wb': board.onStroke(m); break;
+    case 'wb-clear': board.onClear(m.by); break;
+    case 'wb-all': board.onAll(m.strokes); break;
+    case 'g':
+      if (m.k === 'sinuca') sinuca.onNet(m);
+      else if (m.k === 'pong' || m.k === 'pad') pong.onNet(m);
+      else if (m.k === 'bola') basket.onNet(m);
+      else if (m.k === 'cesta') showToast(`🏀 ${m.n} fez uma cesta de ${m.pts}!`);
       break;
     case 'join': case 'players':
       for (const p of m.players || [m]) { infos.set(p.id, p); const r = remotes.get(p.id); if (r) r.setInfo(p); }
@@ -743,6 +770,8 @@ function onNet(m) {
       if (r) r.dispose();
       remotes.delete(m.id);
       infos.delete(m.id);
+      pong.playerLeft(m.id);
+      basket.playerLeft(m.id);
       break;
     }
     case 's3': {
@@ -838,6 +867,136 @@ function cinemaVolume() {
   if (Math.abs(v - lastVol) >= 2 || (v === 0) !== (lastVol === 0)) { lastVol = v; cinema.setVolume(v); }
 }
 
+// ------------------------------------------------------------------ rádio da laje (YouTube ou Spotify, toca pra todo mundo)
+
+const radioUi = { url: $('#radio-url'), status: $('#radio-status'), vol: $('#radio-vol'), title: $('#music-title'), yt: $('#yt-box'), sp: $('#sp-box') };
+const musicBox = $('#music');
+let radioVol = Number.isFinite(prefs.radioVol) ? prefs.radioVol : 70, radioNow = null, radioShown = { status: 'stopped' };
+function radioStatus(s) {
+  radioShown = s;
+  const name = radioNow?.src === 'sp' ? 'Spotify' : 'YouTube';
+  const txt = s.status === 'playing' ? `▶ ${s.title || name}${s.by ? ' · por ' + s.by : ''}` :
+    s.status === 'loading' ? `carregando ${name}…` :
+    s.status === 'paused' ? (radioNow?.src === 'sp' ? 'Spotify: aperte o play no player do canto (Esc solta o mouse)' : 'pausado — clique na tela do jogo pra liberar o som') :
+    s.status === 'error' ? s.msg : 'desligado';
+  radioUi.status.textContent = s.short ? `${txt} (prévia de 30 s: entre no Spotify neste navegador)` : txt;
+  radioUi.title.textContent = `📻 ${s.status === 'playing' ? (s.title || name) : name}`;
+}
+const radioYt = new Music(musicBox, radioStatus);
+radioYt.clock = () => Date.now() + clockOffset;
+radioYt.volume = 0;
+const radioSp = new SpotifyPlayer(musicBox, $('#sp-frame'), radioStatus);
+radioSp.clock = () => Date.now() + clockOffset;
+
+function applyRadio(r, by) {
+  radioNow = r || null;
+  const yt = r?.src === 'yt', sp = r?.src === 'sp';
+  radioUi.yt.classList.toggle('hidden', !yt);
+  radioUi.sp.classList.toggle('hidden', !sp);
+  if (!yt && radioYt.playing) radioYt.stop();
+  if (!sp && radioSp.playing) radioSp.stop();
+  if (yt) radioYt.sync({ id: r.id, list: r.list, at: r.at, by: r.by });
+  if (sp) radioSp.sync({ uri: r.uri, at: r.at, by: r.by });
+  if (by) showToast(r ? `📻 ${by} colocou música no rádio da laje` : `📻 ${by} desligou o rádio`);
+}
+function setRadio(v) {
+  if (net.connected) net.send({ t: 'party', radio: v });
+  else applyRadio(v ? { ...v, at: Date.now(), by: NAME } : null, NAME);
+}
+function radioFromInput() {
+  const text = radioUi.url.value, uri = parseSpotify(text);
+  const id = parseYouTube(text), list = parseYouTubeList(text);
+  if (!uri && !id && !list) { radioUi.status.textContent = 'link inválido: cole um link do YouTube ou do Spotify'; return; }
+  radioUi.url.value = '';
+  setRadio(uri ? { src: 'sp', uri } : { src: 'yt', id, list });
+  lockMouse();
+}
+// o YouTube diminui conforme você se afasta da laje; o Spotify não deixa mexer no volume
+let lastRadioVol = -1;
+function radioVolume() {
+  if (!radioYt.playing) return;
+  const d = me.pos.distanceTo(CINE.roof.radio);
+  const v = Math.round(radioVol * clamp(1 - (d - 26) / 100, 0, 1));
+  if (Math.abs(v - lastRadioVol) >= 2 || (v === 0) !== (lastRadioVol === 0)) { lastRadioVol = v; radioYt.setVolume(v); }
+}
+radioUi.vol.value = radioVol;
+radioUi.vol.oninput = () => { radioVol = Number(radioUi.vol.value); prefs.radioVol = radioVol; lastRadioVol = -1; savePrefs(); };
+$('#radio-play').onclick = radioFromInput;
+$('#radio-stop').onclick = () => { setRadio(null); lockMouse(); };
+$('#music-stop').onclick = () => setRadio(null);
+radioUi.url.addEventListener('keydown', e => { if (e.key === 'Enter') radioFromInput(); });
+function openRadio() {
+  document.exitPointerLock();
+  setTimeout(() => radioUi.url.focus(), 60);
+}
+
+// ------------------------------------------------------------------ horário do dia (menu)
+
+const timeUi = { hour: $('#time-hour'), label: $('#time-label'), presets: $('#time-presets'), lock: $('#time-lock') };
+timeUi.hour.oninput = () => setTime(Number(timeUi.hour.value), timeState.locked);
+timeUi.presets.onclick = e => { const b = e.target.closest('button'); if (b) setTime(Number(b.dataset.h), timeState.locked); };
+timeUi.lock.onclick = e => { const b = e.target.closest('button'); if (b) setTime(hourNow(), b.dataset.v === 'lock'); };
+function renderTime() {
+  const h = hourNow();
+  timeUi.label.textContent = `${hourLabel(h)}${timeState.locked ? ' · travado' : ''}`;
+  if (document.activeElement !== timeUi.hour) timeUi.hour.value = h;
+  timeUi.lock.querySelectorAll('button').forEach(b => b.classList.toggle('on', (b.dataset.v === 'lock') === timeState.locked));
+  $('#hud-time').textContent = `🕑 ${hourLabel(h)}`;
+}
+
+const shadowSeg = $('#opt-shadows');
+function setShadows(on) {
+  prefs.shadows = on;
+  savePrefs();
+  day.setShadows(on);
+  for (const m of [...mats.facades, mats.plain, mats.grass, mats.shops, mats.canopy]) m.needsUpdate = true;
+  scene.traverse(o => { if (o.material?.isMeshLambertMaterial || o.material?.isMeshPhongMaterial) o.material.needsUpdate = true; });
+  shadowSeg.querySelectorAll('button').forEach(b => b.classList.toggle('on', (b.dataset.v === 'on') === on));
+}
+shadowSeg.onclick = e => { const b = e.target.closest('button'); if (b) setShadows(b.dataset.v === 'on'); };
+setShadows(prefs.shadows !== false);
+
+// atalhos do menu
+function teleport(p) { leaveAct(); standUp(); me.pos.copy(p); me.vel.set(0, 0, 0); me.hook = null; }
+$('#go-roof').onclick = () => { teleport(new V3(CINE.cx + 8, CINE.roof.Y + 0.7, CINE.cz + 4)); yaw = 0; lockMouse(); };
+$('#go-court').onclick = () => { teleport(new V3(COURT_LOT.cx - 13, COURT_LOT.courtData.Y + 0.7, COURT_LOT.cz)); yaw = -Math.PI / 2; lockMouse(); };
+
+// ------------------------------------------------------------------ o que o F faz aqui
+
+let act = null;   // atividade em andamento: quadro, sinuca ou ping pong (tomam conta do mouse e da câmera)
+function enterAct(a) {
+  if (a.enter(me.pos) === false) return;
+  standUp();
+  me.vel.set(0, 0, 0);
+  me.hook = null;
+  mouseDown = false;
+  act = a;
+}
+function leaveAct() {
+  if (!act) return;
+  act.exit();
+  act = null;
+}
+function nearbyAction() {
+  const p = me.pos, Rf = CINE.roof;
+  const d = q => Math.hypot(p.x - q.x, p.z - q.z);
+  if (me.seat) return { hint: 'F = levantar', run: standUp };
+  if (basket.mine) return { hint: 'Mire e segure o clique pra arremessar · F solta a bola', run: () => basket.drop() };
+  if (basket.near(p)) return { hint: 'F = pegar a bola', run: () => basket.grab() };
+  if (Math.abs(p.y - Rf.Y) < 3) {
+    if (d(Rf.radio) < 2.8) return { hint: 'F = colocar música no rádio', run: openRadio };
+    if (d(Rf.sinuca) < 3.5) return { hint: 'F = jogar sinuca', run: () => enterAct(sinuca) };
+    if (d(Rf.pong) < 3.4) return { hint: 'F = jogar ping pong', run: () => enterAct(pong) };
+    const b = Rf.board;
+    if (Math.abs(p.x - b.x) < b.w / 2 + 1 && Math.abs(p.z - b.z) < 4.5) return { hint: 'F = desenhar no quadro', run: () => enterAct(board) };
+    if (d(Rf.liftTop) < 2.3) return { hint: 'F = descer de elevador', run: () => { me.pos.set(CINE.lift.x, R + 0.05, CINE.lift.z); me.vel.set(0, 0, 0); } };
+  }
+  if (p.y < 4 && d(CINE.lift) < 2.8) return { hint: 'F = subir pra laje', run: () => { me.pos.copy(Rf.liftTop); me.vel.set(0, 0, 0); } };
+  const s = nearestSeat();
+  if (s) return { hint: 'F = sentar', run: () => sitDown(s) };
+  return null;
+}
+
 const cineUi = { url: $('#cine-url'), status: $('#cine-status'), vol: $('#cine-vol') };
 function renderCineStatus() {
   const s = cineState;
@@ -868,6 +1027,12 @@ cineUi.url.addEventListener('keydown', e => { if (e.key === 'Enter') playFromInp
 
 addEventListener('keydown', e => {
   if (!locked) return;
+  if (e.code === 'KeyV' && !e.repeat && voice.on) showToast(voice.toggleMute() ? '🔇 microfone mutado' : '🎙️ microfone ligado');
+  if (act) {
+    if (e.code === 'KeyF' && !e.repeat) leaveAct();
+    else if (!e.repeat) act.key(e.code);
+    return;
+  }
   keys[e.code] = true;
   if (e.code === 'Space') { if (!e.repeat) jumpPressed = true; e.preventDefault(); }
   if (e.code === 'KeyQ' && !e.repeat && !me.onGround && me.flipT <= 0) { me.flipT = 0.5; me.vel.multiplyScalar(1.04); }
@@ -876,10 +1041,7 @@ addEventListener('keydown', e => {
     const r = [...remotes.values()].find(x => x.pos && !x.stale);
     if (r) { standUp(); me.pos.copy(r.pos).add(new V3(0, 2.5, 0)); me.vel.copy(r.vel || new V3()); me.hook = null; }
   }
-  if (e.code === 'KeyF' && !e.repeat) {
-    if (me.seat) standUp();
-    else { const s = nearestSeat(); if (s) sitDown(s); }
-  }
+  if (e.code === 'KeyF' && !e.repeat) nearbyAction()?.run();
   if (e.code === 'KeyY' && !e.repeat) {
     // solta o mouse pra poder colar o link
     document.exitPointerLock();
@@ -889,18 +1051,31 @@ addEventListener('keydown', e => {
 addEventListener('keyup', e => { keys[e.code] = false; });
 addEventListener('blur', () => { for (const k in keys) keys[k] = false; mouseDown = false; });
 canvas.addEventListener('mousedown', e => {
-  if (locked && e.button === 0) mouseDown = true;
+  if (locked && act) act.down(e.button);
+  else if (locked && e.button === 0 && basket.mine) basket.startCharge();
+  else if (locked && e.button === 0) mouseDown = true;
   if (cineState.status === 'paused') cinema.resume();   // autoplay bloqueado: o clique libera
+  if (radioShown.status === 'paused' && radioYt.playing) radioYt.resume();
 });
-addEventListener('mouseup', e => { if (e.button === 0) mouseDown = false; });
+addEventListener('contextmenu', e => { if (locked) e.preventDefault(); });
+addEventListener('mouseup', e => {
+  if (act) act.up(e.button);
+  if (e.button === 0) mouseDown = false;
+  if (e.button === 0 && basket.charging) basket.shoot(new V3(0, 0, -1).applyQuaternion(camera.quaternion));
+});
 addEventListener('mousemove', e => {
   if (!locked) return;
+  if (act) { act.mouse(e.movementX, e.movementY); return; }
   yaw -= e.movementX * 0.0022;
   pitch = clamp(pitch - e.movementY * 0.0022, -1.4, 1.25);
 });
-addEventListener('wheel', e => { if (locked && me.hook) wheel += Math.sign(e.deltaY) * 2.5; }, { passive: true });
+addEventListener('wheel', e => {
+  if (locked && act) act.wheel(e.deltaY);
+  else if (locked && me.hook) wheel += Math.sign(e.deltaY) * 2.5;
+}, { passive: true });
 
 function lockMouse() {
+  sound.init();
   const p = canvas.requestPointerLock();
   if (p && p.catch) p.catch(() => { $('#err3').textContent = 'o navegador não deixou travar o mouse — clique de novo'; });
   if (cinema.playing && cineState.status !== 'playing') cinema.resume();
@@ -927,6 +1102,7 @@ function rayBoxes(from, to) {
   let tmin = 1;
   const d = new V3().subVectors(to, from);
   for (const L of lotsAround(from.x, from.z, 20)) for (const bx of L.boxes) {
+    if (bx.soft) continue;                 // móveis, muretas e alambrado não empurram a câmera
     const mn = [bx[0] - 0.1, bx[1] > 0 ? bx[1] - 0.1 : -1, bx[2] - 0.1], mx = [bx[3] + 0.1, bx[4] + 0.5, bx[5] + 0.1];
     const o = [from.x, from.y, from.z], v = [d.x, d.y, d.z];
     let t0 = 0, t1 = 1;
@@ -944,6 +1120,12 @@ function rayBoxes(from, to) {
 
 let fov = 72;
 function updateCamera(dt) {
+  if (act) {
+    act.camera(camera);
+    me.mesh.visible = false;
+    day.follow(camera);
+    return;
+  }
   const speed = me.vel.length();
   camera.rotation.set(pitch, yaw, 0);
   const dir = new V3(0, 0, -1).applyEuler(camera.rotation);
@@ -964,7 +1146,7 @@ function updateCamera(dt) {
   fov += (72 + Math.min(26, speed * 0.3) + (me.boosting ? 8 : 0) - fov) * (1 - Math.exp(-dt * 3));
   camera.fov = fov;
   camera.updateProjectionMatrix();
-  sky.position.copy(camera.position);
+  day.follow(camera);
 }
 
 // ------------------------------------------------------------------ HUD
@@ -1001,19 +1183,26 @@ function updateHud(now) {
   lastHud = now;
   const L = lot(0, 0);
   const inside = inCinema(me.pos);
-  hud.biome.textContent = inside ? 'CINEMA · TELÃO' : 'CIDADE · 3D (TESTE)';
+  const high = Math.abs(me.pos.y - CINE.roof.Y) < 8;
+  const onCourt = high && Math.hypot(me.pos.x - COURT_LOT.cx, me.pos.z - COURT_LOT.cz) < 24;
+  const onRoof = high && Math.hypot(me.pos.x - CINE.cx, me.pos.z - CINE.cz) < 24;
+  hud.biome.textContent = inside ? 'CINEMA · TELÃO' : onCourt ? 'QUADRA' : onRoof ? 'LAJE' : 'CIDADE · 3D (TESTE)';
+  renderTime();
   hud.d.textContent = Math.round(Math.hypot(me.pos.x - L.cx, me.pos.z - L.cz)).toLocaleString('pt-BR');
   hud.s.textContent = Math.round(me.vel.length() * 3.6);
   const n = [...remotes.values()].filter(r => !r.stale).length;
   hud.net.innerHTML = net.connected ? `<span class="dot"></span>online · ${n + 1} no 3D` : '<span class="dot"></span>sem conexão com o host';
   hud.net.classList.toggle('off', !net.connected);
   const row = (c, name, dist) => `<div class="pl"><i style="background:${c}"></i><b>${esc(name)}</b><span>${dist}</span></div>`;
-  hud.pl.innerHTML = [row(COLOR, NAME, '')].concat([...remotes.values()].filter(r => r.pos && !r.stale).map(r => row(r.info.color, r.info.name, Math.round(r.pos.distanceTo(me.pos)) + ' m'))).join('');
+  hud.pl.innerHTML = [row(COLOR, `${NAME} ${voice.badge(myId, true)}`, '')].concat([...remotes.values()].filter(r => r.pos && !r.stale).map(r => row(r.info.color, `${r.info.name} ${voice.badge(r.id)}`, Math.round(r.pos.distanceTo(me.pos)) + ' m'))).join('');
   let h = '';
+  const action = act ? null : nearbyAction();
   if (toast && now < toast.until) h = toast.text;
-  else if (me.seat) h = 'F = levantar · Y = trocar o vídeo do telão';
-  else if (inside) h = nearestSeat() ? 'F = sentar · Y = colocar vídeo no telão' : 'Y = colocar vídeo no telão · suba os degraus e chegue perto de uma cadeira';
-  else if (firstHook < 0) h = 'Mire num ponto brilhante e SEGURE o clique · solte pra se lançar · o CINEMA é o prédio gigante na sua frente';
+  else if (act) h = act.hint();
+  else if (action) h = action.hint + (inside ? ' · Y = vídeo no telão' : '');
+  else if (me.wet) h = 'Espaço pula pra fora da piscina';
+  else if (inside) h = 'Y = colocar vídeo no telão · suba os degraus e chegue perto de uma cadeira';
+  else if (firstHook < 0 && !high) h = 'Mire num ponto brilhante e SEGURE o clique · solte pra se lançar · o CINEMA é o prédio gigante na sua frente';
   else if (now - firstHook < 9000) h = 'SHIFT preso na corda = BOOST · solte pra voar · Espaço = pulo duplo · Q = cambalhota';
   hud.hint.textContent = h;
   hud.hint.classList.toggle('on', !!h);
@@ -1042,7 +1231,7 @@ function simulate(now, dt) {
   updateCamera(dt);
   target = findTarget();
   if (locked) {
-    if (mouseDown && !me.hook && target) { standUp(); attach(target); if (firstHook < 0) firstHook = now; }
+    if (mouseDown && !me.hook && target && !act) { standUp(); attach(target); if (firstHook < 0) firstHook = now; }
     if (!mouseDown && me.hook) release();
   }
   if (me.hook && me.hook.pid) {
@@ -1052,7 +1241,7 @@ function simulate(now, dt) {
   }
   me.boosting = false;
   if (me.seat && jumpPressed) { jumpPressed = false; standUp(); }
-  if (!me.seat) {
+  if (!me.seat && !act) {
     const n = Math.max(1, Math.ceil(dt / (1 / 240)));
     for (let i = 0; i < n; i++) step(dt / n);
   }
@@ -1074,6 +1263,26 @@ function simulate(now, dt) {
   if (ring.visible) { ring.position.copy(target.p); ring.lookAt(camera.position); }
 
   for (const r of remotes.values()) r.update();
+  // o halo dos bonecos só faz sentido no escuro
+  const halo = 0.1 + day.night * 0.4;
+  me.mesh.userData.glow.material.opacity = halo;
+  for (const r of remotes.values()) r.mesh.userData.glow.material.opacity = halo;
+
+  // luz do dia e vida na rua: o relógio é o mesmo pra todo mundo
+  const T = ((Date.now() + clockOffset) / 1000) % 86400;
+  day.update(hourNow(), T, me.pos);
+  lightCity(mats, day);
+  crowd.update(T, me.pos.x, me.pos.z, lot);
+  traffic.update(T, me.pos.x, me.pos.z, day.night);
+  const nearTop = Math.hypot(me.pos.x - CINE.cx, me.pos.z - CINE.cz) < 1000;
+  roofFx.group.visible = courtFx.group.visible = nearTop;
+  roofFx.update(T, dt, day, !!radioNow);
+  courtFx.update(day);
+  board.update();
+  sinuca.update(dt);
+  pong.update(dt);
+  basket.update(dt, me, new V3(0, 0, -1).applyQuaternion(camera.quaternion));
+  updateSplash(dt);
 
   if (net.connected && now - lastSend > 50) {
     lastSend = now;
@@ -1087,6 +1296,8 @@ function simulate(now, dt) {
   }
   cinemaVolume();
   cinema.tick();
+  radioVolume();
+  radioYt.tick();
   updateHud(now);
   renderer.render(scene, camera);
   cssRenderer.render(cssScene, camera);
@@ -1098,6 +1309,10 @@ requestAnimationFrame(frame);
 // para depuração no console
 window.__v3 = {
   me, remotes, keys, camera, lotsAround, lot, cinema, CINEMA, nearestSeat, sitDown, standUp, setCinema, inCinema,
+  day, setTime, hourNow, board, sinuca, pong, basket, voice, renderer, enterAct, leaveAct, nearbyAction, chunks, crowd, traffic, net,
+  setRadio, radioYt, radioSp, inPool, COURT,
+  get act() { return act; },
+  get timeState() { return timeState; },
   get cineState() { return cineState; },
   setLook: (y, p) => { yaw = y; pitch = p; },
   lookAt: p => { const d = new V3().subVectors(p, camera.position); yaw = Math.atan2(-d.x, -d.z); pitch = Math.atan2(d.y, Math.hypot(d.x, d.z)); },

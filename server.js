@@ -3,10 +3,13 @@
 // Serve os arquivos do jogo e repassa o estado dos jogadores via WebSocket.
 
 const http = require('http');
+const https = require('https');
+const net = require('net');
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const os = require('os');
+const { loadCert } = require('./cert.js');
 
 const PORT = Number(process.argv[2] || process.env.PORT || 3000);
 const PUBLIC = path.join(__dirname, 'public');
@@ -25,12 +28,32 @@ const MIME = {
 const SEED = crypto.randomBytes(4).readUInt32LE(0);
 const SKINS = ['scarf', 'spider', 'miles'];
 
-// Configurações da party, iguais pra todo mundo: PVP, mapa, música do YouTube e o vídeo do telão do cinema (3D).
-const party = { pvp: false, mode: 'course', music: null, cinema: null };
+// Configurações da party, iguais pra todo mundo: PVP, mapa, música do YouTube, vídeo do telão do cinema (3D),
+// rádio da laje (YouTube ou Spotify) e o horário do dia (3D).
+const party = { pvp: false, mode: 'course', music: null, cinema: null, radio: null, time: { locked: false, hour: 15, at: Date.now() } };
+// Estado dos jogos da laje (sinuca, ping pong, basquete), pra quem chegar depois ver a mesa como está.
+const shared = {};
+const GAMES = ['sinuca', 'pong', 'pad', 'bola', 'cesta'];
+// Quadro branco: lista de traços; quando enche, os mais antigos somem.
+const board = [];
+const BOARD_MAX = 150000;
+let boardPts = 0;
 const ytState = (v, by) => {
   const id = v && v.id;
   return typeof id === 'string' && /^[A-Za-z0-9_-]{11}$/.test(id) ? { id, at: Date.now(), by } : null;
 };
+
+function radioState(v, by) {
+  if (!v) return null;
+  const at = Date.now();
+  if (v.src === 'sp' && /^spotify:(track|album|playlist|episode|show|artist):[A-Za-z0-9]{10,40}$/.test(v.uri)) return { src: 'sp', uri: v.uri, at, by };
+  if (v.src === 'yt') {
+    const list = typeof v.list === 'string' && /^[A-Za-z0-9_-]{10,64}$/.test(v.list) ? v.list : null;
+    const id = typeof v.id === 'string' && /^[A-Za-z0-9_-]{11}$/.test(v.id) ? v.id : null;
+    if (id || list) return { src: 'yt', id, list, at, by };
+  }
+  return null;
+}
 
 function lanAddresses() {
   const out = [];
@@ -45,11 +68,11 @@ function lanAddresses() {
 
 // ---------------------------------------------------------------- HTTP
 
-const server = http.createServer((req, res) => {
+function serve(req, res) {
   const url = new URL(req.url, 'http://localhost');
   if (url.pathname === '/api/info') {
     res.writeHead(200, { 'Content-Type': MIME['.json'], 'Cache-Control': 'no-store' });
-    res.end(JSON.stringify({ port: PORT, ips: lanAddresses(), players: [...clients.values()].filter(c => c.joined).length }));
+    res.end(JSON.stringify({ port: PORT, ips: lanAddresses(), https: true, players: [...clients.values()].filter(c => c.joined).length }));
     return;
   }
   let rel;
@@ -61,6 +84,19 @@ const server = http.createServer((req, res) => {
     if (err) { res.writeHead(404); res.end('não encontrado'); return; }
     res.writeHead(200, { 'Content-Type': MIME[path.extname(file)] || 'application/octet-stream', 'Cache-Control': 'no-cache' });
     res.end(data);
+  });
+}
+
+// A mesma porta atende HTTP e HTTPS: olha o primeiro byte da conexão (0x16 = início de TLS).
+const plain = http.createServer(serve);
+const secure = https.createServer(loadCert(__dirname, lanAddresses().map(i => i.address)), serve);
+const server = net.createServer(sock => {
+  sock.on('error', () => {});
+  sock.once('data', first => {
+    sock.pause();
+    sock.unshift(first);
+    (first[0] === 0x16 ? secure : plain).emit('connection', sock);
+    process.nextTick(() => sock.resume());
   });
 });
 
@@ -80,18 +116,21 @@ class Client {
     this.name = 'Jogador';
     this.color = '#ffcf5a';
     this.skin = 'scarf';
+    this.voice = false;
+    this.muted = false;
     socket.setNoDelay(true);
     socket.on('data', d => this.onData(d));
     socket.on('close', () => this.onClose());
     socket.on('error', () => this.onClose());
     clients.set(this.id, this);
     this.send({
-      t: 'welcome', id: this.id, seed: SEED, party, now: Date.now(),
+      t: 'welcome', id: this.id, seed: SEED, party, shared, now: Date.now(),
       players: [...clients.values()].filter(c => c.joined && c !== this).map(c => c.info()),
     });
   }
 
   info() { return { id: this.id, name: this.name, color: this.color, skin: this.skin }; }
+  voiceInfo() { return { id: this.id, name: this.name, color: this.color, muted: this.muted }; }
 
   onData(chunk) {
     this.buf = this.buf.length ? Buffer.concat([this.buf, chunk]) : chunk;
@@ -157,6 +196,47 @@ class Client {
       case 's3':   // versão 3D
         if (this.joined) broadcast({ ...m, id: this.id }, this);
         break;
+      case 'g':    // jogos da laje; `keep` guarda o último estado pra quem entrar depois
+        if (!this.joined || !GAMES.includes(m.k)) break;
+        m.id = this.id;
+        if (m.keep) shared[m.k] = m;
+        broadcast(m, this);
+        break;
+      case 'wb': {  // pedaço de traço do quadro branco
+        if (!this.joined || !Array.isArray(m.p) || m.p.length < 4 || m.p.length > 2000 || !m.p.every(Number.isFinite)) break;
+        if (!/^#[0-9a-f]{6}$/i.test(m.c)) break;
+        const stroke = { c: m.c, w: Math.min(120, Math.max(1, Number(m.w) || 4)), p: m.p };
+        board.push(stroke);
+        boardPts += stroke.p.length;
+        while (boardPts > BOARD_MAX) boardPts -= board.shift().p.length;
+        broadcast({ t: 'wb', ...stroke }, this);
+        break;
+      }
+      case 'wb-clear':
+        if (!this.joined) break;
+        board.length = 0;
+        boardPts = 0;
+        broadcast({ t: 'wb-clear', by: this.name }, this);
+        break;
+      case 'wb-get':
+        this.send({ t: 'wb-all', strokes: board });
+        break;
+      case 'vc': { // entrou/saiu da call ou mutou
+        const was = this.voice;
+        this.voice = !!m.on;
+        this.muted = !!m.muted;
+        if (this.voice && !was) {
+          this.send({ t: 'vc-list', peers: [...clients.values()].filter(c => c.voice && c !== this).map(c => c.voiceInfo()) });
+          console.log(`  ~ ${this.name} entrou na call`);
+        }
+        if (this.voice || was) broadcast({ t: 'vc', ...this.voiceInfo(), on: this.voice }, this);
+        break;
+      }
+      case 'rtc': { // sinalização do WebRTC: só repassa de um pro outro
+        const to = clients.get(m.to);
+        if (to && this.voice) to.send({ t: 'rtc', from: this.id, d: m.d });
+        break;
+      }
       case 'who':
         this.send({ t: 'players', players: [...clients.values()].filter(c => c.joined && c !== this).map(c => c.info()) });
         break;
@@ -166,6 +246,11 @@ class Client {
         if (m.mode === 'course' || m.mode === 'drones') { party.mode = m.mode; changed.push('mode'); }
         if ('music' in m) { party.music = ytState(m.music, this.name); changed.push('music'); }
         if ('cinema' in m) { party.cinema = ytState(m.cinema, this.name); changed.push('cinema'); }
+        if ('radio' in m) { party.radio = radioState(m.radio, this.name); changed.push('radio'); }
+        if (m.time && typeof m.time === 'object' && Number.isFinite(m.time.hour)) {
+          party.time = { locked: !!m.time.locked, hour: ((m.time.hour % 24) + 24) % 24, at: Date.now() };
+          changed.push('time');
+        }
         if (changed.length) {
           broadcast({ t: 'party', party, now: Date.now(), by: this.name, changed });
           console.log(`  * ${this.name} mudou: ${changed.join(', ')}`);
@@ -178,6 +263,7 @@ class Client {
   onClose() {
     if (!clients.has(this.id)) return;
     clients.delete(this.id);
+    if (this.voice) broadcast({ t: 'vc', ...this.voiceInfo(), on: false });
     if (this.joined) {
       broadcast({ t: 'leave', id: this.id });
       console.log(`  - ${this.name} saiu`);
@@ -193,7 +279,7 @@ function broadcast(obj, except) {
   for (const c of clients.values()) if (c !== except) c.frame(0x1, payload);
 }
 
-server.on('upgrade', (req, socket) => {
+function upgrade(req, socket) {
   const key = req.headers['sec-websocket-key'];
   if (!key || String(req.headers.upgrade).toLowerCase() !== 'websocket') { socket.destroy(); return; }
   const accept = crypto.createHash('sha1').update(key + WS_GUID).digest('base64');
@@ -203,7 +289,9 @@ server.on('upgrade', (req, socket) => {
     `Sec-WebSocket-Accept: ${accept}\r\n\r\n`
   );
   new Client(socket);
-});
+}
+plain.on('upgrade', upgrade);
+secure.on('upgrade', upgrade);
 
 // Derruba conexões mortas (amigo fechou o notebook, Radmin caiu, etc.).
 setInterval(() => {
@@ -230,8 +318,11 @@ server.listen(PORT, '0.0.0.0', () => {
   console.log(`   Você (host):     http://localhost:${PORT}`);
   for (const ip of ips) {
     const tag = ip.radmin ? '  <-- mande este pro seu amigo (Radmin)' : `  (${ip.name})`;
-    console.log(`   Amigo:           http://${ip.address}:${PORT}${tag}`);
+    console.log(`   Amigo:           https://${ip.address}:${PORT}${tag}`);
   }
+  console.log(line);
+  console.log('   Com https dá pra falar na call. O navegador avisa que a conexão "não é');
+  console.log('   particular": é só clicar em Avançado > Continuar (uma vez só).');
   console.log(line);
   console.log('   Deixe esta janela aberta enquanto jogam. Ctrl+C para desligar.\n');
 });

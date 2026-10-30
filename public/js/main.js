@@ -4,6 +4,7 @@ import { LocalPlayer, Avatar, hexA, drawRope, roundRect, SKINS, MAX_HP } from '.
 import { Renderer, BIOMES, mixHex, makeBuffers } from './render.js';
 import { Net, Remote } from './net.js';
 import { Sound } from './audio.js';
+import { Voice } from './voice.js';
 import { Music, parseYouTube } from './music.js';
 
 const COLORS = ['#ffcf3f', '#ff5d7c', '#4fd8ff', '#7dff8a', '#b77dff', '#ff9a3c', '#3dffd0', '#ffffff'];
@@ -23,6 +24,7 @@ const pipCanvas = $('#pip');
 const pipCtx = pipCanvas.getContext('2d');
 const renderer = new Renderer();
 const sound = new Sound();
+let voice = null;
 const mainBuf = makeBuffers(), pipBuf = makeBuffers();
 mainBuf.pix = document.createElement('canvas');
 pipBuf.pix = document.createElement('canvas');
@@ -58,6 +60,7 @@ function loadPrefs() {
   let p = {};
   try { p = JSON.parse(localStorage.getItem('voolivre') || '{}'); } catch { /* sem storage */ }
   return {
+    ...p,                 // preferências do 3D e da voz moram no mesmo lugar
     name: p.name || '',
     color: COLORS.includes(p.color) ? p.color : COLORS[(Math.random() * 6) | 0],
     best: p.best || 0,
@@ -79,6 +82,7 @@ const net = new Net(onNet, s => { netStatus = s; renderStatus(); });
 function onNet(m) {
   switch (m.t) {
     case 'welcome': {
+      voice?.onWelcome();
       myId = m.id;
       clockOffset = m.now - Date.now();
       if (world.seed !== m.seed >>> 0 || world.mode !== m.party.mode) setWorld(m.seed, m.party.mode);
@@ -89,6 +93,7 @@ function onNet(m) {
       break;
     }
     case 'party': clockOffset = m.now - Date.now(); applyParty(m.party, m.by, m.changed); break;
+    case 'vc': case 'vc-list': case 'rtc': voice?.handle(m); break;
     case 'join': upsertRemote(m); renderStatus(); break;
     case 'players': for (const p of m.players) upsertRemote(p); renderStatus(); break;
     case 'leave': remotes.delete(m.id); renderStatus(); break;
@@ -214,6 +219,7 @@ addEventListener('keydown', e => {
     case 'KeyT': goToFriend(); break;
     case 'KeyR': backToCabin(); break;
     case 'KeyM': toggleMute(); break;
+    case 'KeyV': if (voice?.on) feed(voice.toggleMute() ? '🔇 microfone mutado' : '🎙️ microfone ligado'); break;
     case 'KeyF': showFps = !showFps; break;
     case 'KeyC': setCamMode(CAM_MODES[(CAM_MODES.indexOf(prefs.camMode) + 1) % CAM_MODES.length]); feed(`🎥 câmera: ${CAM_NAMES[prefs.camMode]}`); break;
   }
@@ -939,8 +945,8 @@ function updateHud() {
   hud.net.innerHTML = (net.connected ? `<span class="dot"></span>online · ${n + 1} jogando${tags}` : `<span class="dot"></span>sem conexão com o host${tags}`) + perfTxt;
   hud.net.classList.toggle('off', !net.connected);
   const row = (color, name, dist, extra) => `<div class="pl"><i style="background:${color}"></i><b>${esc(name)}</b><span>${dist}</span>${extra || ''}</div>`;
-  hud.players.innerHTML = [row(prefs.color, prefs.name, fmtDist(d), party.pvp ? `<em>${myKills}</em>` : '')]
-    .concat(friends().map(r => row(r.color, r.name, r.view.dead ? 'caiu!' : fmtDist(Math.max(0, r.view.x - INTRO.spawn) / UNIT_M), party.pvp ? `<em>${r.kills}</em>` : '')))
+  hud.players.innerHTML = [row(prefs.color, `${prefs.name} ${voice?.badge(myId, true) || ''}`, fmtDist(d), party.pvp ? `<em>${myKills}</em>` : '')]
+    .concat(friends().map(r => row(r.color, `${r.name} ${voice?.badge(r.id) || ''}`, r.view.dead ? 'caiu!' : fmtDist(Math.max(0, r.view.x - INTRO.spawn) / UNIT_M), party.pvp ? `<em>${r.kills}</em>` : '')))
     .join('');
 
   let h = '', bigHint = false;
@@ -1105,7 +1111,7 @@ function buildLobby() {
       if (!ips.length) return;
       const wrap = $('#invite-links');
       for (const ip of ips) {
-        const url = `http://${ip.address}:${info.port}`;
+        const url = `${info.https ? 'https' : 'http'}://${ip.address}:${info.port}`;
         const row = document.createElement('div');
         row.className = 'link';
         row.innerHTML = `<code>${url}</code><small>${ip.radmin ? 'Radmin' : esc(ip.name)}</small>`;
@@ -1116,6 +1122,7 @@ function buildLobby() {
         row.appendChild(btn);
         wrap.appendChild(row);
       }
+      $('#invite-note').textContent = 'No aviso de conexão do navegador: Avançado > Continuar. O https é o que libera o microfone.';
       $('#invite').classList.remove('hidden');
     }).catch(() => {});
   }
@@ -1135,6 +1142,7 @@ function startPlaying() {
   me.toCabin();
   cam.x = me.x; cam.y = me.y - 150;
   sendJoin();
+  voice.autoJoin();
   $('#lobby').classList.add('hidden');
   $('#hud').classList.remove('hidden');
   document.body.classList.add('playing');
@@ -1157,6 +1165,8 @@ function frame(now) {
   requestAnimationFrame(frame);
 }
 
+voice = new Voice(obj => net.send(obj), prefs, savePrefs);
+voice.mount($('#voice-box'));
 resize();
 buildLobby();
 renderStatus();

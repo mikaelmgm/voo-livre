@@ -9,9 +9,12 @@ COMO JOGAR COM SEU AMIGO (Radmin VPN)
 3. Se o Windows perguntar sobre o firewall, marque "Redes privadas" E "Redes públicas"
    e clique em Permitir (o Radmin às vezes aparece como rede pública).
 4. Mande pro seu amigo o endereço que começa com 26. (o IP do Radmin), por exemplo:
-       http://26.123.45.67:3000
+       https://26.123.45.67:3000
    Ele só abre esse endereço no navegador (Chrome/Edge/Firefox). Não precisa instalar nada.
    O endereço também aparece na tela inicial do jogo, com um botão "copiar".
+   O navegador vai avisar que a conexão não é particular: clique em Avançado > Continuar.
+   É normal, o certificado é feito pelo próprio jogo. Só precisa fazer uma vez.
+   Por http o jogo também abre, mas aí o amigo só ouve a call: sem https o navegador não libera o microfone.
 5. Deixe a janela preta aberta enquanto jogam.
 
 Se o amigo não conseguir abrir: clique com o botão direito em LIBERAR-FIREWALL.bat >
@@ -32,6 +35,7 @@ CONTROLES
   R ............................................. voltar à casinha
   C ............................................. troca a câmera
   M ............................................. liga/desliga o som
+  V ............................................. muta/desmuta o microfone na call
   F ............................................. mostra fps
   Esc ........................................... menu (câmera, mapa, PVP, roupa, música...)
 
@@ -43,6 +47,8 @@ MENU (Esc)
   Roupa ......... Cachecol, Aranha Clássico ou Aranha Miles (as de aranha usam corda de teia).
   Visão do amigo  mini tela no canto direito mostrando o que o seu amigo está vendo.
   Música ........ cole um link do YouTube e toca pra todo mundo, sincronizado (precisa de internet).
+  Voz ........... entre na call, escolha o microfone e a saída de áudio. Vale no 2D e no 3D.
+                  A escolha de saída funciona no Chrome e no Edge.
 
 O PERCURSO
   Casinha no penhasco (pôr do sol) -> pule -> atravesse as nuvens ->
@@ -61,3 +67,24 @@ VERSÃO 3D (TESTE)
     F perto de uma cadeira = senta / levanta · Y = cola um link do YouTube e passa no telão pra todo mundo
     (também dá pelo Esc, na caixa "Telão do cinema"). O som fica cheio dentro da sala e some longe do prédio.
   Precisa de internet (a biblioteca 3D vem da internet). Quem está no 3D vê só quem também está no 3D.
+
+  F usa o que estiver perto: sentar, rádio, quadro, sinuca, ping pong, bola, elevador.
+
+  LAJE (em cima do cinema): suba pelo elevador na calçada, ao lado do cinema, pelos pontos brilhantes
+    ou pelo botão "Ir pra laje" no Esc.
+    Piscina ....... é só entrar; Espaço pula pra fora.
+    Rádio ......... F perto do rádio (ou Esc) e cole um link do YouTube ou do Spotify: música ou playlist.
+                    No Spotify o player fica no canto da tela, e cada um pode precisar dar o play nele
+                    (Esc solta o mouse). Sem estar logado no Spotify no navegador, só toca 30 s de prévia.
+                    Em playlist todo mundo começa junto, mas o Spotify não deixa escolher a faixa de cada um.
+                    O volume só muda no YouTube (some conforme você se afasta); o Spotify não deixa mexer nele.
+    Quadro ........ esquerdo desenha, direito apaga, 1 a 8 troca a cor, E apagador, rodinha muda o tamanho,
+                    X duas vezes limpa pra todo mundo, F sai.
+    Sinuca ........ mouse mira, segure e solte o clique pra tacar, G arruma a mesa, F sai.
+    Ping pong ..... mouse mexe a raquete, clique saca, F sai. Sozinho, a mesa devolve a bola.
+  QUADRA: atravesse a passarela da laje (ou "Ir pra quadra" no Esc). F pega a bola, segure e solte o clique
+    pra arremessar mirando com a câmera, F solta. De longe vale 3.
+
+  HORÁRIO (Esc): Manhã, Dia, Tarde, Noite ou a barra de hora. "Travar neste horário" para o relógio.
+    Vale pra todo mundo no 3D. Solto, o dia inteiro dura 24 minutos.
+  SOMBRAS (Esc): desligue se o jogo ficar pesado.

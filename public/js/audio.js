@@ -30,17 +30,33 @@ export class Sound {
     const d = this.noise.getChannelData(0);
     for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
 
-    // vento contínuo que cresce com a velocidade
+    // vento contínuo que cresce com a velocidade: ruído marrom (grave e macio) em vez de chiado
+    const windLen = c.sampleRate * 8, fade = c.sampleRate;
+    const windBuf = c.createBuffer(1, windLen + fade, c.sampleRate);
+    const w = windBuf.getChannelData(0);
+    let prev = 0;
+    for (let i = 0; i < w.length; i++) { prev = (prev + 0.02 * (Math.random() * 2 - 1)) / 1.02; w[i] = prev * 3.5; }
+    for (let i = 0; i < fade; i++) { const k = i / fade; w[i] = w[i] * k + w[windLen + i] * (1 - k); }   // emenda sem clique
     const src = c.createBufferSource();
-    src.buffer = this.noise;
+    src.buffer = windBuf;
     src.loop = true;
+    src.loopEnd = windLen / c.sampleRate;
     this.windFilter = c.createBiquadFilter();
     this.windFilter.type = 'lowpass';
-    this.windFilter.frequency.value = 400;
-    this.windFilter.Q.value = 0.7;
+    this.windFilter.frequency.value = 220;
+    this.windFilter.Q.value = 0.2;
+    const highpass = c.createBiquadFilter();
+    highpass.type = 'highpass';
+    highpass.frequency.value = 70;
     this.windGain = c.createGain();
     this.windGain.gain.value = 0;
-    src.connect(this.windFilter).connect(this.windGain).connect(this.master);
+    // rajadas lentas pra não soar como um chiado parado
+    const gust = c.createOscillator(), gustDepth = c.createGain();
+    gust.frequency.value = 0.17;
+    gustDepth.gain.value = 260;
+    gust.connect(gustDepth).connect(this.windFilter.detune);
+    gust.start();
+    src.connect(highpass).connect(this.windFilter).connect(this.windGain).connect(this.master);
     src.start();
 
     this.musicGain = c.createGain();
@@ -63,9 +79,9 @@ export class Sound {
     if (!c) return;
     const now = c.currentTime;
     const s = Math.min(1, speed / 2600);
-    const vol = Math.min(0.55, s * s * 0.5 + inCloud * 0.25) * (1 - slow * 0.6);
-    this.windGain.gain.setTargetAtTime(vol, now, 0.12);
-    this.windFilter.frequency.setTargetAtTime((300 + s * 2400 + inCloud * 600) * (1 - slow * 0.75), now, 0.12);
+    const vol = Math.min(0.11, s * s * 0.1 + inCloud * 0.04) * (1 - slow * 0.6);
+    this.windGain.gain.setTargetAtTime(vol, now, 0.35);
+    this.windFilter.frequency.setTargetAtTime((200 + s * 500 + inCloud * 120) * (1 - slow * 0.6), now, 0.35);
     this.biome = biome;
     if (now > this.nextChord - 0.1) this.playChord();
   }
@@ -137,7 +153,7 @@ export class Sound {
   jump() { this.tone(300, 0.12, 0.08, 'triangle', 0, 520); }
   airJump() { this.burst(0.3, 400, 2600, 1.2, 0.3); this.tone(420, 0.18, 0.07, 'triangle', 0, 900); }
   splash() { this.burst(0.7, 1800, 200, 0.8, 0.5, 'lowpass'); }
-  whoosh() { this.burst(1.4, 300, 2200, 0.8, 0.35); }
+  whoosh() { this.burst(1.4, 220, 800, 0.6, 0.1); }
   stage() { [523.3, 659.3, 784, 1046.5].forEach((f, i) => this.tone(f, 1.2, 0.05, 'triangle', i * 0.12)); }
   laser(far = false) { this.tone(far ? 1500 : 2200, 0.11, far ? 0.025 : 0.06, 'sawtooth', 0, 240); }
   hitMark() { this.tone(1900, 0.06, 0.09, 'square'); this.tone(2500, 0.05, 0.06, 'square', 0.04); }
