@@ -13,6 +13,7 @@ import { groundTexture } from './textures.js';
 import { roofLayout, courtLayout, groundLift, buildRoof, buildCourt } from './roof.js';
 import { Skyline } from './skyline.js';
 import { Whiteboard } from './board.js';
+import { Slime, SlimeWorld, SlimeStage, SLIME_SKINS } from './slime.js';
 import { Sinuca, Pong, Basket } from './games.js';
 
 const $ = s => document.querySelector(s);
@@ -30,7 +31,7 @@ const QUALITY = [
 ];
 let Q = QUALITY[3];
 const G = 26;
-const ROPE_MAX = 70, ROPE_MIN = 3;
+const ROPE_MAX = 115, ROPE_MIN = 3;
 const WALK = 10, SPRINT = 18, JUMP = 11, AIR_JUMP = 13;
 const PUMP = 16, AIR = 9, DIVE = 24, DRAG = 0.012, MAX_SPEED = 100, RELEASE_BOOST = 6, REEL = 18;
 // a teia é uma mola: estica até um limite e devolve, em vez de ser uma barra rígida que freia você
@@ -47,6 +48,8 @@ try { prefs = JSON.parse(localStorage.getItem('voolivre') || '{}'); } catch { /*
 const NAME = prefs.name || 'Jogador';
 const COLOR = /^#[0-9a-f]{6}$/i.test(prefs.color) ? prefs.color : '#ffcf3f';
 const SKIN = ['scarf', 'spider', 'miles'].includes(prefs.skin) ? prefs.skin : 'scarf';
+let SKIN3 = SLIME_SKINS[prefs.skin3] ? prefs.skin3 : 'spider';
+let SLIME = Number.isFinite(prefs.slime) ? clamp(prefs.slime, 0, 100) : 60;
 function savePrefs() {
   try {
     const p = JSON.parse(localStorage.getItem('voolivre') || '{}');
@@ -379,60 +382,19 @@ function glowTexture(color) {
   return new THREE.CanvasTexture(c);
 }
 
-function makeDummy(skin, color) {
-  const looks = {
-    scarf: { body: '#2a2740', legs: '#2a2740', head: '#2a2740', eyes: false },
-    spider: { body: '#c81f2b', legs: '#1d45a8', head: '#c81f2b', eyes: true },
-    miles: { body: '#1b1b24', legs: '#1b1b24', head: '#1b1b24', eyes: true, accent: '#d81e32' },
-  }[skin];
-  const g = new THREE.Group();
-  const mat = c => new THREE.MeshLambertMaterial({ color: c });
-  const body = new THREE.Mesh(new THREE.CapsuleGeometry(0.42, 0.6, 4, 10), mat(looks.body));
-  body.position.y = 0.15;
-  const legs = new THREE.Mesh(new THREE.CylinderGeometry(0.4, 0.34, 0.75, 10), mat(looks.legs));
-  legs.position.y = -0.5;
-  const head = new THREE.Mesh(new THREE.SphereGeometry(0.33, 14, 10), mat(looks.head));
-  head.position.y = 0.95;
-  g.add(body, legs, head);
-  if (looks.eyes) {
-    for (const s of [-1, 1]) {
-      const e = new THREE.Mesh(new THREE.SphereGeometry(0.1, 8, 6), new THREE.MeshBasicMaterial({ color: 0xffffff }));
-      e.scale.set(1, 1.5, 0.5);
-      e.position.set(s * 0.13, 1.0, -0.29);
-      g.add(e);
-    }
-  } else {
-    const visor = new THREE.Mesh(new THREE.BoxGeometry(0.44, 0.13, 0.12), new THREE.MeshBasicMaterial({ color }));
-    visor.position.set(0, 1.0, -0.28);
-    const scarf = new THREE.Mesh(new THREE.TorusGeometry(0.3, 0.08, 6, 14), new THREE.MeshBasicMaterial({ color }));
-    scarf.rotation.x = Math.PI / 2;
-    scarf.position.y = 0.68;
-    g.add(visor, scarf);
-  }
-  if (looks.accent) {
-    const band = new THREE.Mesh(new THREE.TorusGeometry(0.43, 0.05, 6, 16), new THREE.MeshBasicMaterial({ color: looks.accent }));
-    band.rotation.x = Math.PI / 2;
-    band.position.y = 0.2;
-    g.add(band);
-  }
+const slimes = new SlimeWorld(scene, renderer, day);
+
+// o grupo só guarda a orientação e o halo; a gelatina é desenhada à parte, nos eixos do mundo
+function makeBody(skin, color, amount) {
+  const root = new THREE.Group();
   const glow = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTexture(color), transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }));
   glow.scale.set(4, 4, 1);
-  g.add(glow);
-  g.traverse(o => { if (o.isMesh) o.castShadow = true; });
-  const root = new THREE.Group();
-  root.add(g);
+  root.add(glow);
   root.userData.glow = glow;
-  root.userData.body = g;
-  root.userData.legs = legs;
+  root.userData.slime = new Slime(slimes, skin, color, amount);
   return root;
 }
 
-// sentado: pernas pra frente, de frente pro telão
-function setSit(root, on) {
-  const legs = root.userData.legs;
-  legs.rotation.x = on ? Math.PI / 2 : 0;
-  legs.position.set(0, on ? -0.2 : -0.5, on ? -0.42 : 0);
-}
 const SIT_Y = 0.55 + 0.55;   // do chão da fileira até o centro do boneco sentado
 
 function makeRope(skin, color) {
@@ -469,8 +431,8 @@ function makeLabel(text, color) {
 }
 
 // orientação visual: "cabeça" pra corda quando pendurado, pro movimento quando voando
-const tmpM = new THREE.Matrix4(), tmpQ = new THREE.Quaternion(), flipQ = new THREE.Quaternion();
-function orient(obj, pos, vel, hook, onGround, dt, flip) {
+const tmpM = new THREE.Matrix4(), tmpQ = new THREE.Quaternion();
+function orient(obj, pos, vel, hook, onGround, dt) {
   let up = new V3(0, 1, 0);
   if (hook) up = new V3().subVectors(hook, pos).normalize();
   else if (!onGround && vel.length() > 12) up.lerp(vel.clone().normalize(), 0.55).normalize();
@@ -484,16 +446,13 @@ function orient(obj, pos, vel, hook, onGround, dt, flip) {
   tmpM.makeBasis(right, up, back);
   tmpQ.setFromRotationMatrix(tmpM);
   obj.quaternion.slerp(tmpQ, 1 - Math.exp(-dt * (hook ? 14 : 8)));
-  const body = obj.userData.body;
-  if (flip > 0) body.quaternion.copy(flipQ.setFromAxisAngle(new V3(1, 0, 0), -flip * Math.PI * 2));
-  else body.quaternion.identity();
 }
 
 // ------------------------------------------------------------------ jogador local
 
 const me = {
   pos: new V3(), vel: new V3(), onGround: false, hook: null, airJumps: 1, flipT: 0, boosting: false, seat: null, wet: false,
-  mesh: makeDummy(SKIN, COLOR), rope: makeRope(SKIN, COLOR),
+  mesh: makeBody(SKIN3, COLOR, SLIME), rope: makeRope(SKIN3, COLOR),
 };
 scene.add(me.mesh);
 let yaw = 0, pitch = -0.15;
@@ -527,8 +486,6 @@ function sitDown(s) {
   me.vel.set(0, 0, 0);
   me.pos.set(s.x, s.floor + SIT_Y, s.z);
   me.mesh.quaternion.setFromAxisAngle(UP, s.ry || 0);
-  me.mesh.userData.body.quaternion.identity();
-  setSit(me.mesh, true);
   const C = lot(CINEMA.i, CINEMA.j);
   yaw = s.ry || 0;
   pitch = s.ry === undefined ? Math.atan2(C.screen.y - (me.pos.y + 0.95), me.pos.z - C.screen.z) : -0.1;
@@ -538,7 +495,6 @@ function standUp() {
   const ry = me.seat.ry || 0;
   me.pos.set(me.seat.x - Math.sin(ry) * 0.75, me.seat.floor + R + 0.05, me.seat.z - Math.cos(ry) * 0.75);
   me.seat = null;
-  setSit(me.mesh, false);
 }
 
 start();
@@ -669,7 +625,7 @@ function step(dt) {
       // conta quanto a teia vai esticar nessa velocidade, senão a mola leva você pro chão do mesmo jeito
       const sag = Math.min(me.hook.L * ROPE_STRETCH + 1.5, me.vel.lengthSq() / (Math.max(me.hook.L, 4) * ROPE_K));
       const safe = Math.max(ROPE_MIN, me.hook.p.y - GROUND_CLEAR - sag);
-      if (me.hook.L > safe) me.hook.L = Math.max(safe, me.hook.L - GUARD_RATE * dt);
+      if (me.hook.L > safe) me.hook.L = Math.max(safe, me.hook.L - (GUARD_RATE + Math.max(0, -me.vel.y) * 1.2) * dt);
     }
     // ajuda a manter o embalo: empurra de leve pra onde você já está indo
     const along = me.vel.clone().addScaledVector(n, -me.vel.dot(n)), sp = along.length();
@@ -760,7 +716,12 @@ function avoid(dt) {
   if (speed < STEER_MIN || me.onGround || me.wet) return;
   const dir = me.vel.clone().divideScalar(speed);
   const look = clamp(speed * 0.9, 16, 75);
-  const hit = sweep(me.pos, dir, look, 1.2);
+  let hit = sweep(me.pos, dir, look, 1.2);
+  // na teia a rua conta como telhado: a rota curva rente a ela em vez de bater (S segurado libera a descida)
+  if (me.hook && dir.y < -0.05 && !keys.KeyS) {
+    const t = (me.pos.y - R - 1) / -dir.y;
+    if (t > 0 && t < look && (!hit || t < hit.t)) hit = { t, axis: 1, sign: 1 };
+  }
   // caindo em cima de um telhado sem teia é pouso, não batida
   if (hit && !(hit.axis === 1 && (hit.sign < 0 || !me.hook))) {
     const p = me.pos.clone().addScaledVector(dir, hit.t), b = hit.box, out = dir.clone();
@@ -787,6 +748,13 @@ function avoid(dt) {
   me.vel.copy(dir).multiplyScalar(speed);
 }
 
+// altura do que está embaixo de um ponto: telhado, degrau ou a rua
+const DOWN = new V3(0, -1, 0);
+function floorUnder(p) {
+  const hit = sweep(p, DOWN, 40, 0);
+  return hit ? p.y - hit.t : 0;
+}
+
 function airJump(wish, fwd) {
   me.airJumps--;
   me.vel.y = Math.max(me.vel.y, 0) + AIR_JUMP;
@@ -804,6 +772,8 @@ let netStatus = 'connecting';
 let clockOffset = 0;
 const sound = new Sound();
 const voice = new Voice(o => net.send(o), prefs, savePrefs);
+function sendJoin() { net.send({ t: 'join', name: NAME, color: COLOR, skin: SKIN, skin3: SKIN3, slime: SLIME }); }
+me.mesh.userData.slime.onSplat = hard => { if (hard > 14) sound.splat(clamp(hard / 60, 0.3, 1)); };
 voice.mount($('#voice-box'));
 
 // a laje e a quadra ficam sempre na cena (não entram e saem com os pedaços de cidade)
@@ -860,7 +830,7 @@ function onNet(m) {
       myId = m.id;
       clockOffset = m.now - Date.now();
       for (const p of m.players) infos.set(p.id, p);
-      net.send({ t: 'join', name: NAME, color: COLOR, skin: SKIN });
+      sendJoin();
       net.send({ t: 'wb-get' });
       voice.onWelcome();
       voice.autoJoin();
@@ -925,20 +895,26 @@ class Remote3 {
     this.setInfo(info);
   }
   setInfo(info) {
-    if (this.mesh && this.info && this.info.skin === info.skin && this.info.color === info.color && this.info.name === info.name) return;
+    const body = this.mesh?.userData.slime;
+    if (body && this.info.color === info.color && this.info.name === info.name) {
+      if (info.skin3 !== this.info.skin3) body.setSkin(info.skin3 || 'spider', info.color);
+      if (info.slime !== this.info.slime) body.setAmount(info.slime ?? 60);
+      this.info = info;
+      return;
+    }
     this.dispose();
     this.info = info;
-    this.mesh = makeDummy(info.skin || 'scarf', info.color || '#ffffff');
+    this.mesh = makeBody(info.skin3 || 'spider', info.color || '#ffffff', info.slime ?? 60);
     this.label = makeLabel(info.name || '…', info.color || '#ffffff');
     this.label.position.y = 2;
     this.mesh.add(this.label);
-    this.rope = makeRope(info.skin || 'scarf', info.color || '#ffffff');
+    this.rope = makeRope(info.skin3 || 'spider', info.color || '#ffffff');
     scene.add(this.mesh);
   }
-  dispose() { if (this.mesh) { scene.remove(this.mesh); scene.remove(this.rope); } }
+  dispose() { if (this.mesh) { scene.remove(this.mesh); scene.remove(this.rope); this.mesh.userData.slime.dispose(); } }
   push(s) { s.rt = performance.now(); this.snaps.push(s); if (this.snaps.length > 30) this.snaps.shift(); }
   get stale() { const l = this.snaps[this.snaps.length - 1]; return !l || performance.now() - l.rt > 4000; }
-  update() {
+  update(dt) {
     const n = this.snaps.length;
     if (!n) return;
     const t = performance.now() - 100;
@@ -950,12 +926,17 @@ class Remote3 {
     const src = b && k > 0.5 ? b : a;
     this.mesh.position.copy(this.pos);
     this.mesh.quaternion.set(src.q[0], src.q[1], src.q[2], src.q[3]);
-    this.mesh.userData.body.quaternion.setFromAxisAngle(new V3(1, 0, 0), -(src.fl || 0) * Math.PI * 2);
-    setSit(this.mesh, !!src.st);
     this.mesh.visible = !this.stale;
-    if (src.h) placeRope(this.rope, this.pos.clone().add(new V3(0, 0.6, 0)), src.hk === myId ? me.pos : new V3(src.h[0], src.h[1], src.h[2]));
+    const V = (s, i) => (b ? s.v[i] + (b.v[i] - s.v[i]) * k : s.v[i]);
+    this.vel = new V3(V(a, 0), V(a, 1), V(a, 2));
+    const hook = src.h ? (src.hk === myId ? me.pos : new V3(src.h[0], src.h[1], src.h[2])) : null;
+    const body = this.mesh.userData.slime;
+    this.pending = (this.pending || 0) + dt;
+    this.turn = ((this.turn || 0) + 1) % 3;
+    if (this.turn && this.pos.distanceToSquared(camera.position) > 6400) { body.group.position.copy(this.pos); body.group.visible = this.mesh.visible; }
+    else { body.update(this.pending, { pos: this.pos, vel: this.vel, quat: this.mesh.quaternion, hook, onGround: !!src.g, flip: src.fl || 0, sit: !!src.st, wet: !!src.w, floor: src.g ? this.pos.y - R : floorUnder(this.pos), visible: this.mesh.visible }); this.pending = 0; }
+    if (hook) placeRope(this.rope, body.hand, hook);
     else this.rope.visible = false;
-    this.vel = new V3(src.v[0], src.v[1], src.v[2]);
   }
 }
 
@@ -1057,9 +1038,51 @@ $('#radio-stop').onclick = () => { setRadio(null); lockMouse(); };
 $('#music-stop').onclick = () => setRadio(null);
 radioUi.url.addEventListener('keydown', e => { if (e.key === 'Enter') radioFromInput(); });
 function openRadio() {
-  document.exitPointerLock();
+  unlockMouse();
   setTimeout(() => radioUi.url.focus(), 60);
 }
+
+// ------------------------------------------------------------------ personagem (menu)
+
+const charUi = { amt: $('#slime-amt'), label: $('#slime-label'), skins: $('#skin-pick') };
+const slimeWord = v => (v < 20 ? 'borrachudo' : v < 50 ? 'gelatina firme' : v < 75 ? 'gelatina mole' : v < 92 ? 'geleca' : 'derretendo');
+let stage = null;
+if (!SOFTWARE) {
+  try { stage = new SlimeStage($('#slime-stage'), SKIN3, COLOR, SLIME); } catch { /* sem prévia */ }
+}
+if (!stage) $('#slime-stage').style.display = 'none';
+else $('#slime-stage').onclick = () => stage.poke();
+function renderChar() {
+  charUi.amt.value = SLIME;
+  charUi.label.textContent = `${SLIME} · ${slimeWord(SLIME)}`;
+  charUi.skins.querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.v === SKIN3));
+}
+for (const [k, s] of Object.entries(SLIME_SKINS)) {
+  const b = document.createElement('button');
+  b.dataset.v = k;
+  b.textContent = s.label;
+  charUi.skins.appendChild(b);
+}
+charUi.skins.onclick = e => {
+  const b = e.target.closest('button');
+  if (!b) return;
+  SKIN3 = prefs.skin3 = b.dataset.v;
+  savePrefs();
+  me.mesh.userData.slime.setSkin(SKIN3, COLOR);
+  me.rope.material.color.set(SKIN3 === 'scarf' ? COLOR : '#f4f6ff');
+  stage?.body.setSkin(SKIN3, COLOR);
+  stage?.poke();
+  sendJoin();
+  renderChar();
+};
+charUi.amt.oninput = () => {
+  SLIME = Number(charUi.amt.value);
+  me.mesh.userData.slime.setAmount(SLIME);
+  stage?.body.setAmount(SLIME);
+  renderChar();
+};
+charUi.amt.onchange = () => { prefs.slime = SLIME; savePrefs(); sendJoin(); stage?.poke(); };
+renderChar();
 
 // ------------------------------------------------------------------ horário do dia (menu)
 
@@ -1086,6 +1109,7 @@ function applyQuality(level) {
   renderer.setPixelRatio(Q.pr * Math.min(window.devicePixelRatio || 1, 1.25));
   day.setShadow(Q.shadow, Q.range);
   day.setClouds(Q.clouds);
+  slimes.refract = Q.pr >= 0.85;
   roofFx.setLamps(Q.lamps);
   courtFx.setLamps(Q.lamps);
   crowd.setRange(Q.crowd);
@@ -1203,6 +1227,7 @@ cineUi.url.addEventListener('keydown', e => { if (e.key === 'Enter') playFromInp
 
 addEventListener('keydown', e => {
   if (!locked) return;
+  if (e.code === 'Escape' && freeMouse) { unlockMouse(); return; }
   if (e.code === 'KeyP' && !e.repeat) { perf.show = !perf.show; $('#perf3').classList.toggle('hidden', !perf.show); }
   if (e.code === 'KeyV' && !e.repeat && voice.on) showToast(voice.toggleMute() ? '🔇 microfone mutado' : '🎙️ microfone ligado');
   if (act) {
@@ -1221,7 +1246,7 @@ addEventListener('keydown', e => {
   if (e.code === 'KeyF' && !e.repeat) nearbyAction()?.run();
   if (e.code === 'KeyY' && !e.repeat) {
     // solta o mouse pra poder colar o link
-    document.exitPointerLock();
+    unlockMouse();
     setTimeout(() => cineUi.url.focus(), 60);
   }
 });
@@ -1242,26 +1267,55 @@ addEventListener('mouseup', e => {
 });
 addEventListener('mousemove', e => {
   if (!locked) return;
+  if (freeMouse) { edgeX = edgeOf(e.clientX / innerWidth); edgeY = edgeOf(e.clientY / innerHeight); }
   if (act) { act.mouse(e.movementX, e.movementY); return; }
   yaw -= e.movementX * 0.0022;
   pitch = clamp(pitch - e.movementY * 0.0022, -1.4, 1.25);
 });
+document.documentElement.addEventListener('mouseleave', () => { edgeX = edgeY = 0; });
 addEventListener('wheel', e => {
   if (locked && act) act.wheel(e.deltaY);
   else if (locked && me.hook) wheel += Math.sign(e.deltaY) * 2.5;
 }, { passive: true });
 
+// Onde o navegador não prende o mouse (o painel do app, por exemplo) o jogo roda com o cursor solto:
+// o olhar segue o movimento e continua girando enquanto o cursor fica na faixa da borda.
+const EDGE = 0.12, EDGE_TURN = 2.2;
+let freeMouse = false, edgeX = 0, edgeY = 0, lockLost = -1e9;
+const edgeOf = v => clamp((v - 1 + EDGE) / EDGE, 0, 1) - clamp((EDGE - v) / EDGE, 0, 1);
+
+function setLocked(on) {
+  locked = on;
+  $('#start3').style.display = on ? 'none' : 'flex';
+  if (!on) { for (const k in keys) keys[k] = false; mouseDown = false; }
+}
+function setFree(on) {
+  freeMouse = on;
+  edgeX = edgeY = 0;
+  setLocked(on);
+}
 function lockMouse() {
   sound.init();
-  const p = canvas.requestPointerLock();
-  if (p && p.catch) p.catch(() => { $('#err3').textContent = 'o navegador não deixou travar o mouse — clique de novo'; });
+  $('#err3').textContent = '';
+  canvas.requestPointerLock()?.catch?.(() => {});   // a recusa é tratada no pointerlockerror, que vale em todo navegador
   if (cinema.playing && cineState.status !== 'playing') cinema.resume();
+}
+function unlockMouse() {
+  if (freeMouse) setFree(false);
+  else document.exitPointerLock();
 }
 $('#go3').onclick = lockMouse;
 document.addEventListener('pointerlockchange', () => {
-  locked = document.pointerLockElement === canvas;
-  $('#start3').style.display = locked ? 'none' : 'flex';
-  if (!locked) { for (const k in keys) keys[k] = false; mouseDown = false; }
+  const on = document.pointerLockElement === canvas;
+  if (locked && !on) lockLost = performance.now();
+  freeMouse = false;
+  setLocked(on);
+});
+document.addEventListener('pointerlockerror', () => {
+  // logo depois do Esc o navegador recusa por um instante; fora isso, a recusa é de vez
+  if (performance.now() - lockLost < 2000) { $('#err3').textContent = 'o navegador não deixou travar o mouse — clique de novo'; return; }
+  setFree(true);
+  showToast('🖱️ aqui o mouse fica solto: encoste na borda da tela pra virar · Esc abre o menu');
 });
 
 function resize() {
@@ -1296,6 +1350,7 @@ function rayBoxes(from, to) {
 }
 
 let fov = 72;
+const view = { zoom: 1 };
 function updateCamera(dt) {
   if (act) {
     act.camera(camera);
@@ -1312,7 +1367,7 @@ function updateCamera(dt) {
     camera.position.copy(me.pos).add(new V3(0, 0.95, 0));
     me.mesh.visible = false;
   } else {
-    const dist = 7 + Math.min(6, speed * 0.05);
+    const dist = (7 + Math.min(6, speed * 0.05)) * view.zoom;
     const want = pivot.clone().addScaledVector(dir, -dist);
     // olhando pra cima a câmera não afunda no telhado/chão: desliza por cima dele
     want.y = Math.max(want.y, me.pos.y + 0.3);
@@ -1420,6 +1475,7 @@ function simulate(now, dt) {
   updateCamera(dt);
   target = findTarget();
   if (locked) {
+    if (freeMouse && !act) { yaw -= edgeX * EDGE_TURN * dt; pitch = clamp(pitch - edgeY * EDGE_TURN * 0.5 * dt, -1.4, 1.25); }
     if (mouseDown && !me.hook && target && !act) { standUp(); attach(target); if (firstHook < 0) firstHook = now; }
     if (!mouseDown && me.hook) release();
   }
@@ -1438,11 +1494,13 @@ function simulate(now, dt) {
   if (me.flipT > 0) me.flipT -= dt;
 
   updateChunks(me.pos.x, me.pos.z);
-  if (!me.seat) orient(me.mesh, me.pos, me.vel, me.hook && me.hook.p, me.onGround, dt, me.flipT > 0 ? 1 - me.flipT / 0.5 : 0);
+  if (!me.seat) orient(me.mesh, me.pos, me.vel, me.hook && me.hook.p, me.onGround, dt);
   me.mesh.position.copy(me.pos);
-  if (me.hook) placeRope(me.rope, me.pos.clone().add(new V3(0, 0.6, 0).applyQuaternion(me.mesh.quaternion)), me.hook.p);
-  else me.rope.visible = false;
   updateCamera(0);
+  const body = me.mesh.userData.slime;
+  body.update(dt, { pos: me.pos, vel: me.vel, quat: me.mesh.quaternion, hook: me.hook ? me.hook.p : null, onGround: me.onGround, flip: me.flipT > 0 ? 1 - me.flipT / 0.5 : 0, sit: !!me.seat, wet: me.wet, floor: me.onGround ? me.pos.y - R : floorUnder(me.pos), visible: me.mesh.visible });
+  if (me.hook) placeRope(me.rope, body.hand, me.hook.p);
+  else me.rope.visible = false;
 
   trailPts.push(me.pos.clone());
   if (trailPts.length > 30) trailPts.shift();
@@ -1452,7 +1510,7 @@ function simulate(now, dt) {
   ring.visible = !!target && !me.hook;
   if (ring.visible) { ring.position.copy(target.p); ring.lookAt(camera.position); }
 
-  for (const r of remotes.values()) r.update();
+  for (const r of remotes.values()) r.update(dt);
   // o halo dos bonecos só faz sentido no escuro
   const halo = 0.1 + day.night * 0.4;
   me.mesh.userData.glow.material.opacity = halo;
@@ -1461,6 +1519,8 @@ function simulate(now, dt) {
   // luz do dia e vida na rua: o relógio é o mesmo pra todo mundo
   const T = ((Date.now() + clockOffset) / 1000) % 86400;
   day.update(hourNow(), T, me.pos);
+  slimes.update(dt, camera);
+  if (stage && !locked) stage.frame(dt);
   lightCity(mats, day);
   crowd.update(T, me.pos.x, me.pos.z, lot);
   traffic.update(T, me.pos.x, me.pos.z, day.night);
@@ -1482,7 +1542,7 @@ function simulate(now, dt) {
     net.send({
       t: 's3', p: [r2(me.pos.x), r2(me.pos.y), r2(me.pos.z)], v: [r2(me.vel.x), r2(me.vel.y), r2(me.vel.z)],
       q: [r2(q.x), r2(q.y), r2(q.z), r2(q.w)], h: me.hook ? [r2(me.hook.p.x), r2(me.hook.p.y), r2(me.hook.p.z)] : 0,
-      hk: me.hook ? me.hook.pid : 0, fl: me.flipT > 0 ? r2(1 - me.flipT / 0.5) : 0, st: me.seat ? 1 : 0,
+      hk: me.hook ? me.hook.pid : 0, fl: me.flipT > 0 ? r2(1 - me.flipT / 0.5) : 0, st: me.seat ? 1 : 0, g: me.onGround ? 1 : 0, w: me.wet ? 1 : 0,
     });
   }
   cinemaVolume();
@@ -1512,7 +1572,7 @@ window.__v3 = {
   get cineState() { return cineState; },
   setLook: (y, p) => { yaw = y; pitch = p; },
   lookAt: p => { const d = new V3().subVectors(p, camera.position); yaw = Math.atan2(-d.x, -d.z); pitch = Math.atan2(d.y, Math.hypot(d.x, d.z)); },
-  setMouse: v => { mouseDown = v; }, lock: v => { locked = v; },
+  setMouse: v => { mouseDown = v; }, lock: v => { locked = v; }, slimes, view,
   get target() { return target; },
   tick(dt = 1 / 60) { last += dt * 1000; simulate(last, dt); },
 };

@@ -154,6 +154,7 @@ export class Sound {
   airJump() { this.burst(0.3, 400, 2600, 1.2, 0.3); this.tone(420, 0.18, 0.07, 'triangle', 0, 900); }
   splash() { this.burst(0.7, 1800, 200, 0.8, 0.5, 'lowpass'); }
   whoosh() { this.burst(1.4, 220, 800, 0.6, 0.1); }
+  splat(k = 1) { this.tone(470, 0.16, 0.16 * k, 'sine', 0, 80); this.burst(0.13, 1200, 260, 1, 0.22 * k, 'lowpass'); }
   stage() { [523.3, 659.3, 784, 1046.5].forEach((f, i) => this.tone(f, 1.2, 0.05, 'triangle', i * 0.12)); }
   laser(far = false) { this.tone(far ? 1500 : 2200, 0.11, far ? 0.025 : 0.06, 'sawtooth', 0, 240); }
   hitMark() { this.tone(1900, 0.06, 0.09, 'square'); this.tone(2500, 0.05, 0.06, 'square', 0.04); }

@@ -3,7 +3,7 @@
 Jogo de navegador pra jogar com os amigos: gancho, momentum e céu aberto. Você segura o clique perto de um ponto brilhante, balança, solta no momento certo e sai voando.
 
 - **2D:** cabana no penhasco, queda livre pelas nuvens e cenários em sequência (praia e cidade em pixel art; canyon, neve e pôr do sol em vetor). Tem modo Céu de Drones, PVP com laser, skins de aranha com corda de teia e música do YouTube sincronizada pra party.
-- **3D (teste):** a mesma mecânica numa cidade infinita, com lojinhas, pedestres, trânsito e dia, tarde e noite. No meio tem um cinema gigante com telão do YouTube; na laje dele tem piscina, churrasqueira, rádio (YouTube e Spotify), sinuca, ping pong e quadro branco. No prédio do lado, ligado por uma passarela, tem uma quadra de basquete.
+- **3D (teste):** a mesma mecânica numa cidade infinita, com lojinhas, pedestres, trânsito e dia, tarde e noite. No meio tem um cinema gigante com telão do YouTube; na laje dele tem piscina, churrasqueira, rádio (YouTube e Spotify), sinuca, ping pong e quadro branco. No prédio do lado, ligado por uma passarela, tem uma quadra de basquete. O personagem é um carinha de gelatina que estica, treme e corre feito desenho animado: dá pra escolher a skin e o quanto ele é mole.
 - **Voz:** call dentro do jogo, no 2D e no 3D, escolhendo microfone e saída de áudio.
 
 ## Como rodar
@@ -34,4 +34,4 @@ Controles e detalhes estão no [LEIA-ME.txt](LEIA-ME.txt).
 - `public/js/voice.js`: voz por WebRTC, direto entre os jogadores; o servidor só faz a sinalização.
 - `public/js/`: versão 2D em Canvas, com física da corda, mundo procedural, renderização, rede e áudio procedural.
 - `public/js3d/game3d.js`: versão 3D com [Three.js](https://threejs.org) (carregado pela internet). O telão do cinema é um player do YouTube em CSS 3D que aparece por um "buraco" transparente no canvas.
-- `public/js3d/`: `daycycle.js` (céu, sol, lua e luz), `street.js` (lotes, lojinhas, pedestres e trânsito), `skyline.js` (horizonte simulado: milhares de prédios numa chamada de desenho), `textures.js` (fachadas e chão em canvas), `roof.js` (laje e quadra), `games.js` (sinuca, ping pong, basquete) e `board.js` (quadro branco).
+- `public/js3d/`: `daycycle.js` (céu, sol, lua e luz), `street.js` (lotes, lojinhas, pedestres e trânsito), `skyline.js` (horizonte simulado: milhares de prédios numa chamada de desenho), `textures.js` (fachadas e chão em canvas), `roof.js` (laje e quadra), `games.js` (sinuca, ping pong, basquete), `board.js` (quadro branco) e `slime.js` (o boneco de gelatina: forma em SDF, esqueleto elástico, molas por vértice e a casca que refrata a cena).

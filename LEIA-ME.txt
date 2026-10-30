@@ -66,6 +66,7 @@ VERSÃO 3D (TESTE)
   Shift PRESO NA CORDA = BOOST (prende, boosta rapidinho, solta e acumula velocidade)
   Shift solto no ar = mergulho (no chão corre) · E ou rodinha = corda · T ir até o amigo · R voltar ao início
   A teia é elástica e encurta sozinha perto do chão. Segure S preso na teia pra descer de propósito.
+  PERSONAGEM: no Esc escolha a skin e o quanto ele é mole (0 = borracha, 100 = derretendo). Todo mundo vê.
   Em alta velocidade o voo desvia sozinho dos prédios e puxa pro meio do vão entre eles.
   P mostra o FPS na tela
   CINEMA: o prédio gigante na frente do início. Entre pelas portas laterais (perto do chão).

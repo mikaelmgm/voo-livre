@@ -28,6 +28,7 @@ const MIME = {
 // Semente do mundo: todos os jogadores conectados geram exatamente o mesmo percurso.
 const SEED = crypto.randomBytes(4).readUInt32LE(0);
 const SKINS = ['scarf', 'spider', 'miles'];
+const SKINS3 = ['spider', 'miles', 'simb', 'gummy', 'scarf'];
 
 // Configurações da party, iguais pra todo mundo: PVP, mapa, música do YouTube, vídeo do telão do cinema (3D),
 // rádio da laje (YouTube ou Spotify) e o horário do dia (3D).
@@ -129,6 +130,8 @@ class Client {
     this.name = 'Jogador';
     this.color = '#ffcf5a';
     this.skin = 'scarf';
+    this.skin3 = 'spider';
+    this.slime = 60;
     this.voice = false;
     this.muted = false;
     socket.setNoDelay(true);
@@ -142,7 +145,7 @@ class Client {
     });
   }
 
-  info() { return { id: this.id, name: this.name, color: this.color, skin: this.skin }; }
+  info() { return { id: this.id, name: this.name, color: this.color, skin: this.skin, skin3: this.skin3, slime: this.slime }; }
   voiceInfo() { return { id: this.id, name: this.name, color: this.color, muted: this.muted }; }
 
   onData(chunk) {
@@ -198,6 +201,8 @@ class Client {
         this.name = String(m.name || 'Jogador').replace(/[<>]/g, '').trim().slice(0, 16) || 'Jogador';
         if (/^#[0-9a-f]{6}$/i.test(m.color)) this.color = m.color;
         if (SKINS.includes(m.skin)) this.skin = m.skin;
+        if (SKINS3.includes(m.skin3)) this.skin3 = m.skin3;
+        if (Number.isFinite(m.slime)) this.slime = Math.max(0, Math.min(100, Math.round(m.slime)));
         const first = !this.joined;
         this.joined = true;
         broadcast({ t: 'join', ...this.info() }, this);

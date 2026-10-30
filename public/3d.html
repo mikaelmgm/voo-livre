@@ -51,6 +51,15 @@
   #radio-status { font-size: 12.5px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   #time-label { font-size: 13px; color: var(--ink); font-weight: 600; white-space: nowrap; }
   #time-hour { width: 100%; }
+  .char { display: flex; gap: 12px; align-items: stretch; }
+  #slime-stage { width: 168px; height: 190px; flex: none; border-radius: 12px; cursor: pointer; background: radial-gradient(circle at 50% 70%, rgba(255, 255, 255, 0.16), rgba(255, 255, 255, 0.03) 70%); }
+  .char-opts { flex: 1; min-width: 0; display: flex; flex-direction: column; justify-content: center; gap: 10px; }
+  .char-opts .vol { display: flex; align-items: center; gap: 8px; }
+  #start3 .skins { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+  #start3 .skins button { font-size: 13px; font-weight: 600; padding: 8px 6px; color: var(--ink); background: rgba(255, 255, 255, 0.06); box-shadow: none; border: 1px solid var(--line); border-radius: 10px; }
+  #start3 .skins button.on { background: rgba(255, 207, 63, 0.22); color: #fff3c4; border-color: #ffcf3f; }
+  #slime-label { font-size: 13px; font-weight: 600; color: var(--ink); }
+  @media (max-width: 480px) { .char { flex-direction: column; align-items: center; } .char-opts { width: 100%; } }
   .wide-vol { flex: 1; }
   .wide-vol input { flex: 1; width: auto; }
   #sp-box iframe { width: 320px !important; height: 152px !important; display: block; }
@@ -99,7 +108,7 @@
 <div id="start3">
   <div class="panel">
     <div class="logo small">VOO<span>LIVRE 3D</span></div>
-    <div class="tag">versão de teste · laje, quadra e cidade viva</div>
+    <div class="tag">versão de teste · laje, quadra, cidade viva e boneco de gelatina</div>
     <div class="controls inline">
       <div><b>Mouse</b> olha em volta · <b>segure o clique</b> mirando num ponto brilhante (ou no amigo) → gancho · <b>solte</b> → voa</div>
       <div><b>Shift preso na corda = BOOST</b> (prende, boosta rapidinho, solta e acumula velocidade) · Shift solto no ar = mergulho · no chão = correr</div>
@@ -114,6 +123,17 @@
     <div class="quick">
       <button id="go-roof">🍖 Ir pra laje</button>
       <button id="go-court">🏀 Ir pra quadra</button>
+    </div>
+    <div class="box">
+      <div class="box-h">🟢 Personagem <small>(todo mundo vê · clique nele pra cutucar)</small></div>
+      <div class="char">
+        <canvas id="slime-stage"></canvas>
+        <div class="char-opts">
+          <div class="skins" id="skin-pick"></div>
+          <label class="vol wide-vol">slime <input type="range" id="slime-amt" min="0" max="100" step="1"></label>
+          <span id="slime-label"></span>
+        </div>
+      </div>
     </div>
     <div class="box">
       <div class="box-h">🕑 Horário do dia <small>(vale pra todo mundo no 3D)</small></div>
