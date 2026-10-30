@@ -14,10 +14,13 @@ import { roofLayout, courtLayout, groundLift, buildRoof, buildCourt } from './ro
 import { Skyline } from './skyline.js';
 import { Whiteboard } from './board.js';
 import { Slime, SlimeWorld, SlimeStage, SLIME_SKINS } from './slime.js';
+import { Space, SUN } from './space.js';
+import { Backrooms, BACK_H } from './backrooms.js';
 import { Sinuca, Pong, Basket } from './games.js';
 
 const $ = s => document.querySelector(s);
 const V3 = THREE.Vector3;
+const sstep = (a, b, x) => { const t = clamp((x - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); };
 
 // ------------------------------------------------------------------ constantes (em metros)
 const CHUNK = 4;              // lotes por pedaço de cidade: pequeno pra montar sem dar tranco
@@ -33,7 +36,13 @@ let Q = QUALITY[3];
 const G = 26;
 const ROPE_MAX = 115, ROPE_MIN = 3;
 const WALK = 10, SPRINT = 18, JUMP = 11, AIR_JUMP = 13;
-const PUMP = 16, AIR = 9, DIVE = 24, DRAG = 0.012, MAX_SPEED = 100, RELEASE_BOOST = 6, REEL = 18;
+const PUMP = 16, AIR = 9, DIVE = 24, DRAG = 0.012, RELEASE_BOOST = 6, REEL = 18;
+// não existe teto de velocidade: o que passa de CRUISE evapora, o excesso cai pela metade a cada meio segundo
+const CRUISE = 100, OVERSPEED = 1.3;
+const WALL_REACH = 1.1, WALL_PUSH = 17, WALL_UP = 14;     // pulo na parede
+// estilingue: recua até SLING_MAX, ou mais SLING_TUG com um amigo puxando; quanto mais longe, mais pesado
+const SLING_MAX = 24, SLING_TUG = 28, SLING_RATE = 15, SLING_POWER = 9;
+const PULL_RATE = 26, THROW = 60, CARRY_Y = 2.7;          // puxar o amigo pela teia, arremessar quem está no colo
 // a teia é uma mola: estica até um limite e devolve, em vez de ser uma barra rígida que freia você
 const ROPE_K = 70, ROPE_DAMP = 5, ROPE_STRETCH = 0.16;
 const GROUND_CLEAR = 3.4, GUARD_RATE = 48;     // o arco da teia nunca passa rente ao chão (S segurado libera)
@@ -130,10 +139,11 @@ function cinemaLot(cx, cz) {
     }
   }
   const hallBoxes = boxes.slice();
+  const backDoor = { x: cx, y: 4, z: cz + hd - 1 };
   const lift = groundLift(cx, cz);
   boxes.push(...roof.boxes, Object.assign(lift.box, { kind: 'wall' }));
   return {
-    cx, cz, w: hw * 2, d: hd * 2, h, park: false, cinema: true, anchors: towerAnchors(cx, cz, hw, hd, h, 900000), boxes, hall: hallBoxes, seats, roof, lift,
+    cx, cz, w: hw * 2, d: hd * 2, h, park: false, cinema: true, anchors: towerAnchors(cx, cz, hw, hd, h, 900000), boxes, hall: hallBoxes, seats, roof, lift, backDoor,
     screen: new V3(cx, 3.3 + CINEMA.scrH / 2, cz - hd + 1.15),
   };
 }
@@ -150,6 +160,11 @@ function courtLot(cx, cz) {
 function inCinema(p) {
   const C = lot(CINEMA.i, CINEMA.j);
   return Math.abs(p.x - C.cx) < CINEMA.hw - 1 && Math.abs(p.z - C.cz) < CINEMA.hd - 1 && p.y < CINEMA.hall;
+}
+
+// o que tem de sólido por perto no mundo em que você está
+function lotsNear(x, z, r) {
+  return me.where === 'city' ? lotsAround(x, z, r) : me.where === 'back' ? back.near(x, z) : [];
 }
 
 function lotsAround(x, z, r) {
@@ -184,6 +199,8 @@ document.body.prepend(cssRenderer.domElement);
 const cssScene = new THREE.Scene();
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 const scene = new THREE.Scene();
+const city = new THREE.Group();
+scene.add(city);
 const camera = new THREE.PerspectiveCamera(72, 1, 0.1, 4500);
 camera.rotation.order = 'YXZ';
 
@@ -202,7 +219,7 @@ const glowMat = new THREE.PointsMaterial({
 const ground = new THREE.Mesh(new THREE.PlaneGeometry(CELL * 120, CELL * 120), new THREE.MeshLambertMaterial({ map: groundTexture() }));
 ground.rotation.x = -Math.PI / 2;
 ground.receiveShadow = true;
-scene.add(ground);
+city.add(ground);
 
 // ---- o prédio do cinema
 const hallMat = new THREE.MeshLambertMaterial({ color: '#3a2147' });
@@ -244,6 +261,7 @@ function cinemaSigns() {
     tall: signTexture(160, 960, (g, w, h) => { bg(g, w, h); bulbs(g, w, h, 26); [...'CINEMA'].forEach((ch, k) => neon(g, ch, w / 2, 110 + k * 148, 128, '#ff4fa3')); }),
     door: signTexture(512, 128, (g, w, h) => { bg(g, w, h); bulbs(g, w, h, 18); neon(g, 'CINEMA', w / 2, 58, 64, '#ffcf3f'); g.font = '600 22px Outfit, system-ui'; g.fillStyle = '#ffd9ef'; g.fillText('entrada · telão gigante', w / 2, 100); }),
     lift: signTexture(512, 128, (g, w, h) => { bg(g, w, h); neon(g, '▲ LAJE', w / 2, 58, 64, '#ffcf3f'); g.font = '600 22px Outfit, system-ui'; g.fillStyle = '#ffd9ef'; g.fillText('elevador · piscina e churrasco', w / 2, 104); }),
+    keep: signTexture(320, 80, (g, w, h) => { bg(g, w, h); neon(g, 'NÃO ENTRE', w / 2, h / 2 + 2, 42, '#ff4a3a'); }),
     front: signTexture(1024, 128, (g, w, h) => { bg(g, w, h); bulbs(g, w, h, 18); neon(g, '◀  ENTRADA PELAS LATERAIS  ▶', w / 2, 66, 58, '#4ff7ff'); }),
   };
   return signs;
@@ -283,6 +301,13 @@ function buildCinema(L) {
   const g = new THREE.Group();
   g.add(solid(tower.build(), mats.facades[1]), solid(walls.build(), hallMat), new THREE.Mesh(floor.build(), carpetMat),
     new THREE.Mesh(seats.build(), seatMat), new THREE.Mesh(frame.build(), frameMat), new THREE.Mesh(lamps.build(), lampMat));
+  // porta entreaberta com a luz amarela vazando pelo vão
+  const D = L.backDoor, door = new Boxes(), leak = new Boxes();
+  door.box(D.x - 0.72, D.y, D.z - 0.06, D.x + 0.72, D.y + 2.5, D.z, false);
+  door.box(D.x - 0.62, D.y, D.z - 0.09, D.x + 0.42, D.y + 2.38, D.z - 0.06, false);
+  leak.box(D.x + 0.44, D.y, D.z - 0.08, D.x + 0.62, D.y + 2.38, D.z - 0.06, false);
+  leak.box(D.x + 0.2, D.y + 0.01, D.z - 1.2, D.x + 0.66, D.y + 0.03, D.z - 0.08, false);
+  g.add(new THREE.Mesh(door.build(), new THREE.MeshBasicMaterial({ color: '#17100b' })), new THREE.Mesh(leak.build(), new THREE.MeshBasicMaterial({ color: '#ffe27a', toneMapped: false })));
   const sg = cinemaSigns();
   const plane = (tex, w, hh, x, y, z, ry) => {
     const m = new THREE.Mesh(new THREE.PlaneGeometry(w, hh), new THREE.MeshBasicMaterial({ map: tex, toneMapped: false }));
@@ -295,6 +320,7 @@ function buildCinema(L) {
   plane(sg.door, 8, 2, cx + hw + 0.2, 7.6, cz - 13, Math.PI / 2);
   plane(sg.door, 8, 2, cx - hw - 0.2, 7.6, cz - 13, -Math.PI / 2);
   plane(sg.lift, 3.6, 0.9, lift[3] + 0.04, 2.6, (lift[2] + lift[5]) / 2, Math.PI / 2);
+  plane(sg.keep, 1.5, 0.38, D.x, D.y + 2.8, D.z - 0.04, Math.PI);
   const hole = new THREE.Mesh(new THREE.PlaneGeometry(CINEMA.scrW, CINEMA.scrH), holeMat);
   hole.position.copy(L.screen);
   g.add(hole);
@@ -336,7 +362,7 @@ function buildChunk(ci, cj) {
     const glows = new THREE.Points(new THREE.BufferGeometry().setFromPoints(anchors.map(an => new V3(an.x, an.y, an.z))), glowMat);
     group.add(orbs, glows);
   }
-  scene.add(group);
+  city.add(group);
   return { group, detail, ci, cj };
 }
 
@@ -360,7 +386,7 @@ function updateChunks(x, z) {
     c.detail.visible = Math.hypot((c.ci + 0.5) * size - x, (c.cj + 0.5) * size - z) < Q.detail + size / 2;
     if (Math.abs(c.ci - ci) > view + 1 || Math.abs(c.cj - cj) > view + 1) {
       skyline.dirty = true;
-      scene.remove(c.group);
+      city.remove(c.group);
       c.group.traverse(o => { if ((o.isMesh || o.isPoints) && !o.geometry.userData.shared) o.geometry.dispose(); if (o.isInstancedMesh) o.dispose(); });
       chunks.delete(k);
     }
@@ -404,6 +430,15 @@ function makeRope(skin, color) {
   return m;
 }
 const UP = new V3(0, 1, 0);
+// a teia sai da mão e voa até o ponto; nas skins sem teia quem faz esse papel é o próprio braço
+const ropeEnd = new V3();
+function placeRopes(ropes, hooks, body) {
+  ropes.forEach((rope, i) => {
+    const h = hooks[i];
+    if (!h || body.armOnly) { rope.visible = false; return; }
+    placeRope(rope, body.hands[i], ropeEnd.copy(body.hands[i]).lerp(h.p, Math.min(1, h.t / 0.12 || 1)));
+  });
+}
 function placeRope(rope, a, b) {
   const d = new V3().subVectors(b, a);
   const len = d.length();
@@ -451,18 +486,24 @@ function orient(obj, pos, vel, hook, onGround, dt) {
 // ------------------------------------------------------------------ jogador local
 
 const me = {
-  pos: new V3(), vel: new V3(), onGround: false, hook: null, airJumps: 1, flipT: 0, boosting: false, seat: null, wet: false,
-  mesh: makeBody(SKIN3, COLOR, SLIME), rope: makeRope(SKIN3, COLOR),
+  pos: new V3(), vel: new V3(), onGround: false, hooks: [null, null], airJumps: 1, flipT: 0, boosting: false, seat: null, wet: false,
+  sling: null, tug: null, carry: 0, carried: 0, wallCool: 0, where: 'city', home: new V3(),
+  mesh: makeBody(SKIN3, COLOR, SLIME), ropes: [makeRope(SKIN3, COLOR), makeRope(SKIN3, COLOR)],
+  get hook() { return this.hooks[0] || this.hooks[1]; },        // uma teia qualquer, a que estiver presa
+  set hook(v) { this.hooks[0] = v; this.hooks[1] = null; },
 };
 scene.add(me.mesh);
 let yaw = 0, pitch = -0.15;
 
 function start() {
+  if (me.where !== 'city') setWhere('city');
   const L = lot(0, 0);
   standUp();
   me.pos.set(L.cx, L.h + R + 0.05, L.cz + L.d / 2 - 3);
   me.vel.set(0, 0, 0);
   me.hook = null;
+  me.sling = null;
+  me.carried = 0;
   me.airJumps = 1;
   yaw = 0;
   pitch = -0.12;
@@ -500,22 +541,29 @@ function standUp() {
 start();
 
 const keys = {};
-let mouseDown = false, jumpPressed = false, wheel = 0, locked = false;
+let mouseDown = false, mouseRight = false, jumpPressed = false, wheel = 0, locked = false;
+const hookWait = [false, false];    // depois de um lançamento, a mão só atira de novo soltando o botão
+const pulling = () => !!(keys.ControlLeft || keys.ControlRight || keys.KeyC);
 
+const here = r => r.pos && !r.stale && r.where === me.where;
 function hookTargets() {
   const out = [];
-  for (const L of lotsAround(me.pos.x, me.pos.z, ROPE_MAX + 10)) for (const a of L.anchors) out.push({ p: new V3(a.x, a.y, a.z), id: a.id });
-  for (const r of remotes.values()) if (r.pos && !r.stale) out.push({ p: r.pos.clone().add(new V3(0, 0.4, 0)), pid: r.id });
+  if (me.where === 'city') for (const L of lotsAround(me.pos.x, me.pos.z, ROPE_MAX + 10)) for (const a of L.anchors) out.push({ p: new V3(a.x, a.y, a.z), id: a.id });
+  if (me.where === 'moon') for (const r of space.rocksNear(me.pos.x, me.pos.z, ROPE_MAX)) if (r.anchor) out.push({ p: new V3(r.x, r.y + r.top, r.z), id: r.id });
+  for (const r of remotes.values()) if (here(r) && r.id !== me.carry) out.push({ p: r.pos.clone().add(new V3(0, 0.4, 0)), pid: r.id });
   return out;
 }
 
 let target = null;
-function findTarget() {
+function findTarget(dt) {
   const dir = new V3(0, 0, -1).applyQuaternion(camera.quaternion);
+  watchSky(dir);
+  if (gaze.ready && dir.dot(skyDir()) > 0.994) return { p: me.pos.clone(), sky: true };
   let best = null, bestA = 0.22;
   for (const t of hookTargets()) {
     const dme = t.p.distanceTo(me.pos);
     if (dme > ROPE_MAX || dme < 2) continue;
+    if (me.hooks.some(h => h && (t.pid ? h.pid === t.pid : h.id === t.id))) continue;    // a outra mão vai pra outro lugar
     const toT = new V3().subVectors(t.p, camera.position).normalize();
     const ang = Math.acos(clamp(toT.dot(dir), -1, 1));
     if (ang < bestA) { bestA = ang; best = t; }
@@ -523,23 +571,102 @@ function findTarget() {
   return best;
 }
 
-function attach(t) {
-  me.hook = { p: t.p.clone(), L: clamp(t.p.distanceTo(me.pos), ROPE_MIN, ROPE_MAX + 10), pid: t.pid || 0 };
+function attach(t, hand = 0) {
+  me.hooks[hand] = { p: t.p.clone(), L: clamp(t.p.distanceTo(me.pos), ROPE_MIN, ROPE_MAX + 10), pid: t.pid || 0, id: t.id, t: 0 };
   me.airJumps = 1;
 }
 
-function release() {
+// solta uma das mãos, ou as duas se nenhuma for dita. O embalo extra vem quando a última teia solta.
+function release(hand) {
+  if (me.sling) { launch(); return; }
   if (!me.hook) return;
-  me.hook = null;
+  if (hand === undefined) me.hooks[0] = me.hooks[1] = null;
+  else { me.hooks[hand] = null; if (me.hook) return; }
   const s = me.vel.length();
   if (s > 5) me.vel.addScaledVector(me.vel, RELEASE_BOOST / s);
+}
+
+// CTRL com a teia presa em algo que não mexe: quem vai pra trás é você, esticando a teia feito um estilingue
+function startSling() {
+  const fixed = me.hooks.filter(h => h && !h.pid);
+  for (const h of fixed) h.L = Math.max(h.L, me.pos.distanceTo(h.p));
+  me.sling = { home: me.pos.clone(), x: 0, ropes: fixed.length, back: new V3() };
+}
+function slingStep(dt) {
+  const S = me.sling, tugged = me.tug && performance.now() < me.tug.until, top = SLING_MAX + (tugged ? SLING_TUG : 0);
+  if (tugged) S.back.subVectors(me.tug.p, S.home).normalize();                  // o amigo puxa pro lado dele
+  else S.back.set(0, 0, 1).applyQuaternion(camera.quaternion);                  // sozinho, você recua do lado oposto de onde olha
+  S.x = Math.min(top, S.x + SLING_RATE * (tugged ? 2.4 : 1) * Math.pow(Math.max(0, 1 - S.x / top), 1.5) * dt);
+  me.pos.lerp(new V3().copy(S.home).addScaledVector(S.back, S.x), 1 - Math.exp(-dt * 9));
+  me.vel.set(0, 0, 0);
+  collide();
+  S.x = Math.min(S.x, me.pos.distanceTo(S.home) + 3);                           // encostou em algo: a teia não estica além do corpo
+}
+function launch() {
+  const S = me.sling;
+  me.sling = null;
+  me.hooks[0] = me.hooks[1] = null;
+  hookWait[0] = hookWait[1] = true;
+  const d = new V3().subVectors(S.home, me.pos), x = d.length();
+  if (x < 1) return;
+  d.divideScalar(x);
+  me.vel.copy(d).multiplyScalar(SLING_POWER * x * (S.ropes > 1 ? 1 : 0.72));
+  me.vel.y += 6;
+  me.onGround = false;
+  me.airJumps = 1;
+  me.mesh.userData.slime.fling(d.x, d.y, d.z, x / SLING_MAX);
+  sound.twang(x / SLING_MAX);
+}
+
+// amigo no colo: F pega, F de novo arremessa pra onde você olha, somando a sua velocidade
+function nearFriend() {
+  let best = null, bd = 4.2;
+  for (const r of remotes.values()) {
+    if (!here(r)) continue;
+    // a posição do amigo chega com 0,1 s de atraso: voando rápido, ele já está bem mais na frente
+    const d = Math.hypot(r.pos.x + r.vel.x * 0.1 - me.pos.x, r.pos.y + r.vel.y * 0.1 - me.pos.y, r.pos.z + r.vel.z * 0.1 - me.pos.z);
+    if (d < bd) { bd = d; best = r; }
+  }
+  return best;
+}
+function grabFriend(r) {
+  me.carry = r.id;
+  net.send({ t: 'p3', to: r.id, k: 'grab' });
+}
+function throwFriend() {
+  const v = new V3(0, 0, -1).applyQuaternion(camera.quaternion).multiplyScalar(THROW).add(me.vel);
+  const p = me.pos.clone();
+  p.y += CARRY_Y;
+  net.send({ t: 'p3', to: me.carry, k: 'throw', p: [p.x, p.y, p.z], v: [v.x, v.y, v.z] });
+  me.carry = 0;
+  sound.twang(0.5);
+}
+// o que os outros jogadores fazem com você
+function touched(m) {
+  if (m.k === 'tug') me.tug = { p: new V3(m.p[0], m.p[1], m.p[2]), L: m.L, until: performance.now() + 220 };
+  else if (m.k === 'grab') {
+    leaveAct();
+    standUp();
+    me.sling = null;
+    me.hook = null;
+    me.carried = m.from;
+    showToast('Te pegaram! Espaço pra se soltar');
+  } else if (m.k === 'throw') {
+    me.carried = 0;
+    me.pos.set(m.p[0], m.p[1], m.p[2]);
+    me.vel.set(m.v[0], m.v[1], m.v[2]);
+    const s = me.vel.length() || 1;
+    me.mesh.userData.slime.fling(me.vel.x / s, me.vel.y / s, me.vel.z / s, 1);
+  } else if (m.k === 'free' && me.carry === m.from) me.carry = 0;
 }
 
 // colisão esfera x caixas (prédios) + chão
 function collide() {
   me.onGround = false;
+  if (me.where === 'moon') { moonCollide(); return; }
   if (me.pos.y < R) { me.pos.y = R; if (me.vel.y < 0) me.vel.y = 0; me.onGround = true; }
-  for (const L of lotsAround(me.pos.x, me.pos.z, CELL)) for (const b of L.boxes) {
+  if (me.where === 'back' && me.pos.y > BACK_H - 1.15) { me.pos.y = BACK_H - 1.15; if (me.vel.y > 0) me.vel.y = 0; }
+  for (const L of lotsNear(me.pos.x, me.pos.z, CELL)) for (const b of L.boxes) {
     const qx = clamp(me.pos.x, b[0], b[3]), qy = clamp(me.pos.y, b[1], b[4]), qz = clamp(me.pos.z, b[2], b[5]);
     const dx = me.pos.x - qx, dy = me.pos.y - qy, dz = me.pos.z - qz;
     const d2 = dx * dx + dy * dy + dz * dz;
@@ -577,6 +704,21 @@ function collide() {
   if (me.onGround) me.airJumps = 1;
 }
 
+function moonCollide() {
+  const floor = space.height(me.pos.x, me.pos.z) + R;
+  if (me.pos.y < floor) { me.pos.y = floor; if (me.vel.y < 0) me.vel.y = 0; me.onGround = true; }
+  for (const r of space.rocksNear(me.pos.x, me.pos.z, 6)) {
+    const dx = me.pos.x - r.x, dy = me.pos.y - r.y, dz = me.pos.z - r.z, d = Math.hypot(dx, dy, dz), far = r.r + R;
+    if (d >= far || d < 1e-4) continue;
+    const nx = dx / d, ny = dy / d, nz = dz / d;
+    me.pos.set(r.x + nx * far, r.y + ny * far, r.z + nz * far);
+    const vn = me.vel.x * nx + me.vel.y * ny + me.vel.z * nz;
+    if (vn < 0) me.vel.set(me.vel.x - nx * vn, me.vel.y - ny * vn, me.vel.z - nz * vn);
+    if (ny > 0.6) me.onGround = true;
+  }
+  if (me.onGround) me.airJumps = 1;
+}
+
 // piscina da laje: água no peito, boia e dá pra pular pra fora
 function inPool() {
   const W = lot(CINEMA.i, CINEMA.j).roof.pool, p = me.pos;
@@ -584,25 +726,34 @@ function inPool() {
 }
 
 function step(dt) {
+  if (me.sling) { jumpPressed = false; slingStep(dt); return; }
   const fwd = new V3(-Math.sin(yaw), 0, -Math.cos(yaw));
   const right = new V3(Math.cos(yaw), 0, -Math.sin(yaw));
   const wish = new V3()
     .addScaledVector(fwd, (keys.KeyW ? 1 : 0) - (keys.KeyS ? 1 : 0))
     .addScaledVector(right, (keys.KeyD ? 1 : 0) - (keys.KeyA ? 1 : 0));
   if (wish.lengthSq() > 0) wish.normalize();
-  const acc = new V3(0, -G, 0);
-  const wet = inPool();
+  const onMoon = me.where === 'moon', jump = onMoon ? JUMP * 1.6 : JUMP;
+  const acc = new V3(0, onMoon ? -G / 5 : -G, 0);
+  const wet = me.where === 'city' && inPool();
   if (wet && !me.wet && me.vel.y < -3) { sound.splash(); splash(me.pos); }
   me.wet = wet;
+  me.wallCool -= dt;
+  if (jumpPressed && !me.onGround && !wet && me.wallCool <= 0) {
+    const w = nearWall();
+    if (w) { wallJump(w); jumpPressed = false; }
+  }
 
-  if (wet && !me.hook) {
+  // puxando o amigo com CTRL você continua de pé no chão, nada te segura pela teia
+  const tied = me.hook && !me.hooks.every(h => !h || (h.pid && pulling()));
+  if (wet && !tied) {
     const W = lot(CINEMA.i, CINEMA.j).roof.pool, k = Math.min(1, dt * 5);
     me.vel.x += (wish.x * 5.5 - me.vel.x) * k;
     me.vel.z += (wish.z * 5.5 - me.vel.z) * k;
     acc.y = me.pos.y < W.water - 0.35 ? G * 0.8 : -G * 0.5;
     me.vel.y *= Math.exp(-dt * 3.5);
     if (jumpPressed) { me.vel.y = JUMP; me.onGround = false; }
-  } else if (me.onGround && !me.hook) {
+  } else if (me.onGround && !tied) {
     const sp = keys.ShiftLeft || keys.ShiftRight ? SPRINT : WALK;
     if (Math.hypot(me.vel.x, me.vel.z) > SPRINT + 1) {
       // chegou embalado: desliza e perde velocidade aos poucos, dá pra emendar outro pulo sem parar
@@ -614,33 +765,39 @@ function step(dt) {
       me.vel.x += (wish.x * sp - me.vel.x) * k;
       me.vel.z += (wish.z * sp - me.vel.z) * k;
     }
-    if (jumpPressed) { me.vel.y = JUMP; me.onGround = false; }
+    if (jumpPressed) { me.vel.y = jump; me.onGround = false; }
   } else if (me.hook) {
-    const n = new V3().subVectors(me.pos, me.hook.p).normalize();
+    // com duas teias, o "pra cima" é a média das duas
+    const n = new V3();
+    for (const h of me.hooks) if (h) n.add(new V3().subVectors(me.pos, h.p).normalize());
+    if (n.lengthSq() > 1e-4) n.normalize();
+    else n.set(0, -1, 0);
     const f = wish.clone().multiplyScalar(PUMP);
     f.addScaledVector(n, -f.dot(n));
     acc.add(f);
     // perto do chão a teia encurta sozinha, pra você passar por cima em vez de arrastar o pé
-    if (!me.hook.pid && !keys.KeyS) {
+    if (!keys.KeyS) for (const h of me.hooks) {
+      if (!h || h.pid) continue;
       // conta quanto a teia vai esticar nessa velocidade, senão a mola leva você pro chão do mesmo jeito
-      const sag = Math.min(me.hook.L * ROPE_STRETCH + 1.5, me.vel.lengthSq() / (Math.max(me.hook.L, 4) * ROPE_K));
-      const safe = Math.max(ROPE_MIN, me.hook.p.y - GROUND_CLEAR - sag);
-      if (me.hook.L > safe) me.hook.L = Math.max(safe, me.hook.L - (GUARD_RATE + Math.max(0, -me.vel.y) * 1.2) * dt);
+      const sag = Math.min(h.L * ROPE_STRETCH + 1.5, me.vel.lengthSq() / (Math.max(h.L, 4) * ROPE_K));
+      const safe = Math.max(ROPE_MIN, h.p.y - GROUND_CLEAR - sag);
+      if (h.L > safe) h.L = Math.max(safe, h.L - (GUARD_RATE + Math.max(0, -me.vel.y) * 1.2) * dt);
     }
     // ajuda a manter o embalo: empurra de leve pra onde você já está indo
     const along = me.vel.clone().addScaledVector(n, -me.vel.dot(n)), sp = along.length();
     if (sp > 8 && sp < ASSIST_TOP) acc.addScaledVector(along, ASSIST * (1 - sp / ASSIST_TOP) / sp);
     let dl = wheel;
     if (keys.KeyE) dl -= REEL * dt;
-    if (dl) {
-      const L0 = me.hook.L, L1 = clamp(L0 + dl, ROPE_MIN, ROPE_MAX + 10);
-      if (L1 < L0 && me.pos.distanceTo(me.hook.p) >= L0 - 0.1) {
+    if (dl) for (const h of me.hooks) {
+      if (!h) continue;
+      const L0 = h.L, L1 = clamp(L0 + dl, ROPE_MIN, ROPE_MAX + 10);
+      if (L1 < L0 && me.pos.distanceTo(h.p) >= L0 - 0.1) {
         // encurtar com a corda esticada gira mais rápido (momento angular)
         const vr = me.vel.dot(n);
         const tang = me.vel.clone().addScaledVector(n, -vr).multiplyScalar(Math.min(1.04, L0 / L1));
         me.vel.copy(tang.addScaledVector(n, vr));
       }
-      me.hook.L = L1;
+      h.L = L1;
     }
     wheel = 0;
     if (keys.ShiftLeft || keys.ShiftRight) {
@@ -661,38 +818,67 @@ function step(dt) {
   me.vel.addScaledVector(acc, dt);
   me.vel.multiplyScalar(Math.exp(-DRAG * dt));
   const s = me.vel.length();
-  if (s > MAX_SPEED) me.vel.multiplyScalar(MAX_SPEED / s);
+  if (s > CRUISE) me.vel.multiplyScalar((CRUISE + (s - CRUISE) * Math.exp(-OVERSPEED * dt)) / s);
   me.pos.addScaledVector(me.vel, dt);
 
-  if (me.hook) {
-    const d = me.pos.distanceTo(me.hook.p);
-    if (d > me.hook.L) {
-      const n = new V3().subVectors(me.pos, me.hook.p).divideScalar(d);
-      const over = d - me.hook.L, vr = me.vel.dot(n), s0 = me.vel.length();
-      // a mola curva a trajetória; voando rápido ela nunca tira velocidade, só muda a direção
-      me.vel.addScaledVector(n, -(ROPE_K * over * (vr < 0 ? 0.55 : 1) + (vr > 0 ? ROPE_DAMP * vr : 0)) * dt);
-      const s1 = me.vel.length();
-      if (s0 > 15 && s1 < s0) me.vel.multiplyScalar(s0 / s1);
-      const limit = me.hook.L * ROPE_STRETCH + 1.5;
-      if (over > limit) {
-        me.pos.copy(me.hook.p).addScaledVector(n, me.hook.L + limit);
-        const v2 = me.vel.dot(n);
-        if (v2 > 0) {
-          me.vel.addScaledVector(n, -v2);
-          const s2 = me.vel.length();
-          if (s0 > 15 && s2 > 0.01) me.vel.multiplyScalar(s0 / s2);
-        }
-      }
-    }
+  for (const h of me.hooks) if (h && !(h.pid && pulling())) ropePull(h, dt);    // com CTRL, quem vem é o amigo, não você
+  if (me.tug) {
+    if (performance.now() < me.tug.until) ropePull(me.tug, dt);
+    else me.tug = null;
   }
   collide();
+}
+
+function ropePull(h, dt) {
+  const d = me.pos.distanceTo(h.p);
+  if (d <= h.L) return;
+  const n = new V3().subVectors(me.pos, h.p).divideScalar(d);
+  const over = d - h.L, vr = me.vel.dot(n), s0 = me.vel.length();
+  // a mola curva a trajetória; voando rápido ela nunca tira velocidade, só muda a direção
+  me.vel.addScaledVector(n, -(ROPE_K * over * (vr < 0 ? 0.55 : 1) + (vr > 0 ? ROPE_DAMP * vr : 0)) * dt);
+  const s1 = me.vel.length();
+  if (s0 > 15 && s1 < s0) me.vel.multiplyScalar(s0 / s1);
+  const limit = h.L * ROPE_STRETCH + 1.5;
+  if (over > limit) {
+    me.pos.copy(h.p).addScaledVector(n, h.L + limit);
+    const v2 = me.vel.dot(n);
+    if (v2 > 0) {
+      me.vel.addScaledVector(n, -v2);
+      const s2 = me.vel.length();
+      if (s0 > 15 && s2 > 0.01) me.vel.multiplyScalar(s0 / s2);
+    }
+  }
+}
+
+// parede a um braço de distância? Devolve pra onde ela empurra.
+function nearWall() {
+  let best = null, bd = R + WALL_REACH;
+  for (const L of lotsNear(me.pos.x, me.pos.z, CELL)) for (const b of L.boxes) {
+    if (b.soft) continue;
+    const dx = me.pos.x - clamp(me.pos.x, b[0], b[3]), dz = me.pos.z - clamp(me.pos.z, b[2], b[5]);
+    if (me.pos.y < b[1] || me.pos.y > b[4]) continue;
+    const d = Math.hypot(dx, dz);
+    if (d > 1e-3 && d < bd) { bd = d; best = new V3(dx / d, 0, dz / d); }
+  }
+  return best;
+}
+function wallJump(n) {
+  me.hooks[0] = me.hooks[1] = null;
+  me.sling = null;
+  hookWait[0] = mouseDown;
+  hookWait[1] = mouseRight;
+  me.vel.addScaledVector(n, -Math.min(me.vel.dot(n), 0) + WALL_PUSH);
+  me.vel.y = Math.max(me.vel.y, 0) + WALL_UP;
+  me.airJumps = 1;
+  me.wallCool = 0.18;
+  sound.jump();
 }
 
 // Reta contra as caixas dos prédios, com uma folga em volta. Devolve a distância, o eixo da face e a caixa.
 function sweep(from, dir, max, pad) {
   let best = null, tmin = max;
   const o = [from.x, from.y, from.z], v = [dir.x, dir.y, dir.z];
-  for (const L of lotsAround(from.x + dir.x * max / 2, from.z + dir.z * max / 2, max / 2 + 4)) for (const b of L.boxes) {
+  for (const L of lotsNear(from.x + dir.x * max / 2, from.z + dir.z * max / 2, max / 2 + 4)) for (const b of L.boxes) {
     if (b.soft) continue;
     let t0 = 0, t1 = tmin, axis = -1, sign = 0;
     for (let k = 0; k < 3; k++) {
@@ -713,9 +899,9 @@ function sweep(from, dir, max, pad) {
 // Entre dois prédios, puxa pro meio do vão. Só muda a direção: a velocidade continua a mesma.
 function avoid(dt) {
   const speed = me.vel.length();
-  if (speed < STEER_MIN || me.onGround || me.wet) return;
+  if (speed < STEER_MIN || me.onGround || me.wet || me.where !== 'city') return;
   const dir = me.vel.clone().divideScalar(speed);
-  const look = clamp(speed * 0.9, 16, 75);
+  const look = clamp(speed * 0.9, 16, 160);
   let hit = sweep(me.pos, dir, look, 1.2);
   // na teia a rua conta como telhado: a rota curva rente a ela em vez de bater (S segurado libera a descida)
   if (me.hook && dir.y < -0.05 && !keys.KeyS) {
@@ -751,6 +937,7 @@ function avoid(dt) {
 // altura do que está embaixo de um ponto: telhado, degrau ou a rua
 const DOWN = new V3(0, -1, 0);
 function floorUnder(p) {
+  if (me.where === 'moon') return space.height(p.x, p.z);
   const hit = sweep(p, DOWN, 40, 0);
   return hit ? p.y - hit.t : 0;
 }
@@ -772,18 +959,25 @@ let netStatus = 'connecting';
 let clockOffset = 0;
 const sound = new Sound();
 const voice = new Voice(o => net.send(o), prefs, savePrefs);
+const midHook = new V3();
+function hookCenter(list) {
+  let n = 0;
+  midHook.set(0, 0, 0);
+  for (const h of list) if (h) { midHook.add(h.p); n++; }
+  return n ? midHook.divideScalar(n) : null;
+}
 function sendJoin() { net.send({ t: 'join', name: NAME, color: COLOR, skin: SKIN, skin3: SKIN3, slime: SLIME }); }
 me.mesh.userData.slime.onSplat = hard => { if (hard > 14) sound.splat(clamp(hard / 60, 0.3, 1)); };
 voice.mount($('#voice-box'));
 
 // a laje e a quadra ficam sempre na cena (não entram e saem com os pedaços de cidade)
 const CINE = lot(CINEMA.i, CINEMA.j), COURT_LOT = lot(COURT.i, COURT.j);
-const roofFx = buildRoof(CINE, mats, scene, day);
-const courtFx = buildCourt(COURT_LOT, mats, scene, day);
-const crowd = new Crowd(scene);
-const traffic = new Traffic(scene);
-const skyline = new Skyline(scene, lot, CELL);
-const ctx = { scene, mats, sound, send: o => net.send(o), toast: t => showToast(t), myId: () => myId, myName: () => NAME };
+const roofFx = buildRoof(CINE, mats, city, day);
+const courtFx = buildCourt(COURT_LOT, mats, city, day);
+const crowd = new Crowd(city);
+const traffic = new Traffic(city);
+const skyline = new Skyline(city, lot, CELL);
+const ctx = { scene: city, mats, sound, send: o => net.send(o), toast: t => showToast(t), myId: () => myId, myName: () => NAME };
 const board = new Whiteboard(ctx, CINE.roof.board);
 const sinuca = new Sinuca(ctx, CINE.roof.sinuca);
 const pong = new Pong(ctx, CINE.roof.pong);
@@ -862,6 +1056,7 @@ function onNet(m) {
       else if (m.k === 'bola') basket.onNet(m);
       else if (m.k === 'cesta') showToast(`🏀 ${m.n} fez uma cesta de ${m.pts}!`);
       break;
+    case 'p3': touched(m); break;
     case 'join': case 'players':
       for (const p of m.players || [m]) { infos.set(p.id, p); const r = remotes.get(p.id); if (r) r.setInfo(p); }
       break;
@@ -869,6 +1064,8 @@ function onNet(m) {
       const r = remotes.get(m.id);
       if (r) r.dispose();
       remotes.delete(m.id);
+      if (me.carry === m.id) me.carry = 0;
+      if (me.carried === m.id) me.carried = 0;
       infos.delete(m.id);
       pong.playerLeft(m.id);
       basket.playerLeft(m.id);
@@ -892,12 +1089,13 @@ class Remote3 {
     this.id = id;
     this.snaps = [];
     this.pos = null;
+    this.shot = [0, 0];
     this.setInfo(info);
   }
   setInfo(info) {
     const body = this.mesh?.userData.slime;
     if (body && this.info.color === info.color && this.info.name === info.name) {
-      if (info.skin3 !== this.info.skin3) body.setSkin(info.skin3 || 'spider', info.color);
+      if (info.skin3 !== this.info.skin3) { body.setSkin(info.skin3 || 'spider', info.color); for (const r of this.ropes) r.material.color.set(info.skin3 === 'scarf' ? info.color : '#f4f6ff'); }
       if (info.slime !== this.info.slime) body.setAmount(info.slime ?? 60);
       this.info = info;
       return;
@@ -908,10 +1106,10 @@ class Remote3 {
     this.label = makeLabel(info.name || '…', info.color || '#ffffff');
     this.label.position.y = 2;
     this.mesh.add(this.label);
-    this.rope = makeRope(info.skin3 || 'spider', info.color || '#ffffff');
+    this.ropes = [makeRope(info.skin3 || 'spider', info.color || '#ffffff'), makeRope(info.skin3 || 'spider', info.color || '#ffffff')];
     scene.add(this.mesh);
   }
-  dispose() { if (this.mesh) { scene.remove(this.mesh); scene.remove(this.rope); this.mesh.userData.slime.dispose(); } }
+  dispose() { if (this.mesh) { scene.remove(this.mesh, ...this.ropes); this.mesh.userData.slime.dispose(); } }
   push(s) { s.rt = performance.now(); this.snaps.push(s); if (this.snaps.length > 30) this.snaps.shift(); }
   get stale() { const l = this.snaps[this.snaps.length - 1]; return !l || performance.now() - l.rt > 4000; }
   update(dt) {
@@ -926,17 +1124,22 @@ class Remote3 {
     const src = b && k > 0.5 ? b : a;
     this.mesh.position.copy(this.pos);
     this.mesh.quaternion.set(src.q[0], src.q[1], src.q[2], src.q[3]);
-    this.mesh.visible = !this.stale;
+    this.where = src.wd || 'city';
+    this.mesh.visible = !this.stale && this.where === me.where;
     const V = (s, i) => (b ? s.v[i] + (b.v[i] - s.v[i]) * k : s.v[i]);
     this.vel = new V3(V(a, 0), V(a, 1), V(a, 2));
-    const hook = src.h ? (src.hk === myId ? me.pos : new V3(src.h[0], src.h[1], src.h[2])) : null;
+    if (me.carry === this.id) { this.pos.copy(me.pos); this.pos.y += CARRY_Y; this.vel.copy(me.vel); this.mesh.position.copy(this.pos); }
+    const point = (h, hk) => (h ? (hk === myId ? me.pos : new V3(h[0], h[1], h[2])) : null);
+    const hooks = [point(src.h, src.hk), point(src.h2, src.hk2)].map((p, i) => {
+      this.shot[i] = p ? this.shot[i] + dt : 0;
+      return p && { p, t: this.shot[i] };
+    });
     const body = this.mesh.userData.slime;
     this.pending = (this.pending || 0) + dt;
     this.turn = ((this.turn || 0) + 1) % 3;
     if (this.turn && this.pos.distanceToSquared(camera.position) > 6400) { body.group.position.copy(this.pos); body.group.visible = this.mesh.visible; }
-    else { body.update(this.pending, { pos: this.pos, vel: this.vel, quat: this.mesh.quaternion, hook, onGround: !!src.g, flip: src.fl || 0, sit: !!src.st, wet: !!src.w, floor: src.g ? this.pos.y - R : floorUnder(this.pos), visible: this.mesh.visible }); this.pending = 0; }
-    if (hook) placeRope(this.rope, body.hand, hook);
-    else this.rope.visible = false;
+    else { body.update(this.pending, { pos: this.pos, vel: this.vel, quat: this.mesh.quaternion, hooks, onGround: !!src.g, flip: src.fl || 0, sit: !!src.st, wet: !!src.w, sling: src.sl || 0, hold: !!src.c, floor: src.g ? this.pos.y - R : floorUnder(this.pos), visible: this.mesh.visible }); this.pending = 0; }
+    placeRopes(this.ropes, hooks, body);
   }
 }
 
@@ -974,7 +1177,8 @@ function cinemaVolume() {
   if (!cinema.playing) return;
   const C = lot(CINEMA.i, CINEMA.j);
   let v = prefsVol;
-  if (!inCinema(me.pos)) v *= 0.35 * clamp(1 - (Math.hypot(me.pos.x - C.cx, me.pos.z - C.cz) - 25) / 110, 0, 1);
+  if (me.where !== 'city') v = 0;
+  else if (!inCinema(me.pos)) v *= 0.35 * clamp(1 - (Math.hypot(me.pos.x - C.cx, me.pos.z - C.cz) - 25) / 110, 0, 1);
   v = Math.round(v);
   if (Math.abs(v - lastVol) >= 2 || (v === 0) !== (lastVol === 0)) { lastVol = v; cinema.setVolume(v); }
 }
@@ -1069,7 +1273,7 @@ charUi.skins.onclick = e => {
   SKIN3 = prefs.skin3 = b.dataset.v;
   savePrefs();
   me.mesh.userData.slime.setSkin(SKIN3, COLOR);
-  me.rope.material.color.set(SKIN3 === 'scarf' ? COLOR : '#f4f6ff');
+  for (const r of me.ropes) r.material.color.set(SKIN3 === 'scarf' ? COLOR : '#f4f6ff');
   stage?.body.setSkin(SKIN3, COLOR);
   stage?.poke();
   sendJoin();
@@ -1157,9 +1361,219 @@ function watchFrames(ms, now) {
 }
 
 // atalhos do menu
-function teleport(p) { leaveAct(); standUp(); me.pos.copy(p); me.vel.set(0, 0, 0); me.hook = null; }
+function teleport(p) {
+  if (trip.on) return;
+  if (me.where !== 'city') setWhere('city');
+  leaveAct();
+  standUp();
+  me.pos.copy(p);
+  me.vel.set(0, 0, 0);
+  me.hook = null;
+}
 $('#go-roof').onclick = () => { teleport(new V3(CINE.cx + 8, CINE.roof.Y + 0.7, CINE.cz + 4)); yaw = 0; lockMouse(); };
 $('#go-court').onclick = () => { teleport(new V3(COURT_LOT.cx - 13, COURT_LOT.courtData.Y + 0.7, COURT_LOT.cz)); yaw = -Math.PI / 2; lockMouse(); };
+
+// ------------------------------------------------------------------ mundos: cidade, viagem, lua e backrooms
+
+const space = new Space(scene);
+const back = new Backrooms(scene);
+const fx = { veil: 0, chill: 0, veilOn: 0, chillOn: 0, ring: 0 };
+const veilEl = $('#veil'), chillEl = $('#chill'), gazeEl = $('#gaze');
+const SPACE_LIGHT = { sun: SUN, col: '#fff4e0', i: 3.6, sky: '#26345c', gnd: '#0a0c14', hor: '#0c1224', top: '#02030a', hemi: 0.75, night: 0.22, box: 0.9 };
+const BACK_LIGHT = { sun: new V3(0.1, 1, 0.1).normalize(), col: '#fff2c0', i: 1.5, sky: '#e0d090', gnd: '#6a5a28', hor: '#b8a860', top: '#d8c888', hemi: 1.1, night: 0, box: 0.55 };
+
+function setWhere(w) {
+  if (me.carry && w !== me.where) throwFriend();
+  me.where = w;
+  const out = w !== 'city';
+  city.visible = !out;
+  day.sky.visible = day.stars.visible = !out;
+  space.show(w === 'trip' ? 'trip' : w === 'moon' ? 'moon' : 'off');
+  back.group.visible = w === 'back';
+  renderer.setClearColor(w === 'back' ? 0x5e5226 : 0x000000, out ? 1 : 0);    // nas backrooms, o fim do corredor some na neblina
+  slimes.override = w === 'back' ? BACK_LIGHT : out ? SPACE_LIGHT : null;
+  sound.hum(w === 'back');
+}
+
+function warp(color, fn) {
+  veilEl.style.background = color;
+  fx.veil = 1.2;
+  fn();
+}
+function enterBack() {
+  warp('#000', () => {
+    me.home.copy(me.pos);
+    setWhere('back');
+    me.pos.set(3, R + 0.05, 3);
+    me.vel.set(0, 0, 0);
+    yaw = 0;
+    pitch = -0.04;
+  });
+}
+function leaveBack() {
+  warp('#000', () => {
+    setWhere('city');
+    const D = CINE.backDoor;
+    me.pos.set(D.x, D.y + R + 0.05, D.z - 1.6);
+    me.vel.set(0, 0, 0);
+    yaw = Math.PI;
+    pitch = -0.1;
+  });
+}
+
+// olhar fixo pro astro por 2 segundos: acende, e aí ele vira alvo
+const gaze = { t: 0, off: 0, ready: false };
+const skyDir = () => (me.where === 'moon' ? space.earthSky : day.moonDir);
+function watchSky(dir) {
+  const can = (me.where === 'city' && day.uniforms.moonUp.value > 0.3) || me.where === 'moon';
+  if (can && locked && !act && dir.dot(skyDir()) > 0.9975) { gaze.t += lastDt; gaze.off = 0; }
+  else if ((gaze.off += lastDt) > 0.5) gaze.t = Math.max(0, gaze.t - lastDt * 3);
+  gaze.ready = gaze.t >= 2;
+  const glow = day.uniforms.moonGlow;
+  glow.value += ((gaze.ready ? 1 : 0) - glow.value) * Math.min(1, lastDt * 5);
+  const deg = gaze.t > 0.6 ? Math.round(clamp(gaze.t / 2, 0, 1) * 90) * 4 : 0;
+  if (deg !== fx.ring) {
+    fx.ring = deg;
+    gazeEl.style.opacity = deg ? 0.9 : 0;
+    gazeEl.style.background = `conic-gradient(#bfe3ff ${deg}deg, rgba(255, 255, 255, 0.12) 0)`;
+  }
+}
+
+// a viagem é um roteiro: nada de física, o corpo só vai. Lá fora a câmera fica parada e os astros é que mudam de tamanho.
+const trip = {
+  on: false, back: false, landing: false, t: 0, stage: 0, clouds: false, shownSpeed: 0, nextBeat: 0,
+  dir: new V3(), far: new V3(), hooks: [null, null], earth: space.earthSky.clone(), earthA: 0.05, moon: new V3(0, -1, 0), moonA: 0.9,
+};
+function startTrip(hand) {
+  const fromMoon = me.where === 'moon';
+  if (me.carry) throwFriend();
+  standUp();
+  me.hooks[0] = me.hooks[1] = null;
+  me.sling = null;
+  hookWait[0] = hookWait[1] = true;
+  gaze.t = 0;
+  gaze.ready = false;
+  Object.assign(trip, { on: true, back: fromMoon, t: 0, stage: 0, clouds: false, nextBeat: 9 });
+  trip.dir.copy(skyDir()).normalize();
+  trip.hooks = [null, null];
+  trip.hooks[hand] = { p: trip.far, t: 0 };
+  trip.far.copy(me.pos).addScaledVector(trip.dir, 3900);
+  if (!fromMoon) me.home.copy(me.pos);
+  veilEl.style.background = '#fff';
+  sound.liftoff();
+}
+
+// empurra o olhar de leve: dá pra mexer o mouse, mas a cena principal acontece na sua frente
+function steerLook(d, rate, dt) {
+  const wantYaw = Math.atan2(-d.x, -d.z), wantPitch = clamp(Math.atan2(d.y, Math.hypot(d.x, d.z)), -1.4, 1.25);
+  yaw += Math.atan2(Math.sin(wantYaw - yaw), Math.cos(wantYaw - yaw)) * (1 - Math.exp(-dt * rate));
+  pitch += (wantPitch - pitch) * (1 - Math.exp(-dt * rate));
+}
+
+const lookTmp = new V3();
+function tripStep(dt) {
+  const T = trip, t = (T.t += dt), h = T.hooks[0] || T.hooks[1];
+  h.t += dt;
+  T.far.copy(camera.position).addScaledVector(T.dir, 3900);
+  if (t > T.nextBeat && me.where === 'trip') { T.nextBeat = t + 1.25; sound.heart(); }
+  if (!T.back) {
+    if (t < 6) {
+      // sobe reto pra sair do meio dos prédios e vai curvando na direção da lua
+      const d = lookTmp.copy(UP).lerp(T.dir, sstep(0.8, 4, t)).normalize();
+      me.vel.copy(d).multiplyScalar(20 + 21 * t * t);
+      me.pos.addScaledVector(me.vel, dt);
+      fx.veil = sstep(4.8, 5.9, t);
+      T.shownSpeed = me.vel.length() * 3.6;
+      if (t > 2.4 && !T.clouds) {
+        T.clouds = true;
+        space.spawnClouds(me.pos, d, day.cur.cloudLit);
+        veilEl.style.background = '#' + day.cur.cloudLit.getHexString();
+      }
+    } else {
+      if (T.stage === 0) {
+        // sai das nuvens já olhando pro horizonte: a Terra enorme e curva embaixo, o preto em cima
+        T.stage = 1;
+        space.hideClouds();
+        space.sunBeside(T.dir);
+        setWhere('trip');
+        me.pos.set(0, 0, 0);
+        pitch = -0.42;
+      }
+      const u = clamp((t - 6) / 19, 0, 1);
+      if (t < 24) fx.veil = 1 - sstep(6, 7.3, t);
+      else { veilEl.style.background = '#8d8d94'; fx.veil = sstep(24.3, 24.95, t); }
+      fx.chill = sstep(6.5, 9.5, t) * (1 - sstep(22.5, 24.5, t));
+      T.earth.set(0, -1, 0).lerp(lookTmp.copy(T.dir).negate(), sstep(0, 0.25, u)).normalize();
+      T.earthA = 1.3 * Math.exp(-Math.pow(u, 1.25) * 5.4);
+      T.moon.copy(T.dir);
+      T.moonA = 0.032 * Math.exp(Math.pow(u, 2.8) * Math.log(1.45 / 0.032));
+      me.vel.copy(T.dir).multiplyScalar(80);
+      T.shownSpeed = 3000 + u * u * 37000;
+      // no meio do caminho a câmera vira pra você ver a Terra ficando pra trás
+      if (u > 0.2 && u < 0.54) steerLook(T.earth, 1.5, dt);
+      else if (u > 0.58) steerLook(T.dir, u > 0.88 ? 4 : 1.2, dt);
+      if (t >= 25) landOnMoon();
+    }
+  } else {
+    if (t < 2.2) {
+      me.vel.copy(T.dir).multiplyScalar(14 + 46 * t * t);
+      me.pos.addScaledVector(me.vel, dt);
+      fx.veil = sstep(1.7, 2.2, t);
+      T.shownSpeed = me.vel.length() * 3.6;
+    } else {
+      if (T.stage === 0) { T.stage = 1; space.sunBeside(T.dir); setWhere('trip'); me.pos.set(0, 0, 0); }
+      const u = clamp((t - 2.2) / 17.8, 0, 1);
+      if (t < 18) fx.veil = 1 - sstep(2.2, 2.9, t);
+      else { veilEl.style.background = '#e8f0ff'; fx.veil = sstep(18.7, 19.9, t); }
+      fx.chill = sstep(2.5, 4.5, t) * (1 - sstep(16.5, 18.8, t));
+      T.earth.copy(T.dir);
+      T.earthA = 0.055 * Math.exp(Math.pow(u, 2.4) * Math.log(1.4 / 0.055));
+      T.moon.set(0, -1, 0).lerp(lookTmp.copy(T.dir).negate(), sstep(0, 0.3, u)).normalize();
+      T.moonA = 0.95 * Math.exp(-u * 3.4);
+      me.vel.copy(T.dir).multiplyScalar(80);
+      T.shownSpeed = 40000 - u * 30000;
+      if (u > 0.2 && u < 0.45) steerLook(T.moon, 1.3, dt);
+      else if (u > 0.5) steerLook(T.dir, u > 0.85 ? 3.5 : 1.2, dt);
+      if (t >= 20) arriveHome();
+    }
+  }
+}
+function landOnMoon() {
+  trip.on = false;
+  trip.landing = true;
+  trip.earth.copy(space.earthSky);
+  trip.earthA = 0.055;
+  space.sunOnMoon();
+  setWhere('moon');
+  // cai perto de uma pedra com ponto de teia, senão não sobra nada pra se agarrar
+  const rock = space.rocksNear(0, 0, 1200).filter(r => r.anchor).sort((p, q) => Math.hypot(p.x, p.z) - Math.hypot(q.x, q.z))[0];
+  const x = rock.x - 48, z = rock.z;
+  me.pos.set(x, space.height(x, z) + 150, z);
+  me.vel.set(0, -62, 0);
+  yaw = -Math.PI / 2;
+  me.mesh.quaternion.setFromAxisAngle(new V3(1, 0, 0), Math.PI);    // de cabeça pro chão, do jeito que veio
+  pitch = -1.38;
+  view.roll = Math.PI;                                              // e a tela continua como estava: a lua na sua frente
+  fx.veil = 1;
+}
+// encostou: a câmera gira e a lua, que era o teto, vira o chão
+function settleOnMoon(dt) {
+  if (!me.onGround) return;
+  const k = 1 - Math.exp(-dt * 3.2);
+  pitch += (-0.12 - pitch) * k;
+  view.roll -= view.roll * k;
+  if (view.roll < 0.01) { view.roll = 0; trip.landing = false; }
+}
+function arriveHome() {
+  trip.on = false;
+  setWhere('city');
+  me.pos.set(me.home.x, 900, me.home.z);
+  me.vel.set(0, -240, 0);
+  pitch = -1.1;
+  fx.veil = 1;
+  space.spawnClouds(me.pos, new V3(0, -1, 0), day.cur.cloudLit);
+  setTimeout(() => space.hideClouds(), 4000);
+}
 
 // ------------------------------------------------------------------ o que o F faz aqui
 
@@ -1181,6 +1595,11 @@ function nearbyAction() {
   const p = me.pos, Rf = CINE.roof;
   const d = q => Math.hypot(p.x - q.x, p.z - q.z);
   if (me.seat) return { hint: 'F = levantar', run: standUp };
+  if (me.where === 'back') return back.exitNear(p.x, p.z) ? { hint: 'F = sair daqui', run: leaveBack } : null;
+  if (me.where !== 'city') return null;
+  if (me.carry) return { hint: `F = arremessar ${remotes.get(me.carry)?.info.name || 'amigo'}`, run: throwFriend };
+  const friend = me.carried ? null : nearFriend();
+  if (friend) return { hint: `F = pegar ${friend.info.name}`, run: () => grabFriend(friend) };
   if (basket.mine) return { hint: 'Mire e segure o clique pra arremessar · F solta a bola', run: () => basket.drop() };
   if (basket.near(p)) return { hint: 'F = pegar a bola', run: () => basket.grab() };
   if (Math.abs(p.y - Rf.Y) < 3) {
@@ -1191,6 +1610,7 @@ function nearbyAction() {
     if (Math.abs(p.x - b.x) < b.w / 2 + 1 && Math.abs(p.z - b.z) < 4.5) return { hint: 'F = desenhar no quadro', run: () => enterAct(board) };
     if (d(Rf.liftTop) < 2.3) return { hint: 'F = descer de elevador', run: () => { me.pos.set(CINE.lift.x, R + 0.05, CINE.lift.z); me.vel.set(0, 0, 0); } };
   }
+  if (Math.abs(p.y - R - CINE.backDoor.y) < 1.2 && d(CINE.backDoor) < 2.8) return { hint: 'F = abrir a porta', run: enterBack };
   if (p.y < 4 && d(CINE.lift) < 2.8) return { hint: 'F = subir pra laje', run: () => { me.pos.copy(Rf.liftTop); me.vel.set(0, 0, 0); } };
   const s = nearestSeat();
   if (s) return { hint: 'F = sentar', run: () => sitDown(s) };
@@ -1227,6 +1647,7 @@ cineUi.url.addEventListener('keydown', e => { if (e.key === 'Enter') playFromInp
 
 addEventListener('keydown', e => {
   if (!locked) return;
+  if (e.ctrlKey) e.preventDefault();    // CTRL é do jogo: sem isso CTRL+S, CTRL+D e cia abrem coisas do navegador
   if (e.code === 'Escape' && freeMouse) { unlockMouse(); return; }
   if (e.code === 'KeyP' && !e.repeat) { perf.show = !perf.show; $('#perf3').classList.toggle('hidden', !perf.show); }
   if (e.code === 'KeyV' && !e.repeat && voice.on) showToast(voice.toggleMute() ? '🔇 microfone mutado' : '🎙️ microfone ligado');
@@ -1238,10 +1659,10 @@ addEventListener('keydown', e => {
   keys[e.code] = true;
   if (e.code === 'Space') { if (!e.repeat) jumpPressed = true; e.preventDefault(); }
   if (e.code === 'KeyQ' && !e.repeat && !me.onGround && me.flipT <= 0) { me.flipT = 0.5; me.vel.multiplyScalar(1.04); }
-  if (e.code === 'KeyR') start();
+  if (e.code === 'KeyR' && !trip.on) { trip.landing = false; view.roll = 0; start(); }
   if (e.code === 'KeyT') {
     const r = [...remotes.values()].find(x => x.pos && !x.stale);
-    if (r) { standUp(); me.pos.copy(r.pos).add(new V3(0, 2.5, 0)); me.vel.copy(r.vel || new V3()); me.hook = null; }
+    if (r && r.where === me.where) { standUp(); me.pos.copy(r.pos).add(new V3(0, 2.5, 0)); me.vel.copy(r.vel || new V3()); me.hook = null; }
   }
   if (e.code === 'KeyF' && !e.repeat) nearbyAction()?.run();
   if (e.code === 'KeyY' && !e.repeat) {
@@ -1251,11 +1672,14 @@ addEventListener('keydown', e => {
   }
 });
 addEventListener('keyup', e => { keys[e.code] = false; });
-addEventListener('blur', () => { for (const k in keys) keys[k] = false; mouseDown = false; });
+addEventListener('blur', () => { for (const k in keys) keys[k] = false; mouseDown = mouseRight = false; });
+// CTRL+W fecha a aba e nenhum jogo consegue impedir: pelo menos o navegador pergunta antes
+addEventListener('beforeunload', e => { if (keys.ControlLeft || keys.ControlRight) { e.preventDefault(); e.returnValue = ''; } });
 canvas.addEventListener('mousedown', e => {
   if (locked && act) act.down(e.button);
   else if (locked && e.button === 0 && basket.mine) basket.startCharge();
   else if (locked && e.button === 0) mouseDown = true;
+  else if (locked && e.button === 2) mouseRight = true;
   if (cineState.status === 'paused') cinema.resume();   // autoplay bloqueado: o clique libera
   if (radioShown.status === 'paused' && radioYt.playing) radioYt.resume();
 });
@@ -1263,6 +1687,7 @@ addEventListener('contextmenu', e => { if (locked) e.preventDefault(); });
 addEventListener('mouseup', e => {
   if (act) act.up(e.button);
   if (e.button === 0) mouseDown = false;
+  if (e.button === 2) mouseRight = false;
   if (e.button === 0 && basket.charging) basket.shoot(new V3(0, 0, -1).applyQuaternion(camera.quaternion));
 });
 addEventListener('mousemove', e => {
@@ -1274,9 +1699,10 @@ addEventListener('mousemove', e => {
 });
 document.documentElement.addEventListener('mouseleave', () => { edgeX = edgeY = 0; });
 addEventListener('wheel', e => {
+  if (locked && e.ctrlKey) e.preventDefault();      // senão CTRL + rodinha dá zoom na página
   if (locked && act) act.wheel(e.deltaY);
   else if (locked && me.hook) wheel += Math.sign(e.deltaY) * 2.5;
-}, { passive: true });
+}, { passive: false });
 
 // Onde o navegador não prende o mouse (o painel do app, por exemplo) o jogo roda com o cursor solto:
 // o olhar segue o movimento e continua girando enquanto o cursor fica na faixa da borda.
@@ -1287,7 +1713,7 @@ const edgeOf = v => clamp((v - 1 + EDGE) / EDGE, 0, 1) - clamp((EDGE - v) / EDGE
 function setLocked(on) {
   locked = on;
   $('#start3').style.display = on ? 'none' : 'flex';
-  if (!on) { for (const k in keys) keys[k] = false; mouseDown = false; }
+  if (!on) { for (const k in keys) keys[k] = false; mouseDown = mouseRight = false; }
 }
 function setFree(on) {
   freeMouse = on;
@@ -1332,7 +1758,7 @@ resize();
 function rayBoxes(from, to) {
   let tmin = 1;
   const d = new V3().subVectors(to, from);
-  for (const L of lotsAround(from.x, from.z, 20)) for (const bx of L.boxes) {
+  for (const L of lotsNear(from.x, from.z, 20)) for (const bx of L.boxes) {
     if (bx.soft) continue;                 // móveis, muretas e alambrado não empurram a câmera
     const mn = [bx[0] - 0.1, bx[1] > 0 ? bx[1] - 0.1 : -1, bx[2] - 0.1], mx = [bx[3] + 0.1, bx[4] + 0.5, bx[5] + 0.1];
     const o = [from.x, from.y, from.z], v = [d.x, d.y, d.z];
@@ -1350,7 +1776,7 @@ function rayBoxes(from, to) {
 }
 
 let fov = 72;
-const view = { zoom: 1 };
+const view = { zoom: 1, roll: 0 };
 function updateCamera(dt) {
   if (act) {
     act.camera(camera);
@@ -1359,7 +1785,7 @@ function updateCamera(dt) {
     return;
   }
   const speed = me.vel.length();
-  camera.rotation.set(pitch, yaw, 0);
+  camera.rotation.set(pitch, yaw, view.roll);
   const dir = new V3(0, 0, -1).applyEuler(camera.rotation);
   const pivot = me.pos.clone().add(new V3(0, 1.3, 0));
   if (me.seat) {
@@ -1367,13 +1793,25 @@ function updateCamera(dt) {
     camera.position.copy(me.pos).add(new V3(0, 0.95, 0));
     me.mesh.visible = false;
   } else {
-    const dist = (7 + Math.min(6, speed * 0.05)) * view.zoom;
+    const inside = me.where === 'back';
+    const dist = (inside ? 2.7 : trip.on && me.where === 'trip' ? 5.5 : 7 + Math.min(6, speed * 0.05) + (me.sling ? me.sling.x * 0.2 : 0)) * view.zoom;
+    if (inside) pivot.y = me.pos.y + 0.95;
     const want = pivot.clone().addScaledVector(dir, -dist);
     // olhando pra cima a câmera não afunda no telhado/chão: desliza por cima dele
-    want.y = Math.max(want.y, me.pos.y + 0.3);
+    if (me.where === 'moon') want.y = Math.max(want.y, space.height(want.x, want.z) + 0.8);
+    else if (!trip.on) want.y = Math.max(want.y, me.pos.y + 0.3);
+    // olhando pra trás na viagem, a câmera sai de cima da linha da teia
+    if (trip.on && me.where === 'trip') want.addScaledVector(new V3(1, 0, 0).applyEuler(camera.rotation), 3.2 * sstep(0.25, -0.5, dir.dot(trip.dir)));
+    if (inside) want.y = Math.min(want.y, BACK_H - 0.25);
     const t = rayBoxes(pivot, want);
     camera.position.copy(pivot).lerp(want, Math.max(0.12, t - 0.04));
     me.mesh.visible = camera.position.distanceTo(pivot) > 1.6;
+    if (me.sling) {
+      // a teia tremendo no limite
+      const k = me.sling.x / SLING_MAX * 0.05;
+      camera.position.x += (Math.random() - 0.5) * k;
+      camera.position.y += (Math.random() - 0.5) * k;
+    }
   }
   fov += (72 + Math.min(26, speed * 0.3) + (me.boosting ? 8 : 0) - fov) * (1 - Math.exp(-dt * 3));
   camera.fov = fov;
@@ -1425,10 +1863,10 @@ function updateHud(now) {
   const high = Math.abs(me.pos.y - CINE.roof.Y) < 8;
   const onCourt = high && Math.hypot(me.pos.x - COURT_LOT.cx, me.pos.z - COURT_LOT.cz) < 24;
   const onRoof = high && Math.hypot(me.pos.x - CINE.cx, me.pos.z - CINE.cz) < 24;
-  hud.biome.textContent = inside ? 'CINEMA · TELÃO' : onCourt ? 'QUADRA' : onRoof ? 'LAJE' : 'CIDADE · 3D (TESTE)';
+  hud.biome.textContent = me.where === 'moon' ? 'LUA' : me.where === 'trip' ? 'ESPAÇO' : me.where === 'back' ? '???' : inside ? 'CINEMA · TELÃO' : onCourt ? 'QUADRA' : onRoof ? 'LAJE' : 'CIDADE · 3D (TESTE)';
   renderTime();
-  hud.d.textContent = Math.round(Math.hypot(me.pos.x - L.cx, me.pos.z - L.cz)).toLocaleString('pt-BR');
-  hud.s.textContent = Math.round(me.vel.length() * 3.6);
+  hud.d.textContent = Math.round(me.where === 'trip' ? 384400000 * (trip.back ? 1 - clamp((trip.t - 2.2) / 17.8, 0, 1) : clamp((trip.t - 6) / 19, 0, 1)) : Math.hypot(me.pos.x - L.cx, me.pos.z - L.cz)).toLocaleString('pt-BR');
+  hud.s.textContent = Math.round(trip.on && me.where === 'trip' ? trip.shownSpeed : me.vel.length() * 3.6).toLocaleString('pt-BR');
   const n = [...remotes.values()].filter(r => !r.stale).length;
   setHtml(hud.net, net.connected ? `<span class="dot"></span>online · ${n + 1} no 3D` : '<span class="dot"></span>sem conexão com o host');
   hud.net.classList.toggle('off', !net.connected);
@@ -1439,12 +1877,14 @@ function updateHud(now) {
     $('#perf3').textContent = `${Math.round(perf.fps)} fps · pior quadro ${Math.round(perf.shownWorst)} ms · ${Q.name} · ${chunks.size} pedaços + ${skyline.mesh.count} no horizonte · ${(i.triangles / 1000).toFixed(0)} mil triângulos · ${i.calls} chamadas`;
   }
   let h = '';
-  const action = act ? null : nearbyAction();
+  const action = act || trip.on ? null : nearbyAction();
   if (toast && now < toast.until) h = toast.text;
+  else if (trip.on) h = '';
   else if (act) h = act.hint();
   else if (action) h = action.hint + (inside ? ' · Y = vídeo no telão' : '');
   else if (me.wet) h = 'Espaço pula pra fora da piscina';
   else if (inside) h = 'Y = colocar vídeo no telão · suba os degraus e chegue perto de uma cadeira';
+  else if (me.where !== 'city') h = '';
   else if (firstHook < 0 && !high) h = 'Mire num ponto brilhante e SEGURE o clique · solte pra se lançar · o CINEMA é o prédio gigante na sua frente';
   else if (now - firstHook < 9000) h = 'SHIFT preso na corda = BOOST · solte pra voar · Espaço = pulo duplo · Q = cambalhota';
   hud.hint.textContent = h;
@@ -1462,7 +1902,7 @@ const ring = new THREE.Mesh(new THREE.TorusGeometry(1.6, 0.12, 8, 32), new THREE
 ring.renderOrder = 9;
 scene.add(ring);
 
-let last = performance.now(), lastSend = 0, cssOn = true;
+let last = performance.now(), lastSend = 0, lastTug = 0, cssOn = true;
 function frame(now) {
   watchFrames(now - last, now);
   const dt = clamp((now - last) / 1000, 0, 0.05);
@@ -1471,65 +1911,114 @@ function frame(now) {
   requestAnimationFrame(frame);
 }
 
+let lastDt = 1 / 60;
 function simulate(now, dt) {
+  lastDt = dt;
   updateCamera(dt);
-  target = findTarget();
+  target = trip.on ? null : findTarget(dt);
   if (locked) {
     if (freeMouse && !act) { yaw -= edgeX * EDGE_TURN * dt; pitch = clamp(pitch - edgeY * EDGE_TURN * 0.5 * dt, -1.4, 1.25); }
-    if (mouseDown && !me.hook && target && !act) { standUp(); attach(target); if (firstHook < 0) firstHook = now; }
-    if (!mouseDown && me.hook) release();
+    const held = [mouseDown, mouseRight];
+    for (let i = 0; i < 2; i++) {
+      if (!held[i]) hookWait[i] = false;
+      if (held[i] && !hookWait[i] && !me.hooks[i] && target && !act && !me.carried) {
+        if (target.sky) startTrip(i);
+        else { standUp(); attach(target, i); if (firstHook < 0) firstHook = now; }
+      }
+      if (!held[i] && me.hooks[i]) release(i);
+    }
+    if (me.sling && !pulling()) launch();
+    else if (!me.sling && pulling() && me.hooks.some(h => h && !h.pid)) startSling();
   }
-  if (me.hook && me.hook.pid) {
-    const r = remotes.get(me.hook.pid);
-    if (!r || !r.pos || r.stale) me.hook = null;
-    else me.hook.p.copy(r.pos).add(new V3(0, 0.4, 0));
-  }
+  me.hooks.forEach((h, i) => {
+    if (!h) return;
+    h.t = (h.t || 0) + dt;
+    if (!h.pid) return;
+    const r = remotes.get(h.pid);
+    if (!r || !r.pos || r.stale) { me.hooks[i] = null; return; }
+    h.p.copy(r.pos).add(new V3(0, 0.4, 0));
+    if (!pulling()) return;
+    // CTRL na teia presa num amigo: ele que vem até você
+    h.L = Math.max(4, h.L - PULL_RATE * dt);
+    if (now - lastTug > 50) {
+      lastTug = now;
+      net.send({ t: 'p3', to: h.pid, k: 'tug', p: [me.pos.x, me.pos.y, me.pos.z], L: h.L });
+    }
+  });
   me.boosting = false;
   if (me.seat && jumpPressed) { jumpPressed = false; standUp(); }
-  if (!me.seat && !act) {
+  if (trip.on) tripStep(dt);
+  else if (me.carried) {
+    const r = remotes.get(me.carried);
+    if (!r || !r.pos || r.stale) me.carried = 0;
+    else {
+      me.pos.copy(r.pos);
+      me.pos.y += CARRY_Y;
+      me.vel.copy(r.vel);
+      me.onGround = false;
+      if (jumpPressed) {
+        net.send({ t: 'p3', to: me.carried, k: 'free' });
+        me.carried = 0;
+        me.vel.y += JUMP;
+      }
+      jumpPressed = false;
+    }
+  } else if (!me.seat && !act) {
     avoid(dt);
-    const n = Math.max(1, Math.ceil(dt / (1 / 240)));
+    // rápido demais, os passos da física encurtam: nunca anda mais que meio metro de uma vez
+    const n = clamp(Math.ceil(Math.max(dt * 240, me.vel.length() * dt / 0.5)), 1, 64);
     for (let i = 0; i < n; i++) step(dt / n);
   }
   if (me.flipT > 0) me.flipT -= dt;
 
-  updateChunks(me.pos.x, me.pos.z);
-  if (!me.seat) orient(me.mesh, me.pos, me.vel, me.hook && me.hook.p, me.onGround, dt);
+  if (me.where === 'city') updateChunks(me.pos.x, me.pos.z);
+  const shown = trip.on ? trip.hooks : me.hooks;
+  if (trip.landing) settleOnMoon(dt);
+  if (!me.seat && !(trip.landing && !me.onGround)) orient(me.mesh, me.pos, me.vel, hookCenter(shown), me.onGround, dt);
   me.mesh.position.copy(me.pos);
   updateCamera(0);
   const body = me.mesh.userData.slime;
-  body.update(dt, { pos: me.pos, vel: me.vel, quat: me.mesh.quaternion, hook: me.hook ? me.hook.p : null, onGround: me.onGround, flip: me.flipT > 0 ? 1 - me.flipT / 0.5 : 0, sit: !!me.seat, wet: me.wet, floor: me.onGround ? me.pos.y - R : floorUnder(me.pos), visible: me.mesh.visible });
-  if (me.hook) placeRope(me.rope, body.hand, me.hook.p);
-  else me.rope.visible = false;
+  body.update(dt, { pos: me.pos, vel: me.vel, quat: me.mesh.quaternion, hooks: shown, onGround: me.onGround, flip: me.flipT > 0 ? 1 - me.flipT / 0.5 : 0, sit: !!me.seat, wet: me.wet, floor: me.where === 'trip' ? undefined : me.onGround ? me.pos.y - R : floorUnder(me.pos), sling: me.sling ? me.sling.x / (SLING_MAX + SLING_TUG) * 1.6 : 0, hold: !!me.carry, visible: me.mesh.visible });
+  placeRopes(me.ropes, shown, body);
 
   trailPts.push(me.pos.clone());
   if (trailPts.length > 30) trailPts.shift();
   trail.geometry.setFromPoints(trailPts.length > 1 ? trailPts : [me.pos, me.pos]);
-  trail.visible = me.vel.length() > 20 || me.boosting;
+  trail.visible = me.where !== 'trip' && (me.vel.length() > 20 || me.boosting);
 
-  ring.visible = !!target && !me.hook;
+  ring.visible = !!target && !target.sky && !(me.hooks[0] && me.hooks[1]);
   if (ring.visible) { ring.position.copy(target.p); ring.lookAt(camera.position); }
 
   for (const r of remotes.values()) r.update(dt);
   // o halo dos bonecos só faz sentido no escuro
-  const halo = 0.1 + day.night * 0.4;
+  const halo = me.where === 'city' ? 0.1 + day.night * 0.4 : 0.05;
   me.mesh.userData.glow.material.opacity = halo;
   for (const r of remotes.values()) r.mesh.userData.glow.material.opacity = halo;
 
   // luz do dia e vida na rua: o relógio é o mesmo pra todo mundo
   const T = ((Date.now() + clockOffset) / 1000) % 86400;
   day.update(hourNow(), T, me.pos);
+  if (me.where !== 'city') { scene.fog.density = 0; day.light.intensity = me.where === 'back' ? 0.4 : 2.2; }
+  if (me.where === 'trip' || me.where === 'moon') space.update(dt, camera.position, trip.earth, trip.earthA, trip.moon, trip.moonA);
+  if (me.where === 'moon') { space.followFloor(me.pos.x, me.pos.z); space.setGlow(day.uniforms.moonGlow.value); }
+  if (me.where === 'back') back.update(dt, camera.position, new V3(0, 0, -1).applyQuaternion(camera.quaternion), d => !sweep(me.pos, new V3(0, 0, -1).applyQuaternion(camera.quaternion).setY(0).normalize(), d, 0));
+  fx.veil = trip.on ? fx.veil : Math.max(0, fx.veil - dt * 1.1);
+  fx.chill = trip.on ? fx.chill : Math.max(0, fx.chill - dt);
+  if (fx.veil !== fx.veilOn) veilEl.style.opacity = fx.veilOn = fx.veil;
+  if (fx.chill !== fx.chillOn) chillEl.style.opacity = fx.chillOn = fx.chill;
   slimes.update(dt, camera);
   if (stage && !locked) stage.frame(dt);
-  lightCity(mats, day);
-  crowd.update(T, me.pos.x, me.pos.z, lot);
-  traffic.update(T, me.pos.x, me.pos.z, day.night);
-  skyline.update(me.pos.x, me.pos.z, isLoaded, day);
-  const nearTop = Math.hypot(me.pos.x - CINE.cx, me.pos.z - CINE.cz) < Q.far;
-  roofFx.group.visible = courtFx.group.visible = nearTop;
-  roofFx.update(T, dt, day, !!radioNow);
-  courtFx.update(day);
-  board.update();
+  if (me.where === 'city') {
+    lightCity(mats, day);
+    crowd.update(T, me.pos.x, me.pos.z, lot);
+    traffic.update(T, me.pos.x, me.pos.z, day.night);
+    skyline.update(me.pos.x, me.pos.z, isLoaded, day);
+    const nearTop = Math.hypot(me.pos.x - CINE.cx, me.pos.z - CINE.cz) < Q.far;
+    roofFx.group.visible = courtFx.group.visible = nearTop;
+    roofFx.update(T, dt, day, !!radioNow);
+    courtFx.update(day);
+    board.update();
+  }
   sinuca.update(dt);
   pong.update(dt);
   basket.update(dt, me, new V3(0, 0, -1).applyQuaternion(camera.quaternion));
@@ -1538,11 +2027,12 @@ function simulate(now, dt) {
   if (net.connected && now - lastSend > 50) {
     lastSend = now;
     const r2 = v => Math.round(v * 100) / 100;
+    const wire = h => (h ? [r2(h.p.x), r2(h.p.y), r2(h.p.z)] : 0);
     const q = me.mesh.quaternion;
     net.send({
       t: 's3', p: [r2(me.pos.x), r2(me.pos.y), r2(me.pos.z)], v: [r2(me.vel.x), r2(me.vel.y), r2(me.vel.z)],
-      q: [r2(q.x), r2(q.y), r2(q.z), r2(q.w)], h: me.hook ? [r2(me.hook.p.x), r2(me.hook.p.y), r2(me.hook.p.z)] : 0,
-      hk: me.hook ? me.hook.pid : 0, fl: me.flipT > 0 ? r2(1 - me.flipT / 0.5) : 0, st: me.seat ? 1 : 0, g: me.onGround ? 1 : 0, w: me.wet ? 1 : 0,
+      q: [r2(q.x), r2(q.y), r2(q.z), r2(q.w)], h: wire(me.hooks[0]), hk: me.hooks[0] ? me.hooks[0].pid : 0, h2: wire(me.hooks[1]), hk2: me.hooks[1] ? me.hooks[1].pid : 0,
+      sl: me.sling ? r2(me.sling.x / (SLING_MAX + SLING_TUG) * 1.6) : 0, c: me.carry, fl: me.flipT > 0 ? r2(1 - me.flipT / 0.5) : 0, st: me.seat ? 1 : 0, g: me.onGround ? 1 : 0, w: me.wet ? 1 : 0, wd: me.where,
     });
   }
   cinemaVolume();
@@ -1553,7 +2043,7 @@ function simulate(now, dt) {
   renderer.shadowMap.needsUpdate = Q.shadow > 0 && perf.drew++ % Q.every === 0;
   renderer.render(scene, camera);
   // o telão só existe por perto do cinema: de longe a camada CSS 3D nem precisa ser desenhada
-  const nearScreen = me.pos.y < CINEMA.hall + 20 && Math.hypot(me.pos.x - CINE.cx, me.pos.z - CINE.cz) < 60;
+  const nearScreen = me.where === 'city' && me.pos.y < CINEMA.hall + 20 && Math.hypot(me.pos.x - CINE.cx, me.pos.z - CINE.cz) < 60;
   if (nearScreen !== cssOn) { cssOn = nearScreen; cssRenderer.domElement.style.visibility = nearScreen ? 'visible' : 'hidden'; }
   if (nearScreen) cssRenderer.render(cssScene, camera);
 }
@@ -1572,7 +2062,6 @@ window.__v3 = {
   get cineState() { return cineState; },
   setLook: (y, p) => { yaw = y; pitch = p; },
   lookAt: p => { const d = new V3().subVectors(p, camera.position); yaw = Math.atan2(-d.x, -d.z); pitch = Math.atan2(d.y, Math.hypot(d.x, d.z)); },
-  setMouse: v => { mouseDown = v; }, lock: v => { locked = v; }, slimes, view,
-  get target() { return target; },
+  space, back, trip, fx, gaze, startTrip, setWhere, enterBack, leaveBack, nearbyAction, setMouse: v => { mouseDown = v; }, setRight: v => { mouseRight = v; }, lock: v => { locked = v; }, slimes, view, launch, nearWall, get target() { return target; },
   tick(dt = 1 / 60) { last += dt * 1000; simulate(last, dt); },
 };

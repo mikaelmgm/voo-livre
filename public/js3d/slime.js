@@ -11,14 +11,14 @@ export const SLIME_SKINS = {
   spider: { label: 'Aranha', kind: 0, a: '#d3141f', b: '#1740c4', line: '#07070c', tintA: '#ff3a4a', tintB: '#6a8cff' },
   miles: { label: 'Aranha preto', kind: 1, a: '#17171f', b: '#17171f', line: '#ff2233', tintA: '#7a2030', tintB: '#30303c' },
   simb: { label: 'Simbionte', kind: 2, a: '#0b0b12', b: '#0b0b12', line: '#f2f4ff', tintA: '#3a3a50', tintB: '#3a3a50' },
-  gummy: { label: 'Bala de goma', kind: 3 },
-  scarf: { label: 'Cachecol', kind: 4, a: '#2a2740', b: '#2a2740', tintA: '#6a64a8', tintB: '#6a64a8' },
+  gummy: { label: 'Bala de goma', kind: 3, arm: true },
+  scarf: { label: 'Cachecol', kind: 4, a: '#2a2740', b: '#2a2740', tintA: '#6a64a8', tintB: '#6a64a8', arm: true },
 };
 
 // ------------------------------------------------------------------ esqueleto em repouso (metros, pé em y = -0.6)
 // x positivo é a direita do boneco, ele olha pra -z
-const PELVIS = 0, TORSO = 1, HEAD = 2, ARM = 3, LEG = 7;          // ARM + 2*lado = braço, +1 = antebraço; LEG idem
-const BONES = 11;
+const PELVIS = 0, TORSO = 1, HEAD = 2, ARM = 3, LEG = 7, PALM = 11;  // ARM + 2*lado = braço, +1 = antebraço; LEG idem; PALM + lado = mão
+const BONES = 13;
 const J = {
   pelvis: [0, -0.02, 0], waist: [0, 0.12, 0], neck: [0, 0.6, 0],
   shoulder: [0.36, 0.5, 0], elbow: [0.66, 0.3, 0], wrist: [0.92, 0.1, 0], hand: [1, 0.04, 0],
@@ -40,7 +40,8 @@ REST[TORSO] = { j: J.waist };
 REST[HEAD] = { j: J.neck };
 SIDES.forEach((s, i) => {
   REST[ARM + 2 * i] = limbRest(side(J.shoulder, s), side(J.elbow, s), [0, 0, 1]);
-  REST[ARM + 2 * i + 1] = limbRest(side(J.elbow, s), side(J.hand, s), [0, 0, 1]);
+  REST[ARM + 2 * i + 1] = limbRest(side(J.elbow, s), side(J.wrist, s), [0, 0, 1]);
+  REST[PALM + i] = limbRest(side(J.wrist, s), side(J.hand, s), [0, 0, 1]);
   REST[LEG + 2 * i] = limbRest(side(J.hip, s), side(J.knee, s), [0, 0, -1]);
   REST[LEG + 2 * i + 1] = limbRest(side(J.knee, s), side(J.ankle, s), [0, 0, -1]);
 });
@@ -57,7 +58,7 @@ function shapePrims() {
   SIDES.forEach((s, i) => {
     tube(ARM + 2 * i, side(J.shoulder, s), side(J.elbow, s), 0.125, 0.105, 0.06);
     tube(ARM + 2 * i + 1, side(J.elbow, s), side(J.wrist, s), 0.105, 0.1, 0.03);
-    ball(ARM + 2 * i + 1, side(J.hand, s), [0.165, 0.165, 0.135], 0.05);
+    ball(PALM + i, side(J.hand, s), [0.165, 0.165, 0.135], 0.05);
     tube(LEG + 2 * i, side(J.hip, s), side(J.knee, s), 0.17, 0.135, 0.08);
     tube(LEG + 2 * i + 1, side(J.knee, s), side(J.ankle, s), 0.135, 0.125, 0.03);
     ball(LEG + 2 * i + 1, [0.24 * s, -0.52, -0.07], [0.165, 0.085, 0.235], 0.05);
@@ -179,8 +180,8 @@ function bodyTemplate() {
   }
 
   // pesos: cada vértice segue os 3 ossos mais perto; o mole/grosso vem do osso dominante
-  const SOFT = [0.3, 0.72, 0.95, 0.7, 1, 0.7, 1, 0.45, 0.55, 0.45, 0.55];
-  const THICK = [0.3, 0.38, 0.52, 0.12, 0.11, 0.12, 0.11, 0.15, 0.13, 0.15, 0.13];
+  const SOFT = [0.3, 0.72, 0.95, 0.7, 1, 0.7, 1, 0.45, 0.55, 0.45, 0.55, 1, 1];
+  const THICK = [0.3, 0.38, 0.52, 0.12, 0.11, 0.12, 0.11, 0.15, 0.13, 0.15, 0.13, 0.14, 0.14];
   const bi = new Uint8Array(n * 3), bw = new Float32Array(n * 3), soft = new Float32Array(n), thick = new Float32Array(n), mix = new Float32Array(n);
   const dist = new Float64Array(BONES);
   for (let i = 0; i < n; i++) {
@@ -403,6 +404,7 @@ export class SlimeWorld {
     this.day = day;
     this.refract = !!day;
     this.grabbed = -1;
+    this.override = null;
     this.size = new THREE.Vector2();
     this.origin = new THREE.Vector2();
     this.u = {
@@ -417,8 +419,17 @@ export class SlimeWorld {
 
   // antes de desenhar o quadro: copia a luz do dia pros materiais
   update(dt, camera) {
-    const u = this.u, d = this.day;
-    if (d) {
+    const u = this.u, d = this.day, o = this.override;
+    if (o) {
+      u.uSun.value.copy(o.sun);
+      u.uSunCol.value.set(o.col);
+      u.uSunI.value = o.i;
+      u.uSky.value.set(o.sky); u.uGnd.value.set(o.gnd); u.uHor.value.set(o.hor); u.uTop.value.set(o.top);
+      u.uHemi.value = o.hemi;
+      u.uNight.value = o.night;
+      u.uFogD.value = 0;
+      u.uBox.value = o.box;
+    } else if (d) {
       u.uSun.value.copy(d.lightDir);
       u.uSunCol.value.copy(d.light.color);
       u.uSunI.value = d.light.intensity;
@@ -496,7 +507,7 @@ class Drops {
 
 // canais das molas do esqueleto: mão E, mão D, pé E, pé D, cabeça, quadril (xyz cada) e inclinação, giro, rolagem, aceno
 const HAND = 0, FOOT = 6, HEADP = 12, PELV = 15, LEAN = 18, TWIST = 19, ROLL = 20, NOD = 21, CH = 22;
-const KEY_FLOOR = -0.5;
+const KEY_FLOOR = -0.5, NO_HOOKS = [null, null];
 
 export class Slime {
   constructor(world, skin, color, amount) {
@@ -564,7 +575,10 @@ export class Slime {
     this.eye = 1;
     this.eyeV = 0;
     this.wasGround = true;
-    this.hand = new THREE.Vector3();
+    this.hands = [new THREE.Vector3(), new THREE.Vector3()];
+    this.reachTo = [null, null];
+    this.Li = new Float64Array(9);
+    this.skip = false;
     this.tmpM = new Float64Array(9);
     this.setAmount(amount);
     this.setSkin(skin, color);
@@ -575,6 +589,7 @@ export class Slime {
     const s = SLIME_SKINS[skin] || SLIME_SKINS.spider;
     this.skin = skin;
     this.color = color;
+    this.armOnly = !!s.arm;
     const a = s.a || color, b = s.kind === 4 ? color : s.b || color;
     this.look.uA.value.set(a); this.look.uB.value.set(b);
     this.look.uLine.value.set(s.line || '#000000');
@@ -603,6 +618,13 @@ export class Slime {
 
   poke(strength = 1) { this.squashV -= 5 * strength * (0.3 + this.a); }
 
+  // lançado: estica na direção do voo em vez de amassar como numa pancada
+  fling(x, y, z, k) {
+    this.axis.set(x, y, z);
+    this.squashV += (9 + 16 * k) * (0.3 + this.a);
+    this.skip = true;
+  }
+
   dispose() {
     this.world.scene.remove(this.group);
     this.geo.dispose();
@@ -621,7 +643,7 @@ export class Slime {
 
   // Alvos do esqueleto (no espaço do boneco). `b` é a velocidade nesse espaço; dá o atraso de braços e pernas no voo.
   aim(s, dt, b, sp, hs) {
-    const tg = this.tg, A = this.a, T = this.time, hit = this.Rt, S = this.S;
+    const tg = this.tg, A = this.a, T = this.time, hit = this.Rt, S = this.S, hooks = s.hooks || NO_HOOKS;
     const toBody = (i, x, y, z) => {
       // posição relativa ao ombro, girando junto com o tronco
       tg[HAND + i * 3] = S[i][0] + hit[0] * x + hit[1] * y + hit[2] * z;
@@ -649,21 +671,30 @@ export class Slime {
         toBody(i, k * 0.15, 0.1 + n * 0.25, -0.5 + c * 0.3);
         foot(i, k * 0.22, -0.5 + n * 0.12, 0.3 + c * 0.2);
       }
-    } else if (s.hook) {
-      // um braço vira elástico até a teia, o resto vai atrás do embalo
-      const dx = s.hook.x - s.pos.x, dy = s.hook.y - s.pos.y, dz = s.hook.z - s.pos.z, ro = this.Ro, L = Math.hypot(dx, dy, dz) + 1e-5;
-      const bx = (ro[0] * dx + ro[3] * dy + ro[6] * dz) / L, by = (ro[1] * dx + ro[4] * dy + ro[7] * dz) / L, bz = (ro[2] * dx + ro[5] * dy + ro[8] * dz) / L;
-      const reach = Math.min(L * 0.55, 1 + this.reach * (0.3 + 0.7 * this.tension + 0.5 * clamp(sp / 60, 0, 1)));
-      tg[HAND + 3] = S[1][0] + bx * reach; tg[HAND + 4] = S[1][1] + by * reach; tg[HAND + 5] = S[1][2] + bz * reach;
-      const lag = clamp(sp / 50, 0, 1);
+    } else if (hooks[0] || hooks[1]) {
+      // o braço vira elástico até a teia, o resto vai atrás do embalo
+      const lag = clamp(sp / 50, 0, 1), ro = this.Ro;
       const wave = Math.sin(T * 9) * 0.25 * (1 - lag * 0.6);
-      toBody(0, -0.55 - b[0] * 0.012, -0.05 + wave - b[1] * 0.012, 0.2 - b[2] * 0.012);
+      for (let i = 0; i < 2; i++) {
+        const k = SIDES[i], h = hooks[i];
+        if (!h) { toBody(i, k * 0.55 - b[0] * 0.012, -0.05 + wave - b[1] * 0.012, 0.2 - b[2] * 0.012); continue; }
+        const dx = h.p.x - s.pos.x, dy = h.p.y - s.pos.y, dz = h.p.z - s.pos.z, L = Math.hypot(dx, dy, dz) + 1e-5;
+        const bx = (ro[0] * dx + ro[3] * dy + ro[6] * dz) / L, by = (ro[1] * dx + ro[4] * dy + ro[7] * dz) / L, bz = (ro[2] * dx + ro[5] * dy + ro[8] * dz) / L;
+        const reach = Math.min(L * 0.55, 1 + this.reach * (0.3 + 0.7 * this.tension + 0.5 * clamp(sp / 60, 0, 1)));
+        tg[HAND + i * 3] = S[i][0] + bx * reach; tg[HAND + i * 3 + 1] = S[i][1] + by * reach; tg[HAND + i * 3 + 2] = S[i][2] + bz * reach;
+      }
       for (let i = 0; i < 2; i++) {
         const k = SIDES[i], kick = Math.sin(T * 6 + i * Math.PI) * 0.16 * (1 - lag);
         foot(i, k * 0.17 - b[0] * 0.012, -0.72 - lag * 0.2 - b[1] * 0.01 + kick * 0.5, 0.05 - b[2] * 0.014 + kick);
       }
       tg[LEAN] = clamp(-b[2] * 0.012, -0.5, 0.5);
       tg[NOD] = 0.25;
+      if (s.sling) {
+        // estilingue: corpo jogado pra trás e os pés fincados, fazendo força
+        tg[LEAN] = -0.55 * s.sling;
+        tg[NOD] = -0.2 * s.sling;
+        for (let i = 0; i < 2; i++) foot(i, SIDES[i] * 0.26, -0.62, -0.42 - i * 0.12 * s.sling);
+      }
     } else if (s.onGround) {
       const amt = smooth(0.6, 7, hs), sprint = smooth(11, 17, hs), sk = smooth(21, 30, hs);
       this.phase += dt * 6.2832 * Math.min(hs / 2.3, 5.4);
@@ -712,6 +743,8 @@ export class Slime {
         foot(i, k * lerp(0.2, 0.13, fast), lerp(-0.56 + 0.26 * Math.max(0, n), -0.9, fast), lerp(0.3 * c, 0.34, fast));
       }
     }
+    // com alguém no colo, as mãos livres seguram lá em cima da cabeça
+    if (s.hold) for (let i = 0; i < 2; i++) if (!hooks[i]) toBody(i, -SIDES[i] * 0.16, 1.02, -0.05);
   }
 
   // uma passada das molas (h fixo pra não depender do FPS)
@@ -763,10 +796,10 @@ export class Slime {
   }
 
   // duas partes e uma ponta: acha o cotovelo/joelho, esticando se a ponta estiver longe demais
-  chain(iU, ax, ay, az, tx, ty, tz, px, py, pz) {
-    const l1 = REST[iU].len, l2 = REST[iU + 1].len, full = l1 + l2;
+  chain(iU, ax, ay, az, tx, ty, tz, px, py, pz, tip = -1, stretchTop = this.limbMax) {
+    const palm = tip >= 0 ? REST[tip].len : 0, l1 = REST[iU].len, l2 = REST[iU + 1].len + palm, full = l1 + l2;
     let dx = tx - ax, dy = ty - ay, dz = tz - az, len = Math.hypot(dx, dy, dz) + 1e-6;
-    const top = full * this.limbMax;
+    const top = full * stretchTop;
     if (len > top) { const k = top / len; tx = ax + dx * k; ty = ay + dy * k; tz = az + dz * k; dx *= k; dy *= k; dz *= k; len = top; }
     if (len < 0.08) { const k = 0.08 / len; dx *= k; dy *= k; dz *= k; len = 0.08; tx = ax + dx; ty = ay + dy; tz = az + dz; }
     const grow = Math.max(1, len / (full * 0.97)), a1 = l1 * grow, a2 = l2 * grow;
@@ -778,7 +811,11 @@ export class Slime {
     qx /= ql; qy /= ql; qz /= ql;
     const mx = ax + ux * along + qx * h, my = ay + uy * along + qy * h, mz = az + uz * along + qz * h;
     this.limb(iU, ax, ay, az, mx, my, mz, px, py, pz);
-    this.limb(iU + 1, mx, my, mz, tx, ty, tz, px, py, pz);
+    if (tip < 0) { this.limb(iU + 1, mx, my, mz, tx, ty, tz, px, py, pz); return; }
+    const fx = tx - mx, fy = ty - my, fz = tz - mz, fl = palm / (Math.hypot(fx, fy, fz) + 1e-6);
+    const wx = tx - fx * fl, wy = ty - fy * fl, wz = tz - fz * fl;
+    this.limb(iU + 1, mx, my, mz, wx, wy, wz, px, py, pz);
+    this.limb(tip, wx, wy, wz, tx, ty, tz, px, py, pz);
   }
 
   bones() {
@@ -797,13 +834,13 @@ export class Slime {
     for (let i = 0; i < 2; i++) {
       const k = SIDES[i], sx = J.shoulder[0] * k, sy = J.shoulder[1] - J.waist[1], S = this.S[i];
       S[0] = wx0 + Rt[0] * sx + Rt[1] * sy; S[1] = wy0 + Rt[3] * sx + Rt[4] * sy; S[2] = wz0 + Rt[6] * sx + Rt[7] * sy;
-      this.chain(ARM + 2 * i, S[0], S[1], S[2], x[HAND + i * 3], x[HAND + i * 3 + 1], x[HAND + i * 3 + 2], k * 0.45, -0.25, 1);
+      this.chain(ARM + 2 * i, S[0], S[1], S[2], x[HAND + i * 3], x[HAND + i * 3 + 1], x[HAND + i * 3 + 2], k * 0.45, -0.25, 1, PALM + i, this.reachTo[i] ? 1e6 : this.limbMax);
       const hx = J.hip[0] * k, hy = J.hip[1] - J.pelvis[1];
       this.chain(LEG + 2 * i, px + Rp[0] * hx + Rp[1] * hy, py + Rp[3] * hx + Rp[4] * hy, pz + Rp[6] * hx + Rp[7] * hy, x[FOOT + i * 3], x[FOOT + i * 3 + 1], x[FOOT + i * 3 + 2], k * 0.12, 0.1, -1);
     }
   }
 
-  // s: pos, vel, quat, hook (ponto ou null), onGround, flip, sit, wet, floor (altura do chão embaixo), lod
+  // s: pos, vel, quat, hooks ([{p, t} ou null] por mão), onGround, flip, sit, wet, floor (altura do chão embaixo), sling, hold, visible
   update(dt, s) {
     this.group.visible = !!s.visible;
     dt = Math.min(dt, 0.05);
@@ -813,7 +850,9 @@ export class Slime {
     if (this.seen && this.pp.distanceToSquared(pos) > 2500) this.reset();    // teleporte
 
     let dvx = vel.x - this.vp.x, dvy = vel.y - this.vp.y, dvz = vel.z - this.vp.z;
-    if (!this.seen) dvx = dvy = dvz = 0;
+    if (!this.seen || this.skip) dvx = dvy = dvz = 0;
+    this.skip = false;
+    const hooks = s.hooks || NO_HOOKS;
     this.vp.copy(vel);
     const sp = vel.length(), hs = Math.hypot(vel.x, vel.z);
     const jolt = Math.hypot(dvx, dvy, dvz);
@@ -846,12 +885,40 @@ export class Slime {
     }
 
     // quanto a teia está puxando agora
-    let pull = 0;
-    if (s.hook) {
-      const hx = s.hook.x - pos.x, hy = s.hook.y - pos.y, hz = s.hook.z - pos.z, hl = Math.hypot(hx, hy, hz) + 1e-5;
-      pull = clamp((ax * hx + (ay + 26) * hy + az * hz) / hl / 90, 0, 1);
+    let pull = s.sling || 0, rx = 0, ry = 0, rz = 0;
+    for (const hk of hooks) {
+      if (!hk) continue;
+      const hx = hk.p.x - pos.x, hy = hk.p.y - pos.y, hz = hk.p.z - pos.z, hl = Math.hypot(hx, hy, hz) + 1e-5;
+      rx += hx / hl; ry += hy / hl; rz += hz / hl;
+      pull = Math.max(pull, clamp((ax * hx + (ay + 26) * hy + az * hz) / hl / 90, 0, 1));
     }
     this.tension += (pull - this.tension) * (1 - Math.exp(-dt * 10));
+
+    // corpo inteiro: gira, depois estica pra onde vai, pra onde a teia puxa e amassa na pancada
+    mul3(ro, Rf, this.L);
+    const tmp = this.tmpM;
+    if (this.bob) { along(0, 1, 0, 1 + this.bob, tmp); mul3(this.L, tmp, this.L); }
+    const stretch = 1 + this.stretchV * smooth(10, 80, sp);
+    if (sp > 1) { along(vel.x / sp, vel.y / sp, vel.z / sp, stretch, tmp); mul3(tmp, this.L, this.L); }
+    const rl = Math.hypot(rx, ry, rz);
+    if (rl > 0.05) {
+      along(rx / rl, ry / rl, rz / rl, 1 + this.tension * lerp(0.05, 0.75, A), tmp);
+      mul3(tmp, this.L, this.L);
+    }
+    const q = Math.exp(this.squash), ax0 = this.axis;
+    along(ax0.x, ax0.y, ax0.z, q, tmp);
+    mul3(tmp, this.L, this.L);
+    const cx = -ax0.x * 0.6, cy = -ax0.y * 0.6, cz = -ax0.z * 0.6;
+    const tx = cx - (tmp[0] * cx + tmp[1] * cy + tmp[2] * cz), ty = cy - (tmp[3] * cx + tmp[4] * cy + tmp[5] * cz), tz = cz - (tmp[6] * cx + tmp[7] * cy + tmp[8] * cz);
+
+    // nas skins sem teia, é o próprio braço que vai até o ponto: a mão precisa chegar nele de verdade
+    if (this.armOnly) inv3(this.L, this.Li);
+    for (let i = 0; i < 2; i++) {
+      const hk = hooks[i];
+      if (!this.armOnly || !hk) { this.reachTo[i] = null; continue; }
+      const wx = hk.p.x - pos.x - tx, wy = hk.p.y - pos.y - ty, wz = hk.p.z - pos.z - tz, Li = this.Li;
+      this.reachTo[i] = [Li[0] * wx + Li[1] * wy + Li[2] * wz, Li[3] * wx + Li[4] * wy + Li[5] * wz, Li[6] * wx + Li[7] * wy + Li[8] * wz];
+    }
 
     this.aim(s, dt, b, sp, hs);
     const steps = Math.max(1, Math.ceil(dt * 120)), h = dt / steps;
@@ -862,26 +929,15 @@ export class Slime {
       this.eyeV += (-90 * (this.eye - 1) - 7 * this.eyeV) * h;
       this.eye += this.eyeV * h;
     }
-    this.squash = clamp(this.squash, -this.squashMax, 0.7);
+    this.squash = clamp(this.squash, -this.squashMax, 0.7 + 0.6 * A);
+    for (let i = 0; i < 2; i++) {
+      const to = this.reachTo[i];
+      if (!to) continue;
+      const k = smooth(0, 1, (hooks[i].t ?? 1) / 0.16), S = this.S[i], ch = HAND + i * 3;
+      for (let c = 0; c < 3; c++) { this.x[ch + c] = S[c] + (to[c] - S[c]) * k; this.v[ch + c] = 0; }
+    }
     this.look.uEye.value = clamp(this.eye + smooth(22, 70, -vel.y) * 0.3, 0.55, 1.6);
     this.bones();
-
-    // corpo inteiro: gira, depois estica pra onde vai, pra onde a teia puxa e amassa na pancada
-    mul3(ro, Rf, this.L);
-    const tmp = this.tmpM;
-    if (this.bob) { along(0, 1, 0, 1 + this.bob, tmp); mul3(this.L, tmp, this.L); }
-    const stretch = 1 + this.stretchV * smooth(10, 80, sp);
-    if (sp > 1) { along(vel.x / sp, vel.y / sp, vel.z / sp, stretch, tmp); mul3(tmp, this.L, this.L); }
-    if (s.hook) {
-      const hx = s.hook.x - pos.x, hy = s.hook.y - pos.y, hz = s.hook.z - pos.z, hl = Math.hypot(hx, hy, hz) + 1e-5;
-      along(hx / hl, hy / hl, hz / hl, 1 + this.tension * lerp(0.05, 0.75, A), tmp);
-      mul3(tmp, this.L, this.L);
-    }
-    const q = Math.exp(this.squash), ax0 = this.axis;
-    along(ax0.x, ax0.y, ax0.z, q, tmp);
-    mul3(tmp, this.L, this.L);
-    const cx = -ax0.x * 0.6, cy = -ax0.y * 0.6, cz = -ax0.z * 0.6;
-    const tx = cx - (tmp[0] * cx + tmp[1] * cy + tmp[2] * cz), ty = cy - (tmp[3] * cx + tmp[4] * cy + tmp[5] * cz), tz = cz - (tmp[6] * cx + tmp[7] * cy + tmp[8] * cz);
 
     const W = this.W, M = this.M, L = this.L;
     for (let i = 0; i < BONES; i++) {
@@ -958,8 +1014,10 @@ export class Slime {
     }
     this.pos.needsUpdate = true;
     this.normals();
-    const hv = T.handV[1] * 3;
-    this.hand.set(s.pos.x + P[hv], s.pos.y + P[hv + 1], s.pos.z + P[hv + 2]);
+    for (let i = 0; i < 2; i++) {
+      const hv = T.handV[i] * 3;
+      this.hands[i].set(s.pos.x + P[hv], s.pos.y + P[hv + 1], s.pos.z + P[hv + 2]);
+    }
   }
 
   normals() {
@@ -1014,8 +1072,8 @@ export class SlimeStage {
     this.yaw = Math.PI;
     this.quat = new THREE.Quaternion();
     this.up = new THREE.Vector3(0, 1, 0);
-    this.hookAt = new THREE.Vector3(1.5, 4.4, 0);
-    this.s = { pos: new THREE.Vector3(0, 0.6, 0), vel: new THREE.Vector3(), quat: this.quat, hook: null, onGround: true, flip: 0, sit: false, wet: false, floor: 0, visible: true };
+    this.hookAt = { p: new THREE.Vector3(1.5, 4.4, 0), t: 0 };
+    this.s = { pos: new THREE.Vector3(0, 0.6, 0), vel: new THREE.Vector3(), quat: this.quat, hooks: [null, null], onGround: true, flip: 0, sit: false, wet: false, floor: 0, visible: true };
   }
 
   poke() { this.body.poke(4); }
@@ -1026,7 +1084,7 @@ export class SlimeStage {
     s.vel.set(0, 0, 0);
     s.pos.y = 0.6;
     s.onGround = true;
-    s.hook = null;
+    s.hooks[1] = null;
     let want = Math.PI;
     if (c > 2 && c < 4.6) { s.vel.x = 16; want = -Math.PI / 2; }
     else if (c >= 4.6 && c < 5.3) {
@@ -1038,7 +1096,8 @@ export class SlimeStage {
       const k = Math.sin((c - 6.6) / 1.2 * Math.PI);
       s.pos.y += k * 0.9;
       s.vel.y = Math.cos((c - 6.6) / 1.2 * Math.PI) * 2.4;
-      s.hook = this.hookAt;
+      this.hookAt.t = c - 6.6;
+      s.hooks[1] = this.hookAt;
       s.onGround = false;
     }
     let turn = want - this.yaw;
@@ -1066,6 +1125,14 @@ function quatMat(q, o) {
   o[0] = 1 - 2 * (y * y + z * z); o[1] = 2 * (x * y - z * w); o[2] = 2 * (x * z + y * w);
   o[3] = 2 * (x * y + z * w); o[4] = 1 - 2 * (x * x + z * z); o[5] = 2 * (y * z - x * w);
   o[6] = 2 * (x * z - y * w); o[7] = 2 * (y * z + x * w); o[8] = 1 - 2 * (x * x + y * y);
+}
+
+function inv3(m, o) {
+  const a = m[4] * m[8] - m[5] * m[7], b = m[5] * m[6] - m[3] * m[8], c = m[3] * m[7] - m[4] * m[6];
+  const d = 1 / (m[0] * a + m[1] * b + m[2] * c);
+  o[0] = a * d; o[1] = (m[2] * m[7] - m[1] * m[8]) * d; o[2] = (m[1] * m[5] - m[2] * m[4]) * d;
+  o[3] = b * d; o[4] = (m[0] * m[8] - m[2] * m[6]) * d; o[5] = (m[2] * m[3] - m[0] * m[5]) * d;
+  o[6] = c * d; o[7] = (m[1] * m[6] - m[0] * m[7]) * d; o[8] = (m[0] * m[4] - m[1] * m[3]) * d;
 }
 
 const mulTmp = new Float64Array(9);

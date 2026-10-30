@@ -45,7 +45,7 @@ export class DayCycle {
     this.uniforms = {
       top: { value: this.cur.top }, mid: { value: this.cur.mid }, hor: { value: this.cur.hor }, low: { value: this.cur.low },
       sun: { value: this.sunDir }, moon: { value: this.moonDir }, sunCol: { value: new THREE.Color('#ffd9a0') },
-      sunUp: { value: 1 }, moonUp: { value: 0 }, time: { value: 0 }, clouds: { value: 1 },
+      sunUp: { value: 1 }, moonUp: { value: 0 }, moonGlow: { value: 0 }, time: { value: 0 }, clouds: { value: 1 },
       cloud: { value: this.cur.cloud }, cloudLit: { value: this.cur.cloudLit },
     };
     this.sky = new THREE.Mesh(
@@ -53,7 +53,7 @@ export class DayCycle {
       new THREE.ShaderMaterial({
         side: THREE.BackSide, depthWrite: false, fog: false, uniforms: this.uniforms,
         vertexShader: 'varying vec3 vDir; void main(){ vDir = normalize(position); gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
-        fragmentShader: `uniform vec3 top, mid, hor, low, sun, moon, sunCol, cloud, cloudLit; uniform float sunUp, moonUp, time, clouds; varying vec3 vDir;
+        fragmentShader: `uniform vec3 top, mid, hor, low, sun, moon, sunCol, cloud, cloudLit; uniform float sunUp, moonUp, moonGlow, time, clouds; varying vec3 vDir;
           float hash(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
           float noise(vec2 p){ vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
             return mix(mix(hash(i), hash(i + vec2(1, 0)), f.x), mix(hash(i + vec2(0, 1)), hash(i + vec2(1, 1)), f.x), f.y); }
@@ -65,6 +65,7 @@ export class DayCycle {
             c += sunCol * sunUp * (pow(s, 1400.0) * 4.0 + pow(s, 90.0) * 0.5 + pow(s, 8.0) * 0.28);
             float m = dot(d, normalize(moon));
             c += vec3(0.86, 0.9, 1.0) * moonUp * (smoothstep(0.9993, 0.9996, m) * 1.5 + pow(max(m, 0.0), 300.0) * 0.12);
+            c += vec3(0.62, 0.8, 1.0) * moonGlow * (pow(max(m, 0.0), 3000.0) * 1.2 + pow(max(m, 0.0), 500.0) * 0.8 + pow(max(m, 0.0), 40.0) * 0.14);
             if (h > 0.0 && clouds > 0.5) {
               vec2 uv = d.xz / (h + 0.14) * 1.15 + vec2(time * 0.012, time * 0.005);
               float n = fbm(uv), k = smoothstep(0.5, 0.74, n) * smoothstep(0.01, 0.2, h);

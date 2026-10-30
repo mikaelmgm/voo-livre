@@ -51,6 +51,9 @@
   #radio-status { font-size: 12.5px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   #time-label { font-size: 13px; color: var(--ink); font-weight: 600; white-space: nowrap; }
   #time-hour { width: 100%; }
+  #veil { position: fixed; inset: 0; z-index: 1; pointer-events: none; opacity: 0; background: #fff; }
+  #chill { position: fixed; inset: 0; z-index: 1; pointer-events: none; opacity: 0; mix-blend-mode: screen; background: radial-gradient(ellipse at center, rgba(70, 120, 255, 0.05) 45%, rgba(130, 190, 255, 0.3) 100%); }
+  #gaze { position: absolute; left: 50%; top: 50%; width: 44px; height: 44px; margin: -22px 0 0 -22px; border-radius: 50%; opacity: 0; -webkit-mask: radial-gradient(circle, transparent 17px, #000 18px); mask: radial-gradient(circle, transparent 17px, #000 18px); }
   .char { display: flex; gap: 12px; align-items: stretch; }
   #slime-stage { width: 168px; height: 190px; flex: none; border-radius: 12px; cursor: pointer; background: radial-gradient(circle at 50% 70%, rgba(255, 255, 255, 0.16), rgba(255, 255, 255, 0.03) 70%); }
   .char-opts { flex: 1; min-width: 0; display: flex; flex-direction: column; justify-content: center; gap: 10px; }
@@ -78,6 +81,8 @@
 </head>
 <body>
 <canvas id="c3"></canvas>
+<div id="chill"></div>
+<div id="veil"></div>
 
 <div id="hud3">
   <div id="hud-left">
@@ -91,6 +96,7 @@
     <div id="hud-players"></div>
   </div>
   <div id="cross"></div>
+    <div id="gaze"></div>
   <div id="marks3"></div>
   <div id="hint" class="on"></div>
   <div id="perf3" class="hidden"></div>
@@ -110,13 +116,14 @@
     <div class="logo small">VOO<span>LIVRE 3D</span></div>
     <div class="tag">versão de teste · laje, quadra, cidade viva e boneco de gelatina</div>
     <div class="controls inline">
-      <div><b>Mouse</b> olha em volta · <b>segure o clique</b> mirando num ponto brilhante (ou no amigo) → gancho · <b>solte</b> → voa</div>
+      <div><b>Mouse</b> olha em volta · <b>segure o clique</b> mirando num ponto brilhante (ou no amigo) → teia · <b>solte</b> → voa · <b>botão direito</b> = a outra mão</div>
+      <div><b>CTRL</b> (ou C) preso na teia: você puxa em vez de ser puxado. No amigo, ele vem até você. Num prédio, você recua e estica: <b>solte</b> e saia voando feito estilingue</div>
       <div><b>Shift preso na corda = BOOST</b> (prende, boosta rapidinho, solta e acumula velocidade) · Shift solto no ar = mergulho · no chão = correr</div>
       <div><b>W A S D</b> andar / impulso no balanço / controle no ar (combine pra ir na diagonal)</div>
-      <div><b>Espaço</b> pula · no ar = pulo duplo · <b>Q</b> cambalhota · <b>E</b> ou <b>rodinha</b> encurta / alonga a corda</div>
+      <div><b>Espaço</b> pula · no ar = pulo duplo · perto de uma parede = pula nela · <b>Q</b> cambalhota · <b>E</b> ou <b>rodinha</b> encurta / alonga a corda</div>
       <div><b>Cinema</b> (o prédio gigante na frente do início): entre pelas portas laterais · <b>Y</b> coloca vídeo no telão</div>
       <div><b>Laje</b> em cima do cinema: pegue o elevador na calçada ou suba pelos pontos · a <b>passarela</b> leva à quadra de basquete</div>
-      <div><b>F</b> usa o que estiver perto: sentar, rádio, quadro, sinuca, ping pong, bola, elevador</div>
+      <div><b>F</b> usa o que estiver perto: sentar, rádio, quadro, sinuca, ping pong, bola, elevador · perto do amigo <b>pega</b>, de novo <b>arremessa</b></div>
       <div><b>T</b> ir até o amigo · <b>R</b> voltar ao início · <b>V</b> muta a voz · <b>P</b> mostra o FPS · <b>Esc</b> solta o mouse</div>
     </div>
     <button id="go3">Clique pra jogar</button>

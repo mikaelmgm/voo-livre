@@ -154,6 +154,31 @@ export class Sound {
   airJump() { this.burst(0.3, 400, 2600, 1.2, 0.3); this.tone(420, 0.18, 0.07, 'triangle', 0, 900); }
   splash() { this.burst(0.7, 1800, 200, 0.8, 0.5, 'lowpass'); }
   whoosh() { this.burst(1.4, 220, 800, 0.6, 0.1); }
+  twang(k = 1) { this.tone(180 + 240 * k, 0.32, 0.14, 'sawtooth', 0, 900 + 900 * k); this.burst(0.4, 500, 2400, 1, 0.18 * k); }
+  liftoff() { this.burst(5, 180, 900, 0.7, 0.3, 'lowpass'); this.tone(70, 4, 0.16, 'sawtooth', 0, 340); }
+  heart() { this.tone(58, 0.16, 0.2); this.tone(50, 0.2, 0.15, 'sine', 0.2); }
+  // zumbido de lâmpada fluorescente das backrooms
+  hum(on) {
+    const c = this.ctx;
+    if (!c) return;
+    if (!this.humGain) {
+      this.humGain = c.createGain();
+      this.humGain.gain.value = 0;
+      const lp = c.createBiquadFilter();
+      lp.type = 'lowpass';
+      lp.frequency.value = 900;
+      for (const [f, v] of [[60, 0.5], [120, 0.32], [240, 0.12], [481, 0.05]]) {
+        const o = c.createOscillator(), g = c.createGain();
+        o.type = 'sawtooth';
+        o.frequency.value = f;
+        g.gain.value = v;
+        o.connect(g).connect(lp);
+        o.start();
+      }
+      lp.connect(this.humGain).connect(this.master);
+    }
+    this.humGain.gain.setTargetAtTime(on ? 0.05 : 0, c.currentTime, 0.4);
+  }
   splat(k = 1) { this.tone(470, 0.16, 0.16 * k, 'sine', 0, 80); this.burst(0.13, 1200, 260, 1, 0.22 * k, 'lowpass'); }
   stage() { [523.3, 659.3, 784, 1046.5].forEach((f, i) => this.tone(f, 1.2, 0.05, 'triangle', i * 0.12)); }
   laser(far = false) { this.tone(far ? 1500 : 2200, 0.11, far ? 0.025 : 0.06, 'sawtooth', 0, 240); }

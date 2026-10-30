@@ -255,6 +255,11 @@ class Client {
         if (to && this.voice) to.send({ t: 'rtc', from: this.id, d: m.d });
         break;
       }
+      case 'p3': { // toques entre jogadores no 3D (puxar, pegar, jogar): vai só pra quem foi tocado
+        const to = clients.get(m.to);
+        if (to && this.joined) to.send({ ...m, from: this.id });
+        break;
+      }
       case 'who':
         this.send({ t: 'players', players: [...clients.values()].filter(c => c.joined && c !== this).map(c => c.info()) });
         break;

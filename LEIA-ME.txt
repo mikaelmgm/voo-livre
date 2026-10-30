@@ -67,6 +67,15 @@ VERSÃO 3D (TESTE)
   Shift solto no ar = mergulho (no chão corre) · E ou rodinha = corda · T ir até o amigo · R voltar ao início
   A teia é elástica e encurta sozinha perto do chão. Segure S preso na teia pra descer de propósito.
   PERSONAGEM: no Esc escolha a skin e o quanto ele é mole (0 = borracha, 100 = derretendo). Todo mundo vê.
+    Aranha, Aranha preto e Simbionte usam teia. Bala de goma e Cachecol esticam o próprio braço.
+  DUAS TEIAS: botão esquerdo numa mão, botão direito na outra.
+  CTRL (ou C) preso na teia: você puxa em vez de ser puxado.
+    No amigo, ele vem até você. Num prédio, você recua esticando: solte o CTRL ou as mãos e saia voando.
+    Com as duas teias vai mais forte. Com um amigo te puxando, estica o dobro.
+    Cuidado: CTRL+W fecha a aba. O jogo pede confirmação, mas se preferir use a tecla C.
+  AMIGO: perto dele, F pega e F de novo arremessa. Se você estiver rápido, soma a sua velocidade. Espaço solta.
+  PAREDE: Espaço perto de uma parede pula nela, e recarrega o pulo duplo.
+  VELOCIDADE: não tem limite, mas acima de 360 km/h ela cai bem rápido.
   Em alta velocidade o voo desvia sozinho dos prédios e puxa pro meio do vão entre eles.
   P mostra o FPS na tela
   CINEMA: o prédio gigante na frente do início. Entre pelas portas laterais (perto do chão).
