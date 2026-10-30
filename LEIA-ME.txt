@@ -8,8 +8,10 @@ COMO JOGAR COM SEU AMIGO (Radmin VPN)
    Uma janela preta abre mostrando os endereços, e o jogo abre no navegador.
 3. Se o Windows perguntar sobre o firewall, marque "Redes privadas" E "Redes públicas"
    e clique em Permitir (o Radmin às vezes aparece como rede pública).
-4. Mande pro seu amigo o endereço que começa com 26. (o IP do Radmin), por exemplo:
-       https://26.123.45.67:3000
+4. Mande pro seu amigo o endereço com sslip.io que aparece na janela preta, por exemplo:
+       https://26-123-45-67.sslip.io:3000
+   Esse nome aponta pro seu próprio IP. Use ele: por IP puro o YouTube bloqueia a maioria dos vídeos.
+   Quem abrir o endereço antigo por IP é levado pra esse sozinho.
    Ele só abre esse endereço no navegador (Chrome/Edge/Firefox). Não precisa instalar nada.
    O endereço também aparece na tela inicial do jogo, com um botão "copiar".
    O navegador vai avisar que a conexão não é particular: clique em Avançado > Continuar.
@@ -63,6 +65,9 @@ VERSÃO 3D (TESTE)
   Mouse olha · W A S D anda/impulso (diagonais) · Espaço pulo/pulo duplo · Q cambalhota
   Shift PRESO NA CORDA = BOOST (prende, boosta rapidinho, solta e acumula velocidade)
   Shift solto no ar = mergulho (no chão corre) · E ou rodinha = corda · T ir até o amigo · R voltar ao início
+  A teia é elástica e encurta sozinha perto do chão. Segure S preso na teia pra descer de propósito.
+  Em alta velocidade o voo desvia sozinho dos prédios e puxa pro meio do vão entre eles.
+  P mostra o FPS na tela
   CINEMA: o prédio gigante na frente do início. Entre pelas portas laterais (perto do chão).
     F perto de uma cadeira = senta / levanta · Y = cola um link do YouTube e passa no telão pra todo mundo
     (também dá pelo Esc, na caixa "Telão do cinema"). O som fica cheio dentro da sala e some longe do prédio.
@@ -87,4 +92,5 @@ VERSÃO 3D (TESTE)
 
   HORÁRIO (Esc): Manhã, Dia, Tarde, Noite ou a barra de hora. "Travar neste horário" para o relógio.
     Vale pra todo mundo no 3D. Solto, o dia inteiro dura 24 minutos.
-  SOMBRAS (Esc): desligue se o jogo ficar pesado.
+  QUALIDADE (Esc): no modo Automática o jogo baixa sozinho se o FPS cair. Também dá pra fixar em Mínima, Baixa,
+    Média ou Alta. P mostra o FPS, o pior quadro e a qualidade atual na tela.

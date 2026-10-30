@@ -45,7 +45,7 @@ export class DayCycle {
     this.uniforms = {
       top: { value: this.cur.top }, mid: { value: this.cur.mid }, hor: { value: this.cur.hor }, low: { value: this.cur.low },
       sun: { value: this.sunDir }, moon: { value: this.moonDir }, sunCol: { value: new THREE.Color('#ffd9a0') },
-      sunUp: { value: 1 }, moonUp: { value: 0 }, time: { value: 0 },
+      sunUp: { value: 1 }, moonUp: { value: 0 }, time: { value: 0 }, clouds: { value: 1 },
       cloud: { value: this.cur.cloud }, cloudLit: { value: this.cur.cloudLit },
     };
     this.sky = new THREE.Mesh(
@@ -53,7 +53,7 @@ export class DayCycle {
       new THREE.ShaderMaterial({
         side: THREE.BackSide, depthWrite: false, fog: false, uniforms: this.uniforms,
         vertexShader: 'varying vec3 vDir; void main(){ vDir = normalize(position); gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
-        fragmentShader: `uniform vec3 top, mid, hor, low, sun, moon, sunCol, cloud, cloudLit; uniform float sunUp, moonUp, time; varying vec3 vDir;
+        fragmentShader: `uniform vec3 top, mid, hor, low, sun, moon, sunCol, cloud, cloudLit; uniform float sunUp, moonUp, time, clouds; varying vec3 vDir;
           float hash(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
           float noise(vec2 p){ vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
             return mix(mix(hash(i), hash(i + vec2(1, 0)), f.x), mix(hash(i + vec2(0, 1)), hash(i + vec2(1, 1)), f.x), f.y); }
@@ -65,7 +65,7 @@ export class DayCycle {
             c += sunCol * sunUp * (pow(s, 1400.0) * 4.0 + pow(s, 90.0) * 0.5 + pow(s, 8.0) * 0.28);
             float m = dot(d, normalize(moon));
             c += vec3(0.86, 0.9, 1.0) * moonUp * (smoothstep(0.9993, 0.9996, m) * 1.5 + pow(max(m, 0.0), 300.0) * 0.12);
-            if (h > 0.0) {
+            if (h > 0.0 && clouds > 0.5) {
               vec2 uv = d.xz / (h + 0.14) * 1.15 + vec2(time * 0.012, time * 0.005);
               float n = fbm(uv), k = smoothstep(0.5, 0.74, n) * smoothstep(0.01, 0.2, h);
               float lit = smoothstep(0.42, 0.78, fbm(uv + normalize(sun).xz * 0.25));
@@ -94,22 +94,31 @@ export class DayCycle {
     this.light = new THREE.DirectionalLight(0xffffff, 2);
     this.light.castShadow = true;
     this.light.shadow.mapSize.set(2048, 2048);
-    const cam = this.light.shadow.camera;
-    cam.left = cam.bottom = -175;
-    cam.right = cam.top = 175;
-    cam.near = 10;
-    cam.far = 1200;
-    cam.updateProjectionMatrix();
+    this.light.shadow.camera.near = 10;
+    this.light.shadow.camera.far = 1200;
+    renderer.shadowMap.autoUpdate = false;     // o jogo decide quando refazer: não precisa ser todo quadro
     this.light.shadow.bias = -0.0005;
     this.light.shadow.normalBias = 0.5;
     scene.add(this.light, this.light.target);
     scene.fog = new THREE.FogExp2(0x8a3a74, 0.002);
   }
 
-  setShadows(on) {
-    this.renderer.shadowMap.enabled = on;
-    this.light.castShadow = on;
+  // size 0 desliga a sombra; range é a meia largura da área com sombra, em metros
+  setShadow(size, range) {
+    const L = this.light, cam = L.shadow.camera;
+    L.castShadow = size > 0;
+    if (!size) return;
+    cam.left = cam.bottom = -range;
+    cam.right = cam.top = range;
+    cam.updateProjectionMatrix();
+    if (L.shadow.mapSize.x !== size) {
+      L.shadow.mapSize.set(size, size);
+      L.shadow.map?.dispose();
+      L.shadow.map = null;
+    }
   }
+
+  setClouds(on) { this.uniforms.clouds.value = on ? 1 : 0; }
 
   // hora em [0, 24); `pos` é onde a sombra precisa estar nítida
   update(hour, t, pos) {

@@ -9,6 +9,7 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const os = require('os');
+const dns = require('dns');
 const { loadCert } = require('./cert.js');
 
 const PORT = Number(process.argv[2] || process.env.PORT || 3000);
@@ -55,12 +56,17 @@ function radioState(v, by) {
   return null;
 }
 
+// O YouTube recusa a maioria dos vídeos (erro 150) em páginas abertas por IP puro. O sslip.io é um DNS público que
+// devolve o IP escrito no próprio nome: 26-61-51-51.sslip.io cai em 26.61.51.51, sem instalar nem cadastrar nada.
+const hostOf = ip => ip.replace(/\./g, '-') + '.sslip.io';
+const namesOk = new Set();   // só redireciona se o nome resolveu mesmo: sem internet, o IP continua funcionando
+
 function lanAddresses() {
   const out = [];
   for (const [name, list] of Object.entries(os.networkInterfaces())) {
     for (const a of list || []) {
       if ((a.family !== 'IPv4' && a.family !== 4) || a.internal) continue;
-      out.push({ name, address: a.address, radmin: /radmin/i.test(name) || a.address.startsWith('26.') });
+      out.push({ name, address: a.address, host: hostOf(a.address), radmin: /radmin/i.test(name) || a.address.startsWith('26.') });
     }
   }
   return out.sort((a, b) => b.radmin - a.radmin);
@@ -70,6 +76,13 @@ function lanAddresses() {
 
 function serve(req, res) {
   const url = new URL(req.url, 'http://localhost');
+  // quem entrou pelo IP cai no endereço com nome (e em https, que também libera o microfone)
+  const ip = String(req.headers.host || '').split(':')[0];
+  if (namesOk.has(ip) && ['/', '/index.html', '/3d.html'].includes(url.pathname)) {
+    res.writeHead(302, { Location: `https://${hostOf(ip)}:${PORT}${req.url}`, 'Cache-Control': 'no-store' });
+    res.end();
+    return;
+  }
   if (url.pathname === '/api/info') {
     res.writeHead(200, { 'Content-Type': MIME['.json'], 'Cache-Control': 'no-store' });
     res.end(JSON.stringify({ port: PORT, ips: lanAddresses(), https: true, players: [...clients.values()].filter(c => c.joined).length }));
@@ -89,7 +102,7 @@ function serve(req, res) {
 
 // A mesma porta atende HTTP e HTTPS: olha o primeiro byte da conexão (0x16 = início de TLS).
 const plain = http.createServer(serve);
-const secure = https.createServer(loadCert(__dirname, lanAddresses().map(i => i.address)), serve);
+const secure = https.createServer(loadCert(__dirname, lanAddresses().map(i => i.address), lanAddresses().map(i => i.host)), serve);
 const server = net.createServer(sock => {
   sock.on('error', () => {});
   sock.once('data', first => {
@@ -311,6 +324,7 @@ server.on('error', err => {
 
 server.listen(PORT, '0.0.0.0', () => {
   const ips = lanAddresses();
+  for (const ip of ips) dns.lookup(ip.host, { family: 4 }, (err, address) => { if (!err && address === ip.address) namesOk.add(ip.address); });
   const line = '  ' + '─'.repeat(54);
   console.log('\n' + line);
   console.log('   VOO LIVRE — servidor ligado');
@@ -318,7 +332,7 @@ server.listen(PORT, '0.0.0.0', () => {
   console.log(`   Você (host):     http://localhost:${PORT}`);
   for (const ip of ips) {
     const tag = ip.radmin ? '  <-- mande este pro seu amigo (Radmin)' : `  (${ip.name})`;
-    console.log(`   Amigo:           https://${ip.address}:${PORT}${tag}`);
+    console.log(`   Amigo:           https://${ip.host}:${PORT}${tag}`);
   }
   console.log(line);
   console.log('   Com https dá pra falar na call. O navegador avisa que a conexão "não é');

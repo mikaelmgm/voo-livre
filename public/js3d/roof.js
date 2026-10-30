@@ -352,6 +352,7 @@ export function buildRoof(L, mats, scene, day) {
 
   return {
     group: g,
+    setLamps(on) { for (const l of lamps) l.visible = on; },
     update(t, dt, env, radioOn) {
       water.uniforms.time.value = t;
       water.uniforms.night.value = env.night;
@@ -494,6 +495,7 @@ export function buildCourt(L, mats, scene, day) {
 
   return {
     group: g,
+    setLamps(on) { flood.visible = on; },
     update(env) {
       flood.intensity = env.night * 900;
       headMat.color.copy(off).lerp(on, env.night);

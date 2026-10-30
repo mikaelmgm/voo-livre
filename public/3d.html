@@ -37,6 +37,10 @@
   #start3 a { color: #9fe8ff; text-align: center; font-size: 14px; font-weight: 600; text-decoration: none; }
   #err3 { color: #ffb0a0; text-align: center; font-size: 13px; }
   #hud-time { font-size: 13px; margin-top: 4px; color: var(--muted); }
+  /* desfoque por trás do HUD custa caro em cima de um canvas que muda todo quadro */
+  #hud3 .pl, #hud3 #hint { backdrop-filter: none; background: rgba(20, 10, 35, 0.62); }
+  #perf3 { position: absolute; left: 22px; bottom: 16px; font-size: 12.5px; font-weight: 600; padding: 5px 10px; border-radius: 8px; background: rgba(10, 6, 20, 0.7); }
+  #quality-note { font-size: 12.5px; color: var(--muted); }
   #start3 .seg { display: flex; border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
   #start3 .seg button { flex: 1; font-size: 13.5px; font-weight: 600; padding: 9px 8px; border-radius: 0; color: var(--ink); background: rgba(255, 255, 255, 0.04); box-shadow: none; }
   #start3 .seg button + button { border-left: 1px solid var(--line); }
@@ -80,6 +84,7 @@
   <div id="cross"></div>
   <div id="marks3"></div>
   <div id="hint" class="on"></div>
+  <div id="perf3" class="hidden"></div>
 </div>
 
 <div id="music" class="hidden">
@@ -103,7 +108,7 @@
       <div><b>Cinema</b> (o prédio gigante na frente do início): entre pelas portas laterais · <b>Y</b> coloca vídeo no telão</div>
       <div><b>Laje</b> em cima do cinema: pegue o elevador na calçada ou suba pelos pontos · a <b>passarela</b> leva à quadra de basquete</div>
       <div><b>F</b> usa o que estiver perto: sentar, rádio, quadro, sinuca, ping pong, bola, elevador</div>
-      <div><b>T</b> ir até o amigo · <b>R</b> voltar ao início · <b>V</b> muta a voz · <b>Esc</b> solta o mouse</div>
+      <div><b>T</b> ir até o amigo · <b>R</b> voltar ao início · <b>V</b> muta a voz · <b>P</b> mostra o FPS · <b>Esc</b> solta o mouse</div>
     </div>
     <button id="go3">Clique pra jogar</button>
     <div class="quick">
@@ -153,11 +158,15 @@
       </div>
     </div>
     <div class="box">
-      <div class="box-h">✨ Sombras <small>(desligue se o jogo ficar pesado)</small></div>
-      <div class="seg" id="opt-shadows">
-        <button data-v="on">Ligadas</button>
-        <button data-v="off">Desligadas</button>
+      <div class="box-h">⚙️ Qualidade <small>(P mostra o FPS na tela)</small></div>
+      <div class="seg" id="opt-quality">
+        <button data-v="auto">Automática</button>
+        <button data-v="0">Mínima</button>
+        <button data-v="1">Baixa</button>
+        <button data-v="2">Média</button>
+        <button data-v="3">Alta</button>
       </div>
+      <div id="quality-note"></div>
     </div>
     <div id="err3"></div>
     <a href="index.html">← voltar pro 2D</a>

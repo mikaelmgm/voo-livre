@@ -11,6 +11,7 @@ import { DayCycle, hourLabel } from './daycycle.js';
 import { CELL, styleLot, cityMaterials, lightCity, newKit, dressLot, kitMeshes, Crowd, Traffic } from './street.js';
 import { groundTexture } from './textures.js';
 import { roofLayout, courtLayout, groundLift, buildRoof, buildCourt } from './roof.js';
+import { Skyline } from './skyline.js';
 import { Whiteboard } from './board.js';
 import { Sinuca, Pong, Basket } from './games.js';
 
@@ -18,13 +19,25 @@ const $ = s => document.querySelector(s);
 const V3 = THREE.Vector3;
 
 // ------------------------------------------------------------------ constantes (em metros)
-const CHUNK = 8;              // lotes por pedaço de cidade
-const VIEW = 2;               // pedaços carregados em volta do jogador
-const DETAIL = 620;           // até onde aparecem os detalhes da rua
+const CHUNK = 4;              // lotes por pedaço de cidade: pequeno pra montar sem dar tranco
+// Níveis de qualidade. view = pedaços de cidade de verdade em volta; detail = até onde vão árvores, carros e mobília;
+// far = alcance do horizonte simulado; shadow = tamanho do mapa de sombra (0 desliga), refeito a cada `every` quadros.
+const QUALITY = [
+  { name: 'Mínima', pr: 0.5, view: 1, detail: 110, far: 900, shadow: 0, range: 0, every: 1, crowd: 45, cars: 16, clouds: false, lamps: false },
+  { name: 'Baixa', pr: 0.7, view: 2, detail: 160, far: 1100, shadow: 0, range: 0, every: 1, crowd: 70, cars: 30, clouds: false, lamps: false },
+  { name: 'Média', pr: 0.85, view: 2, detail: 230, far: 1300, shadow: 1024, range: 90, every: 4, crowd: 110, cars: 50, clouds: true, lamps: true },
+  { name: 'Alta', pr: 1, view: 3, detail: 330, far: 1500, shadow: 2048, range: 140, every: 3, crowd: 150, cars: 76, clouds: true, lamps: true },
+];
+let Q = QUALITY[3];
 const G = 26;
 const ROPE_MAX = 70, ROPE_MIN = 3;
 const WALK = 10, SPRINT = 18, JUMP = 11, AIR_JUMP = 13;
-const PUMP = 16, AIR = 9, DIVE = 24, DRAG = 0.02, MAX_SPEED = 100, RELEASE_BOOST = 4, REEL = 18;
+const PUMP = 16, AIR = 9, DIVE = 24, DRAG = 0.012, MAX_SPEED = 100, RELEASE_BOOST = 6, REEL = 18;
+// a teia é uma mola: estica até um limite e devolve, em vez de ser uma barra rígida que freia você
+const ROPE_K = 70, ROPE_DAMP = 5, ROPE_STRETCH = 0.16;
+const GROUND_CLEAR = 3.4, GUARD_RATE = 48;     // o arco da teia nunca passa rente ao chão (S segurado libera)
+const ASSIST = 7, ASSIST_TOP = 75;             // empurrãozinho pra manter o embalo enquanto balança
+const STEER_MIN = 20;                          // acima disso o voo desvia sozinho dos prédios
 const BOOST = 30;             // Shift preso na corda: empurra na direção do balanço
 const STEP = 0.65;            // degrau que dá pra subir andando
 const R = 0.6;                // raio do corpo pra colisão
@@ -148,11 +161,20 @@ function lotsAround(x, z, r) {
 
 const canvas = $('#c3');
 // alpha: o telão é um "buraco" transparente no canvas, e o vídeo do YouTube (CSS 3D) aparece por trás
-const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
+// sem aceleração de vídeo (ou forçando qualidade baixa) o antialias sai logo de início: não dá pra mudar depois
+function softwareGpu() {
+  const gl = document.createElement('canvas').getContext('webgl2');
+  if (!gl) return false;
+  const e = gl.getExtension('WEBGL_debug_renderer_info');
+  const name = e ? gl.getParameter(e.UNMASKED_RENDERER_WEBGL) : '';
+  gl.getExtension('WEBGL_lose_context')?.loseContext();
+  return /swiftshader|llvmpipe|software|basic render/i.test(name);
+}
+const SOFTWARE = softwareGpu();
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: !SOFTWARE && !['0', '1'].includes(prefs.quality), alpha: true, powerPreference: 'high-performance' });
 renderer.setClearColor(0x000000, 0);
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5));
 const cssRenderer = new CSS3DRenderer();
 cssRenderer.domElement.id = 'css3';
 document.body.prepend(cssRenderer.domElement);
@@ -277,6 +299,9 @@ function buildCinema(L) {
 }
 
 const chunks = new Map();
+let chunkWait = 0;
+const chunkOf = i => Math.floor(i / CHUNK);
+const isLoaded = (i, j) => chunks.has(chunkOf(i) + ',' + chunkOf(j));
 function buildChunk(ci, cj) {
   const kit = newKit(mats), anchors = [];
   const group = new THREE.Group();
@@ -313,20 +338,25 @@ function buildChunk(ci, cj) {
 }
 
 function updateChunks(x, z) {
-  const size = CELL * CHUNK;
+  const size = CELL * CHUNK, view = Q.view;
   const ci = Math.floor(x / size), cj = Math.floor(z / size);
-  // um pedaço por quadro (o mais perto primeiro) pra não dar tranco ao atravessar a cidade
   const missing = [];
-  for (let a = -VIEW; a <= VIEW; a++) for (let b = -VIEW; b <= VIEW; b++) {
+  for (let a = -view; a <= view; a++) for (let b = -view; b <= view; b++) {
     if (!chunks.has((ci + a) + ',' + (cj + b))) missing.push([ci + a, cj + b, a * a + b * b]);
   }
-  missing.sort((p, q) => p[2] - q[2]);
-  const budget = chunks.size ? 1 : missing.length;
-  for (const [a, b] of missing.slice(0, budget)) chunks.set(a + ',' + b, buildChunk(a, b));
+  if (chunkWait > 0) chunkWait--;
+  else if (missing.length) {
+    // um pedaço a cada três quadros, o mais perto primeiro. Até ele ficar pronto, quem aparece é o horizonte simulado.
+    missing.sort((p, q) => p[2] - q[2]);
+    for (const [a, b] of missing.slice(0, chunks.size ? 1 : 9)) chunks.set(a + ',' + b, buildChunk(a, b));
+    chunkWait = 2;
+    skyline.dirty = true;
+  }
   for (const [k, c] of chunks) {
     // carros, árvores e mobília só existem por perto: de longe ninguém vê e pesa bastante
-    c.detail.visible = Math.hypot((c.ci + 0.5) * size - x, (c.cj + 0.5) * size - z) < DETAIL;
-    if (Math.abs(c.ci - ci) > VIEW + 1 || Math.abs(c.cj - cj) > VIEW + 1) {
+    c.detail.visible = Math.hypot((c.ci + 0.5) * size - x, (c.cj + 0.5) * size - z) < Q.detail + size / 2;
+    if (Math.abs(c.ci - ci) > view + 1 || Math.abs(c.cj - cj) > view + 1) {
+      skyline.dirty = true;
       scene.remove(c.group);
       c.group.traverse(o => { if ((o.isMesh || o.isPoints) && !o.geometry.userData.shared) o.geometry.dispose(); if (o.isInstancedMesh) o.dispose(); });
       chunks.delete(k);
@@ -570,7 +600,22 @@ function collide() {
     if (d2 > 1e-8) { const d = Math.sqrt(d2); n = new V3(dx / d, dy / d, dz / d); me.pos.set(qx + n.x * R, qy + n.y * R, qz + n.z * R); }
     else { n = new V3(0, 1, 0); me.pos.y = b[4] + R; }
     const vn = me.vel.dot(n);
-    if (vn < 0) me.vel.addScaledVector(n, -vn);
+    if (vn < 0) {
+      const s0 = me.vel.length();
+      me.vel.addScaledVector(n, -vn);
+      if (s0 > 14 && n.y < 0.7) {
+        // em alta velocidade a parede não para você: de raspão escorrega nela, de frente corre pro canto mais perto
+        const s1 = me.vel.length();
+        if (s1 > s0 * 0.5) me.vel.multiplyScalar(s0 * 0.96 / s1);
+        else {
+          const lat = Math.abs(n.x) > 0.5 ? 2 : 0, at = lat ? me.pos.z : me.pos.x;
+          const way = at - b[lat] < b[lat + 3] - at ? -1 : 1;
+          me.vel.x += (lat ? 0 : way) * s0 * 0.75;
+          me.vel.z += (lat ? way : 0) * s0 * 0.75;
+          me.vel.y += s0 * 0.2;
+        }
+      }
+    }
     if (n.y > 0.7) me.onGround = true;
   }
   if (me.onGround) me.airJumps = 1;
@@ -603,15 +648,32 @@ function step(dt) {
     if (jumpPressed) { me.vel.y = JUMP; me.onGround = false; }
   } else if (me.onGround && !me.hook) {
     const sp = keys.ShiftLeft || keys.ShiftRight ? SPRINT : WALK;
-    const k = Math.min(1, dt * 12);
-    me.vel.x += (wish.x * sp - me.vel.x) * k;
-    me.vel.z += (wish.z * sp - me.vel.z) * k;
+    if (Math.hypot(me.vel.x, me.vel.z) > SPRINT + 1) {
+      // chegou embalado: desliza e perde velocidade aos poucos, dá pra emendar outro pulo sem parar
+      const f = Math.exp(-dt * 1.1);
+      me.vel.x = me.vel.x * f + wish.x * AIR * dt;
+      me.vel.z = me.vel.z * f + wish.z * AIR * dt;
+    } else {
+      const k = Math.min(1, dt * 12);
+      me.vel.x += (wish.x * sp - me.vel.x) * k;
+      me.vel.z += (wish.z * sp - me.vel.z) * k;
+    }
     if (jumpPressed) { me.vel.y = JUMP; me.onGround = false; }
   } else if (me.hook) {
     const n = new V3().subVectors(me.pos, me.hook.p).normalize();
     const f = wish.clone().multiplyScalar(PUMP);
     f.addScaledVector(n, -f.dot(n));
     acc.add(f);
+    // perto do chão a teia encurta sozinha, pra você passar por cima em vez de arrastar o pé
+    if (!me.hook.pid && !keys.KeyS) {
+      // conta quanto a teia vai esticar nessa velocidade, senão a mola leva você pro chão do mesmo jeito
+      const sag = Math.min(me.hook.L * ROPE_STRETCH + 1.5, me.vel.lengthSq() / (Math.max(me.hook.L, 4) * ROPE_K));
+      const safe = Math.max(ROPE_MIN, me.hook.p.y - GROUND_CLEAR - sag);
+      if (me.hook.L > safe) me.hook.L = Math.max(safe, me.hook.L - GUARD_RATE * dt);
+    }
+    // ajuda a manter o embalo: empurra de leve pra onde você já está indo
+    const along = me.vel.clone().addScaledVector(n, -me.vel.dot(n)), sp = along.length();
+    if (sp > 8 && sp < ASSIST_TOP) acc.addScaledVector(along, ASSIST * (1 - sp / ASSIST_TOP) / sp);
     let dl = wheel;
     if (keys.KeyE) dl -= REEL * dt;
     if (dl) {
@@ -650,12 +712,79 @@ function step(dt) {
     const d = me.pos.distanceTo(me.hook.p);
     if (d > me.hook.L) {
       const n = new V3().subVectors(me.pos, me.hook.p).divideScalar(d);
-      me.pos.copy(me.hook.p).addScaledVector(n, me.hook.L);
-      const vr = me.vel.dot(n);
-      if (vr > 0) me.vel.addScaledVector(n, -vr);
+      const over = d - me.hook.L, vr = me.vel.dot(n), s0 = me.vel.length();
+      // a mola curva a trajetória; voando rápido ela nunca tira velocidade, só muda a direção
+      me.vel.addScaledVector(n, -(ROPE_K * over * (vr < 0 ? 0.55 : 1) + (vr > 0 ? ROPE_DAMP * vr : 0)) * dt);
+      const s1 = me.vel.length();
+      if (s0 > 15 && s1 < s0) me.vel.multiplyScalar(s0 / s1);
+      const limit = me.hook.L * ROPE_STRETCH + 1.5;
+      if (over > limit) {
+        me.pos.copy(me.hook.p).addScaledVector(n, me.hook.L + limit);
+        const v2 = me.vel.dot(n);
+        if (v2 > 0) {
+          me.vel.addScaledVector(n, -v2);
+          const s2 = me.vel.length();
+          if (s0 > 15 && s2 > 0.01) me.vel.multiplyScalar(s0 / s2);
+        }
+      }
     }
   }
   collide();
+}
+
+// Reta contra as caixas dos prédios, com uma folga em volta. Devolve a distância, o eixo da face e a caixa.
+function sweep(from, dir, max, pad) {
+  let best = null, tmin = max;
+  const o = [from.x, from.y, from.z], v = [dir.x, dir.y, dir.z];
+  for (const L of lotsAround(from.x + dir.x * max / 2, from.z + dir.z * max / 2, max / 2 + 4)) for (const b of L.boxes) {
+    if (b.soft) continue;
+    let t0 = 0, t1 = tmin, axis = -1, sign = 0;
+    for (let k = 0; k < 3; k++) {
+      const lo = b[k] - pad, hi = b[k + 3] + pad;
+      if (Math.abs(v[k]) < 1e-6) { if (o[k] < lo || o[k] > hi) { t0 = Infinity; break; } continue; }
+      let a = (lo - o[k]) / v[k], c = (hi - o[k]) / v[k];
+      if (a > c) [a, c] = [c, a];
+      if (a > t0) { t0 = a; axis = k; sign = -Math.sign(v[k]); }
+      t1 = Math.min(t1, c);
+      if (t0 > t1) { t0 = Infinity; break; }
+    }
+    if (t0 < tmin && axis >= 0) { tmin = t0; best = { t: t0, axis, sign, box: b }; }
+  }
+  return best;
+}
+
+// Assistência de voo: olha pra frente, e se a rota bate num prédio, curva aos poucos pra passar rente ou por cima.
+// Entre dois prédios, puxa pro meio do vão. Só muda a direção: a velocidade continua a mesma.
+function avoid(dt) {
+  const speed = me.vel.length();
+  if (speed < STEER_MIN || me.onGround || me.wet) return;
+  const dir = me.vel.clone().divideScalar(speed);
+  const look = clamp(speed * 0.9, 16, 75);
+  const hit = sweep(me.pos, dir, look, 1.2);
+  // caindo em cima de um telhado sem teia é pouso, não batida
+  if (hit && !(hit.axis === 1 && (hit.sign < 0 || !me.hook))) {
+    const p = me.pos.clone().addScaledVector(dir, hit.t), b = hit.box, out = dir.clone();
+    if (hit.axis === 1) out.y = 0;                                        // rente ao telhado
+    else if (b[4] - p.y < 7) out.y = Math.max(dir.y, 0) + 0.55;           // quase no topo: passa por cima
+    else {
+      out.setComponent(hit.axis, 0);                                      // de lado: acompanha a parede
+      if (out.lengthSq() < 0.12) {
+        // de frente: vai pelo canto mais perto
+        const lat = hit.axis === 0 ? 2 : 0;
+        out.set(0, dir.y, 0).setComponent(lat, p.getComponent(lat) - b[lat] < b[lat + 3] - p.getComponent(lat) ? -1 : 1);
+      }
+    }
+    const urgency = 1 - hit.t / look;
+    dir.lerp(out.normalize(), 1 - Math.exp(-dt * (1.5 + 14 * urgency * urgency))).normalize();
+  }
+  const side = new V3(-dir.z, 0, dir.x);
+  if (side.lengthSq() > 0.05) {
+    side.normalize();
+    const a = sweep(me.pos, side, 26, 0.2), c = sweep(me.pos, side.clone().negate(), 26, 0.2);
+    const da = a ? a.t : 26, dc = c ? c.t : 26;
+    if (Math.min(da, dc) < 13) dir.addScaledVector(side, clamp((da - dc) * 0.012, -0.25, 0.25) * dt * 1.6).normalize();
+  }
+  me.vel.copy(dir).multiplyScalar(speed);
 }
 
 function airJump(wish, fwd) {
@@ -683,6 +812,7 @@ const roofFx = buildRoof(CINE, mats, scene, day);
 const courtFx = buildCourt(COURT_LOT, mats, scene, day);
 const crowd = new Crowd(scene);
 const traffic = new Traffic(scene);
+const skyline = new Skyline(scene, lot, CELL);
 const ctx = { scene, mats, sound, send: o => net.send(o), toast: t => showToast(t), myId: () => myId, myName: () => NAME };
 const board = new Whiteboard(ctx, CINE.roof.board);
 const sinuca = new Sinuca(ctx, CINE.roof.sinuca);
@@ -838,6 +968,7 @@ const screenObj = new CSS3DObject(screenEl);
 screenObj.scale.setScalar(CINEMA.scrW / 1280);
 screenObj.position.copy(lot(CINEMA.i, CINEMA.j).screen);
 cssScene.add(screenObj);
+cssRenderer.render(cssScene, camera);    // é aqui que o telão entra na página; o player do YouTube precisa dele lá desde o início
 
 let prefsVol = Number.isFinite(prefs.cinemaVol) ? prefs.cinemaVol : 80;
 let cineState = { status: 'stopped' }, toast = null;
@@ -944,17 +1075,62 @@ function renderTime() {
   $('#hud-time').textContent = `🕑 ${hourLabel(h)}`;
 }
 
-const shadowSeg = $('#opt-shadows');
-function setShadows(on) {
-  prefs.shadows = on;
-  savePrefs();
-  day.setShadows(on);
-  for (const m of [...mats.facades, mats.plain, mats.grass, mats.shops, mats.canopy]) m.needsUpdate = true;
-  scene.traverse(o => { if (o.material?.isMeshLambertMaterial || o.material?.isMeshPhongMaterial) o.material.needsUpdate = true; });
-  shadowSeg.querySelectorAll('button').forEach(b => b.classList.toggle('on', (b.dataset.v === 'on') === on));
+// ------------------------------------------------------------------ qualidade: no automático, acompanha o FPS real
+
+let qLevel = 3;
+const perf = { sum: 0, n: 0, worst: 0, fps: 0, shownWorst: 0, hold: performance.now() + 8000, good: 0, raisedAt: -1e9, ceiling: 3, show: false, drew: 0 };
+const qualSeg = $('#opt-quality');
+function applyQuality(level) {
+  qLevel = level;
+  Q = QUALITY[level];
+  renderer.setPixelRatio(Q.pr * Math.min(window.devicePixelRatio || 1, 1.25));
+  day.setShadow(Q.shadow, Q.range);
+  day.setClouds(Q.clouds);
+  roofFx.setLamps(Q.lamps);
+  courtFx.setLamps(Q.lamps);
+  crowd.setRange(Q.crowd);
+  traffic.setCount(Q.cars);
+  skyline.radius = Q.far;
+  skyline.dirty = true;
+  renderQuality();
 }
-shadowSeg.onclick = e => { const b = e.target.closest('button'); if (b) setShadows(b.dataset.v === 'on'); };
-setShadows(prefs.shadows !== false);
+function renderQuality() {
+  const pref = prefs.quality ?? 'auto';
+  qualSeg.querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.v === pref));
+  $('#quality-note').textContent = pref === 'auto' ? `agora em ${Q.name}${SOFTWARE ? ' · seu navegador está sem aceleração de vídeo' : ''}` : '';
+}
+function setQuality(v) {
+  prefs.quality = v;
+  savePrefs();
+  perf.ceiling = 3;
+  perf.hold = performance.now() + 4000;
+  applyQuality(v === 'auto' ? qLevel : Number(v));
+}
+qualSeg.onclick = e => { const b = e.target.closest('button'); if (b) setQuality(b.dataset.v); };
+applyQuality(['0', '1', '2', '3'].includes(prefs.quality) ? Number(prefs.quality) : SOFTWARE ? 0 : 3);
+
+function watchFrames(ms, now) {
+  if (ms > 500 || document.hidden) return;     // pausa ou aba escondida não contam
+  perf.sum += ms;
+  perf.n++;
+  perf.worst = Math.max(perf.worst, ms);
+  if (perf.sum < 1500) return;
+  const avg = perf.sum / perf.n;
+  perf.fps = 1000 / avg;
+  perf.shownWorst = perf.worst;
+  perf.sum = perf.n = perf.worst = 0;
+  if ((prefs.quality ?? 'auto') !== 'auto' || now < perf.hold) return;
+  if (avg > 28 && qLevel > 0) {
+    if (now - perf.raisedAt < 20000) perf.ceiling = qLevel - 1;   // subiu e não aguentou: fica aqui nesta sessão
+    perf.good = 0;
+    perf.hold = now + 3500;
+    applyQuality(qLevel - 1);
+    showToast(`⚙️ Qualidade automática: ${Q.name}`);
+  } else if (avg < 19 && qLevel < perf.ceiling) {
+    perf.good += 1.5;
+    if (perf.good >= 30) { perf.good = 0; perf.raisedAt = now; perf.hold = now + 3500; applyQuality(qLevel + 1); }
+  } else perf.good = 0;
+}
 
 // atalhos do menu
 function teleport(p) { leaveAct(); standUp(); me.pos.copy(p); me.vel.set(0, 0, 0); me.hook = null; }
@@ -1027,6 +1203,7 @@ cineUi.url.addEventListener('keydown', e => { if (e.key === 'Enter') playFromInp
 
 addEventListener('keydown', e => {
   if (!locked) return;
+  if (e.code === 'KeyP' && !e.repeat) { perf.show = !perf.show; $('#perf3').classList.toggle('hidden', !perf.show); }
   if (e.code === 'KeyV' && !e.repeat && voice.on) showToast(voice.toggleMute() ? '🔇 microfone mutado' : '🎙️ microfone ligado');
   if (act) {
     if (e.code === 'KeyF' && !e.repeat) leaveAct();
@@ -1156,6 +1333,13 @@ const marks = new Map();
 let lastHud = 0, firstHook = -1;
 const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
 
+// só mexe na página quando o texto muda de verdade
+function setHtml(el, html) {
+  if (el.lastHtml === html) return;
+  el.lastHtml = html;
+  el.innerHTML = html;
+}
+
 function updateHud(now) {
   hud.cross.classList.toggle('on', !!target);
   for (const r of remotes.values()) {
@@ -1191,10 +1375,14 @@ function updateHud(now) {
   hud.d.textContent = Math.round(Math.hypot(me.pos.x - L.cx, me.pos.z - L.cz)).toLocaleString('pt-BR');
   hud.s.textContent = Math.round(me.vel.length() * 3.6);
   const n = [...remotes.values()].filter(r => !r.stale).length;
-  hud.net.innerHTML = net.connected ? `<span class="dot"></span>online · ${n + 1} no 3D` : '<span class="dot"></span>sem conexão com o host';
+  setHtml(hud.net, net.connected ? `<span class="dot"></span>online · ${n + 1} no 3D` : '<span class="dot"></span>sem conexão com o host');
   hud.net.classList.toggle('off', !net.connected);
   const row = (c, name, dist) => `<div class="pl"><i style="background:${c}"></i><b>${esc(name)}</b><span>${dist}</span></div>`;
-  hud.pl.innerHTML = [row(COLOR, `${NAME} ${voice.badge(myId, true)}`, '')].concat([...remotes.values()].filter(r => r.pos && !r.stale).map(r => row(r.info.color, `${r.info.name} ${voice.badge(r.id)}`, Math.round(r.pos.distanceTo(me.pos)) + ' m'))).join('');
+  setHtml(hud.pl, [row(COLOR, `${NAME} ${voice.badge(myId, true)}`, '')].concat([...remotes.values()].filter(r => r.pos && !r.stale).map(r => row(r.info.color, `${r.info.name} ${voice.badge(r.id)}`, Math.round(r.pos.distanceTo(me.pos)) + ' m'))).join(''));
+  if (perf.show) {
+    const i = renderer.info.render;
+    $('#perf3').textContent = `${Math.round(perf.fps)} fps · pior quadro ${Math.round(perf.shownWorst)} ms · ${Q.name} · ${chunks.size} pedaços + ${skyline.mesh.count} no horizonte · ${(i.triangles / 1000).toFixed(0)} mil triângulos · ${i.calls} chamadas`;
+  }
   let h = '';
   const action = act ? null : nearbyAction();
   if (toast && now < toast.until) h = toast.text;
@@ -1219,8 +1407,9 @@ const ring = new THREE.Mesh(new THREE.TorusGeometry(1.6, 0.12, 8, 32), new THREE
 ring.renderOrder = 9;
 scene.add(ring);
 
-let last = performance.now(), lastSend = 0;
+let last = performance.now(), lastSend = 0, cssOn = true;
 function frame(now) {
+  watchFrames(now - last, now);
   const dt = clamp((now - last) / 1000, 0, 0.05);
   if (now > last) last = now;
   simulate(last, dt);
@@ -1242,6 +1431,7 @@ function simulate(now, dt) {
   me.boosting = false;
   if (me.seat && jumpPressed) { jumpPressed = false; standUp(); }
   if (!me.seat && !act) {
+    avoid(dt);
     const n = Math.max(1, Math.ceil(dt / (1 / 240)));
     for (let i = 0; i < n; i++) step(dt / n);
   }
@@ -1274,7 +1464,8 @@ function simulate(now, dt) {
   lightCity(mats, day);
   crowd.update(T, me.pos.x, me.pos.z, lot);
   traffic.update(T, me.pos.x, me.pos.z, day.night);
-  const nearTop = Math.hypot(me.pos.x - CINE.cx, me.pos.z - CINE.cz) < 1000;
+  skyline.update(me.pos.x, me.pos.z, isLoaded, day);
+  const nearTop = Math.hypot(me.pos.x - CINE.cx, me.pos.z - CINE.cz) < Q.far;
   roofFx.group.visible = courtFx.group.visible = nearTop;
   roofFx.update(T, dt, day, !!radioNow);
   courtFx.update(day);
@@ -1299,8 +1490,12 @@ function simulate(now, dt) {
   radioVolume();
   radioYt.tick();
   updateHud(now);
+  renderer.shadowMap.needsUpdate = Q.shadow > 0 && perf.drew++ % Q.every === 0;
   renderer.render(scene, camera);
-  cssRenderer.render(cssScene, camera);
+  // o telão só existe por perto do cinema: de longe a camada CSS 3D nem precisa ser desenhada
+  const nearScreen = me.pos.y < CINEMA.hall + 20 && Math.hypot(me.pos.x - CINE.cx, me.pos.z - CINE.cz) < 60;
+  if (nearScreen !== cssOn) { cssOn = nearScreen; cssRenderer.domElement.style.visibility = nearScreen ? 'visible' : 'hidden'; }
+  if (nearScreen) cssRenderer.render(cssScene, camera);
 }
 
 net.connect();
@@ -1309,8 +1504,9 @@ requestAnimationFrame(frame);
 // para depuração no console
 window.__v3 = {
   me, remotes, keys, camera, lotsAround, lot, cinema, CINEMA, nearestSeat, sitDown, standUp, setCinema, inCinema,
+  quality: () => ({ pref: prefs.quality ?? 'auto', level: qLevel, name: Q.name, software: SOFTWARE, fps: Math.round(perf.fps) }), setQuality, skyline, buildChunk,
   day, setTime, hourNow, board, sinuca, pong, basket, voice, renderer, enterAct, leaveAct, nearbyAction, chunks, crowd, traffic, net,
-  setRadio, radioYt, radioSp, inPool, COURT,
+  setRadio, radioYt, radioSp, inPool, COURT, sweep,
   get act() { return act; },
   get timeState() { return timeState; },
   get cineState() { return cineState; },

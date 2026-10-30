@@ -17,7 +17,9 @@ node server.js
 No Windows, dá pra só clicar duas vezes em `JOGAR.bat`. O servidor mostra os endereços:
 
 - você abre `http://localhost:3000`;
-- seu amigo abre `https://SEU-IP:3000` (o IP do Radmin VPN começa com `26.`, ou use o IP da rede local).
+- seu amigo abre o link que aparece na tela inicial, no formato `https://26-61-51-51.sslip.io:3000` (o IP do Radmin VPN começa com `26.`).
+
+O link usa o nome no lugar do IP porque o YouTube bloqueia a maioria dos vídeos em páginas abertas por IP puro. O [sslip.io](https://sslip.io) só traduz esse nome para o próprio IP. Quem abrir o endereço antigo por IP é redirecionado sozinho.
 
 O `https` é o que libera o microfone: o navegador não deixa falar por `http`, a não ser em `localhost`. Como o certificado é gerado pelo próprio jogo, aparece um aviso de conexão: é só clicar em **Avançado > Continuar**, uma vez. Quem entrar por `http` joga e ouve a call, mas não fala.
 
@@ -32,4 +34,4 @@ Controles e detalhes estão no [LEIA-ME.txt](LEIA-ME.txt).
 - `public/js/voice.js`: voz por WebRTC, direto entre os jogadores; o servidor só faz a sinalização.
 - `public/js/`: versão 2D em Canvas, com física da corda, mundo procedural, renderização, rede e áudio procedural.
 - `public/js3d/game3d.js`: versão 3D com [Three.js](https://threejs.org) (carregado pela internet). O telão do cinema é um player do YouTube em CSS 3D que aparece por um "buraco" transparente no canvas.
-- `public/js3d/`: `daycycle.js` (céu, sol, lua e luz), `street.js` (lotes, lojinhas, pedestres e trânsito), `textures.js` (fachadas e chão em canvas), `roof.js` (laje e quadra), `games.js` (sinuca, ping pong, basquete) e `board.js` (quadro branco).
+- `public/js3d/`: `daycycle.js` (céu, sol, lua e luz), `street.js` (lotes, lojinhas, pedestres e trânsito), `skyline.js` (horizonte simulado: milhares de prédios numa chamada de desenho), `textures.js` (fachadas e chão em canvas), `roof.js` (laje e quadra), `games.js` (sinuca, ping pong, basquete) e `board.js` (quadro branco).

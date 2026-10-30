@@ -304,6 +304,7 @@ const pick = (a, r) => new THREE.Color(a[Math.floor(r * a.length)]);
 export class Crowd {
   constructor(scene, count = 320) {
     this.spanBlocks = 8;
+    this.range = 150;
     const mat = new THREE.MeshLambertMaterial();
     const inst = (geo, n) => {
       const m = new THREE.InstancedMesh(geo, mat, n);
@@ -350,6 +351,8 @@ export class Crowd {
     mesh.setMatrixAt(k, this.out.multiplyMatrices(base, this.limb));
   }
 
+  setRange(r) { this.range = r; }
+
   // lotOf(i, j) devolve o lote; o cinema e a quadra ocupam a calçada, ali ninguém anda
   update(t, px, pz, lotOf) {
     const span = this.spanBlocks, { d } = this;
@@ -366,7 +369,7 @@ export class Crowd {
       if (side === 0) { x = u; z = -s; dx = 1; dz = 0; } else if (side === 1) { x = s; z = u; dx = 0; dz = 1; } else if (side === 2) { x = -u; z = s; dx = -1; dz = 0; } else { x = -s; z = -u; dx = 0; dz = -1; }
       x += (bi + 0.5) * CELL;
       z += (bj + 0.5) * CELL;
-      const near = !p.blocked && Math.hypot(x - px, z - pz) < 150;
+      const near = !p.blocked && Math.hypot(x - px, z - pz) < this.range;
       if (!near) { if (p.shown) { this.hide(k); p.shown = false; } continue; }
       p.shown = true;
       // quem está parado olha pras lojas; quem anda olha pra frente
@@ -425,10 +428,13 @@ export class Traffic {
     this.d = new THREE.Object3D();
   }
 
+  setCount(n) { this.body.count = this.lights.count = n; }
+
   update(t, px, pz, night) {
-    const { d } = this;
+    const { d } = this, n = this.body.count;
     this.lightMat.opacity = Math.max(0.15, night);
-    this.cars.forEach((c, k) => {
+    for (let k = 0; k < n; k++) {
+      const c = this.cars[k];
       const lat = c.axis ? px : pz, run = c.axis ? pz : px;
       const lane = c.lane * CELL + this.spanLane * Math.round((lat - c.lane * CELL) / this.spanLane);
       let a = ((c.phase + c.dir * c.speed * t) % this.spanRun + this.spanRun) % this.spanRun;
@@ -439,7 +445,7 @@ export class Traffic {
       d.updateMatrix();
       this.body.setMatrixAt(k, d.matrix);
       this.lights.setMatrixAt(k, d.matrix);
-    });
+    }
     this.body.instanceMatrix.needsUpdate = this.lights.instanceMatrix.needsUpdate = true;
   }
 }

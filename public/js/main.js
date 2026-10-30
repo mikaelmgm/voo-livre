@@ -1111,7 +1111,7 @@ function buildLobby() {
       if (!ips.length) return;
       const wrap = $('#invite-links');
       for (const ip of ips) {
-        const url = `${info.https ? 'https' : 'http'}://${ip.address}:${info.port}`;
+        const url = `https://${ip.host}:${info.port}`;
         const row = document.createElement('div');
         row.className = 'link';
         row.innerHTML = `<code>${url}</code><small>${ip.radmin ? 'Radmin' : esc(ip.name)}</small>`;
@@ -1122,7 +1122,7 @@ function buildLobby() {
         row.appendChild(btn);
         wrap.appendChild(row);
       }
-      $('#invite-note').textContent = 'No aviso de conexão do navegador: Avançado > Continuar. O https é o que libera o microfone.';
+      $('#invite-note').textContent = 'No aviso de conexão do navegador: Avançado > Continuar. Esse endereço é o que libera o microfone e os vídeos do YouTube.';
       $('#invite').classList.remove('hidden');
     }).catch(() => {});
   }

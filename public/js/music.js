@@ -144,6 +144,7 @@ export class Music {
     if (!state) { this.stop(); return; }
     if (this.cur && this.cur.id === state.id && this.cur.list === state.list && this.cur.startedAt === state.at) return;
     this.cur = { id: state.id, list: state.list, startedAt: state.at, by: state.by };
+    this.failed = false;
     this.box.classList.remove('hidden');
     this.onState({ status: 'loading', by: state.by });
     try { await this.loadApi(); } catch { this.onState({ status: 'error', msg: 'não deu pra carregar o YouTube (sem internet?)' }); return; }
@@ -154,16 +155,32 @@ export class Music {
         width: o.width, height: o.height, ...(state.id ? { videoId: state.id } : {}),
         playerVars: { ...(state.list ? { listType: 'playlist', list: state.list, loop: 1 } : {}), autoplay: 1, controls: o.controls, disablekb: o.controls ? 0 : 1, iv_load_policy: 3, playsinline: 1, rel: 0, start: Math.floor(this.elapsed()) },
         events: {
-          onReady: e => { e.target.setVolume(this.volume); if (!this.cur?.list) e.target.seekTo(this.elapsed(), true); e.target.playVideo(); this.report(); },
+          onReady: e => {
+            this.ready = true;
+            e.target.setVolume(this.volume);
+            if (!this.cur) { e.target.stopVideo(); return; }
+            // trocaram de vídeo enquanto o player ainda carregava
+            if (this.cur.id !== state.id || this.cur.list !== state.list) { this.load(); return; }
+            if (!this.cur.list) e.target.seekTo(this.elapsed(), true);
+            e.target.playVideo();
+            this.report();
+          },
           onStateChange: e => this.onPlayerState(e.data),
-          onError: e => this.onState({ status: 'error', msg: [101, 150].includes(e.data) ? 'esse vídeo não deixa tocar fora do YouTube' : 'erro ao tocar esse vídeo' }),
+          onError: e => {
+            if (this.cur?.list) { this.player.nextVideo(); return; }       // em playlist, pula o que não dá pra tocar
+            this.failed = true;
+            const byIp = /^\d+\.\d+\.\d+\.\d+$/.test(location.hostname);
+            this.onState({ status: 'error', msg: !([101, 150].includes(e.data)) ? 'erro ao tocar esse vídeo' : byIp ? 'o YouTube bloqueia vídeos em endereço por IP: entre pelo link com sslip.io' : 'o dono desse vídeo não deixa tocar fora do YouTube' });
+          },
         },
       });
-    } else if (state.list) {
-      this.player.loadPlaylist({ listType: 'playlist', list: state.list, index: 0 });
-    } else {
-      this.player.loadVideoById({ videoId: state.id, startSeconds: this.elapsed() });
-    }
+    } else if (this.ready) this.load();
+  }
+
+  load() {
+    const c = this.cur;
+    if (c.list) this.player.loadPlaylist({ listType: 'playlist', list: c.list, index: 0 });
+    else this.player.loadVideoById({ videoId: c.id, startSeconds: this.elapsed() });
   }
 
   onPlayerState(s) {
@@ -179,7 +196,7 @@ export class Music {
   }
 
   report() {
-    if (!this.player || !this.cur) return;
+    if (!this.player || !this.cur || this.failed) return;
     const st = this.player.getPlayerState?.();
     const title = this.player.getVideoData?.()?.title || '';
     this.onState({ status: st === 1 ? 'playing' : st === 3 ? 'loading' : 'paused', title, by: this.cur.by });

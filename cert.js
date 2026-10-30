@@ -31,7 +31,7 @@ function utcTime(d) {
 }
 const pem = (label, data) => `-----BEGIN ${label}-----\n${data.toString('base64').match(/.{1,64}/g).join('\n')}\n-----END ${label}-----\n`;
 
-function generate(ips) {
+function generate(ips, hosts) {
   const { publicKey, privateKey } = crypto.generateKeyPairSync('ec', { namedCurve: 'prime256v1' });
   const sigAlg = seq(oid('1.2.840.10045.4.3.2'));   // ecdsa-with-SHA256
   const name = seq(set(seq(oid('2.5.4.3'), utf8('Voo Livre'))));
@@ -41,6 +41,7 @@ function generate(ips) {
   serial[0] |= 0x40;
   const san = seq(
     der(0x82, Buffer.from('localhost')),
+    ...hosts.map(h => der(0x82, Buffer.from(h))),
     der(0x87, Buffer.from([127, 0, 0, 1])),
     ...ips.map(ip => der(0x87, Buffer.from(ip.split('.').map(Number)))),
   );
@@ -56,18 +57,18 @@ function generate(ips) {
   );
   const sig = crypto.sign('sha256', tbs, privateKey);
   const cert = seq(tbs, sigAlg, der(0x03, Buffer.from([0]), sig));
-  return { key: privateKey.export({ type: 'pkcs8', format: 'pem' }), cert: pem('CERTIFICATE', cert), ips };
+  return { key: privateKey.export({ type: 'pkcs8', format: 'pem' }), cert: pem('CERTIFICATE', cert), ips, hosts };
 }
 
 // Fica salvo em .cert/ pra exceção que o amigo aceitou no navegador continuar valendo; só refaz se o IP mudar.
-function loadCert(dir, ips) {
+function loadCert(dir, ips, hosts) {
   const file = path.join(dir, '.cert', 'voo-livre.json');
   try {
     const saved = JSON.parse(fs.readFileSync(file, 'utf8'));
     new crypto.X509Certificate(saved.cert);
-    if (ips.every(ip => saved.ips.includes(ip))) return saved;
+    if (ips.every(ip => saved.ips.includes(ip)) && hosts.every(h => saved.hosts?.includes(h))) return saved;
   } catch { /* ainda não existe */ }
-  const fresh = generate(ips);
+  const fresh = generate(ips, hosts);
   try {
     fs.mkdirSync(path.dirname(file), { recursive: true });
     fs.writeFileSync(file, JSON.stringify(fresh));

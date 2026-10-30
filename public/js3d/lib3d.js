@@ -13,6 +13,8 @@ export const rnd = (i, j, s) => fmix(Math.imul(i, 73856093) ^ fmix(Math.imul(j, 
 
 // Junta muitas caixas numa geometria só (rápido de desenhar).
 // `tint` pinta as próximas caixas (cor por vértice) e `uvo` desloca a textura de janelas de cada prédio.
+const tintCache = new Map();
+
 export class Boxes {
   constructor() {
     this.pos = []; this.nor = []; this.uv = []; this.col = []; this.idx = [];
@@ -20,22 +22,24 @@ export class Boxes {
     this.uvo = [0, 0];
   }
   tint(color) {
-    const c = new THREE.Color(color);
-    this.c = [c.r, c.g, c.b];
+    let c = tintCache.get(color);
+    if (!c) { const k = new THREE.Color(color); c = [k.r, k.g, k.b]; tintCache.set(color, c); }
+    this.c = c;
     return this;
   }
   rgb(r, g, b) { this.c = [r, g, b]; return this; }
   panel(o, a, b, n, u0, v0, u1, v1) {
-    const base = this.pos.length / 3;
-    const pts = [o, [o[0] + a[0], o[1] + a[1], o[2] + a[2]], [o[0] + a[0] + b[0], o[1] + a[1] + b[1], o[2] + a[2] + b[2]], [o[0] + b[0], o[1] + b[1], o[2] + b[2]]];
-    const uvs = [[u0, v0], [u1, v0], [u1, v1], [u0, v1]];
-    for (let k = 0; k < 4; k++) { this.pos.push(...pts[k]); this.nor.push(...n); this.uv.push(...uvs[k]); this.col.push(...this.c); }
+    const base = this.pos.length / 3, [r, g, l] = this.c, [ox, oy, oz] = o, [ax, ay, az] = a, [bx, by, bz] = b, [nx, ny, nz] = n;
+    this.pos.push(ox, oy, oz, ox + ax, oy + ay, oz + az, ox + ax + bx, oy + ay + by, oz + az + bz, ox + bx, oy + by, oz + bz);
+    this.nor.push(nx, ny, nz, nx, ny, nz, nx, ny, nz, nx, ny, nz);
+    this.uv.push(u0, v0, u1, v0, u1, v1, u0, v1);
+    this.col.push(r, g, l, r, g, l, r, g, l, r, g, l);
     this.idx.push(base, base + 1, base + 2, base, base + 2, base + 3);
   }
   quad(o, a, b, n, windows) {
     if (!windows) { this.panel(o, a, b, n, 0.01, 0.01, 0.01, 0.01); return; }
     const u0 = 0.04 + this.uvo[0], v0 = this.uvo[1];
-    this.panel(o, a, b, n, u0, v0, u0 + Math.hypot(...a) / 24, v0 + Math.hypot(...b) / 56);
+    this.panel(o, a, b, n, u0, v0, u0 + Math.sqrt(a[0] * a[0] + a[1] * a[1] + a[2] * a[2]) / 24, v0 + Math.sqrt(b[0] * b[0] + b[1] * b[1] + b[2] * b[2]) / 56);
   }
   box(x0, y0, z0, x1, y1, z1, windows, bottom) {
     const dx = x1 - x0, dy = y1 - y0, dz = z1 - z0;
