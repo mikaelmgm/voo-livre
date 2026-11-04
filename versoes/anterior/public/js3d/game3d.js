@@ -21,7 +21,7 @@ import { Art, ART_STYLES, compileAll } from './art.js';
 import { Flyers, Sea } from './god.js';
 import { SpeedFx } from './speedfx.js';
 import { Mine, BlockBody, REACH } from './mine.js';
-import { FunPark, Beach, funLot, inFun, sandY, BEACH_J, WATER_Y, WATER_Z, BEACH_SPOT, FUN_GATE } from './places.js';
+import { FunPark, Beach, funLot, inFun, sandY, WATER_Y, BEACH_SPOT, FUN_GATE, ISLE, ISLE_SHAPE, SEA_IN, onLand, inSea } from './places.js';
 import { Sinuca, Pong, Basket } from './games.js';
 
 const $ = s => document.querySelector(s);
@@ -83,6 +83,12 @@ function savePrefs() {
     localStorage.setItem('voolivre', JSON.stringify(Object.assign(p, prefs)));
   } catch { /* sem storage */ }
 }
+// Modo leve, pra PC fraco: 3d.html?leve liga (e ?leve=0 desliga), e fica guardado. Imagem bem menor, sem sombra, sem
+// estilos de arte, pouca gente e pouco carro, e a tela de carregamento só prepara o que esse modo usa.
+const leveArg = new URLSearchParams(location.search).get('leve');
+if (leveArg !== null) { prefs.leve = leveArg !== '0'; savePrefs(); }
+const LEVE = !!prefs.leve;
+if (LEVE) QUALITY[0] = { name: 'Leve', pr: 0.4, view: 1, detail: 70, far: 600, shadow: 0, range: 0, every: 1, crowd: 35, cars: 8, clouds: false, lamps: false };
 
 // ------------------------------------------------------------------ cidade procedural
 
@@ -93,7 +99,7 @@ function lot(i, j) {
   let L = lots.get(key);
   if (L) return L;
   const cx = (i + 0.5) * CELL, cz = (j + 0.5) * CELL;
-  if (j >= BEACH_J) { L = { cx, cz, w: 0, d: 0, h: 0, park: true, beach: true, anchors: [], boxes: [] }; lots.set(key, L); return L; }
+  if (!onLand(i, j)) { L = { cx, cz, w: 0, d: 0, h: 0, park: true, beach: true, anchors: [], boxes: [] }; lots.set(key, L); return L; }
   if (inFun(i, j)) { L = funLot(i, j); lots.set(key, L); return L; }
   if (i === CINEMA.i && j === CINEMA.j) { L = cinemaLot(cx, cz); lots.set(key, L); return L; }
   if (i === COURT.i && j === COURT.j) { L = courtLot(cx, cz); lots.set(key, L); return L; }
@@ -212,7 +218,7 @@ function softwareGpu() {
   return /swiftshader|llvmpipe|software|basic render/i.test(name);
 }
 const SOFTWARE = softwareGpu();
-const renderer = new THREE.WebGLRenderer({ canvas, antialias: !SOFTWARE && !['0', '1'].includes(prefs.quality), alpha: true, powerPreference: 'high-performance' });
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: !SOFTWARE && !LEVE && !['0', '1'].includes(prefs.quality), alpha: true, powerPreference: 'high-performance' });
 renderer.setClearColor(0x000000, 0);
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
@@ -239,14 +245,19 @@ const glowMat = new THREE.PointsMaterial({
 });
 
 // chão com ruas (textura de um quarteirão que se repete)
-const ground = new THREE.Mesh(new THREE.PlaneGeometry(CELL * 120, CELL * 120), new THREE.MeshLambertMaterial({ map: groundTexture() }));
+// a ilha tem tamanho certo: o chão cobre só os lotes dela, e a areia em volta cobre as beiradas
+const ISLE_W = (ISLE.i1 - ISLE.i0 + 1) * CELL, ISLE_D = (ISLE.j1 - ISLE.j0 + 1) * CELL;
+const groundTex = groundTexture();
+groundTex.repeat.set(ISLE.i1 - ISLE.i0 + 1, ISLE.j1 - ISLE.j0 + 1);
+const ground = new THREE.Mesh(new THREE.PlaneGeometry(ISLE_W, ISLE_D), new THREE.MeshLambertMaterial({ map: groundTex }));
 ground.rotation.x = -Math.PI / 2;
+ground.position.set(ISLE.i0 * CELL + ISLE_W / 2, 0, ISLE.j0 * CELL + ISLE_D / 2);
 ground.receiveShadow = true;
 city.add(ground);
 // na geleia o chão ondula, e pra isso precisa de vértices
 const flatGround = ground.geometry;
 let jellyGround = null;
-const denseGround = () => jellyGround || (jellyGround = new THREE.PlaneGeometry(CELL * 120, CELL * 120, 300, 300));
+const denseGround = () => jellyGround || (jellyGround = new THREE.PlaneGeometry(ISLE_W, ISLE_D, 240, 240));
 
 // ---- o prédio do cinema
 const hallMat = new THREE.MeshLambertMaterial({ color: '#3a2147' });
@@ -425,7 +436,6 @@ function updateChunks(x, z) {
       chunks.delete(k);
     }
   }
-  ground.position.set(Math.round(x / CELL) * CELL, 0, Math.round(z / CELL) * CELL);
 }
 
 // ------------------------------------------------------------------ bonecos de teste
@@ -896,7 +906,7 @@ function collide() {
   me.onGround = false;
   if (me.where === 'moon') { moonCollide(); return; }
   if (inSpace()) { spaceCollide(); return; }
-  const land = voxels() ? -1e9 : me.where === 'city' ? sandY(me.pos.z) : 0;
+  const land = voxels() ? -1e9 : me.where === 'city' ? sandY(me.pos.x, me.pos.z) : 0;
   if (me.pos.y < R + land) { me.pos.y = R + land; if (me.vel.y < 0) me.vel.y = 0; me.onGround = true; }
   if (me.where === 'back' && me.pos.y > BACK_H - 1.15) { me.pos.y = BACK_H - 1.15; if (me.vel.y > 0) me.vel.y = 0; }
   if (!powers.ghost) for (const L of lotsNear(me.pos.x, me.pos.z, CELL + R * 2)) for (const b of L.boxes) {
@@ -996,7 +1006,7 @@ function step(dt) {
   const onMoon = me.where === 'moon', tall = big(), jump = (onMoon ? JUMP * 1.6 : JUMP) * Math.sqrt(me.size);
   const acc = new V3(0, space3d ? 0 : (onMoon ? -G / 5 : -G) * GOD.grav, 0);
   const well = space3d ? gravity(acc) : false;
-  const waterTop = me.where === 'city' ? Math.max(GOD.sea, me.pos.z > WATER_Z ? WATER_Y : 0) : 0, seaUp = waterTop > 0 && me.pos.y < waterTop;
+  const waterTop = me.where === 'city' ? Math.max(GOD.sea, inSea(me.pos.x, me.pos.z) ? WATER_Y : 0) : 0, seaUp = waterTop > 0 && me.pos.y < waterTop;
   const wet = me.where === 'city' && (seaUp || inPool());
   if (wet && !me.wet && me.vel.y < -3) { sound.splash(); if (!seaUp) splash(me.pos); }
   me.wet = wet;
@@ -1354,11 +1364,11 @@ function avoid(dt) {
 
 // altura do que está embaixo de um ponto: telhado, degrau ou a rua
 const DOWN = new V3(0, -1, 0);
-const groundAt = (x, z) => (me.where === 'moon' ? space.height(x, z) : me.where === 'city' ? Math.max(sandY(z), GOD.sea, z > WATER_Z ? WATER_Y : 0) : 0);
+const groundAt = (x, z) => (me.where === 'moon' ? space.height(x, z) : me.where === 'city' ? Math.max(sandY(x, z), GOD.sea, inSea(x, z) ? WATER_Y : 0) : 0);
 function floorUnder(p) {
   if (me.where === 'moon') return space.height(p.x, p.z);
   const hit = sweep(p, DOWN, 40, 0);
-  return hit ? p.y - hit.t : sandY(p.z);
+  return hit ? p.y - hit.t : sandY(p.x, p.z);
 }
 
 function airJump(wish, fwd) {
@@ -1745,6 +1755,7 @@ function syncMine() {
   if (on) showToast('⛏️ Perto: segure o clique pra quebrar · Longe: teia em qualquer bloco · E = mochila · Direito = põe bloco ou come');
 }
 function setArt(id, quiet) {
+  if (LEVE) id = 'normal';           // no modo leve não tem estilo de arte (cada um desenha a tela duas vezes)
   art.set(id);
   moment('arte ' + art.style.id);
   prefs.art = art.style.id;
@@ -1809,6 +1820,7 @@ function applyQuality(level) {
 function renderQuality() {
   const pref = prefs.quality ?? 'auto';
   qualSeg.querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.v === pref));
+  if (LEVE) { $('#quality-note').textContent = 'modo leve ligado: a qualidade fica no mínimo'; return; }
   $('#quality-note').textContent = pref === 'auto' ? `agora em ${Q.name}${SOFTWARE ? ' · seu navegador está sem aceleração de vídeo' : ''}` : '';
 }
 function setQuality(v) {
@@ -1818,8 +1830,13 @@ function setQuality(v) {
   perf.hold = performance.now() + 4000;
   applyQuality(v === 'auto' ? qLevel : Number(v));
 }
+if (LEVE) qualSeg.style.display = "none";
 qualSeg.onclick = e => { const b = e.target.closest('button'); if (b) setQuality(b.dataset.v); };
-applyQuality(['0', '1', '2', '3'].includes(prefs.quality) ? Number(prefs.quality) : SOFTWARE ? 0 : 3);
+applyQuality(LEVE ? 0 : ['0', '1', '2', '3'].includes(prefs.quality) ? Number(prefs.quality) : SOFTWARE ? 0 : 3);
+$('#opt-leve').textContent = LEVE ? '🐢 Modo leve ligado (clique pra voltar ao normal)' : '🐢 Ligar o modo leve';
+$('#opt-leve').classList.toggle('on', LEVE);
+$('#opt-leve').onclick = () => { location.href = '3d.html?leve=' + (LEVE ? 0 : 1); };
+if (LEVE) $('#tabs [data-tab="arte"]').style.display = "none";
 
 const report = { at: performance.now() + 15000, sum: 0, n: 0, worst: 0, best: 1000, spikes: [] };
 const gpuName = (() => {
@@ -1844,7 +1861,7 @@ function watchFrames(ms, now) {
     report.at = now + 15000; report.sum = report.n = report.worst = 0; report.best = 1000; report.spikes = [];
   }
   perf.sum = perf.n = perf.worst = 0;
-  if ((prefs.quality ?? 'auto') !== 'auto' || now < perf.hold) return;
+  if (LEVE || (prefs.quality ?? 'auto') !== 'auto' || now < perf.hold) return;
   if (avg > 28 && qLevel > 0) {
     if (now - perf.raisedAt < 20000) perf.ceiling = qLevel - 1;   // subiu e não aguentou: fica aqui nesta sessão
     perf.good = 0;
@@ -1877,7 +1894,7 @@ $('#go-beach').onclick = () => { teleport(BEACH_SPOT); yaw = Math.PI; pitch = -0
 const space = new Space(scene);
 const back = new Backrooms(scene);
 const sea = new Sea(scene, slimes.u.uSun.value);
-const coast = new Sea(city, slimes.u.uSun.value, WATER_Z);
+const coast = new Sea(city, slimes.u.uSun.value, ISLE_SHAPE, SEA_IN);
 const fun = new FunPark(city);
 const beach = new Beach(city);
 const underEl = $('#under');
@@ -2085,7 +2102,6 @@ function arriveHome() {
 
 const ITEMS = [
   { kind: 'portal', color: 0, tint: PORTAL_COLORS[0] }, { kind: 'portal', color: 1, tint: PORTAL_COLORS[1] },
-  { kind: 'rain', what: 'carro', tint: '#ff5a3a', icon: '🚗', name: 'Chuva de carros' },
 ];
 let held = -1;
 const heldItem = () => (held >= 0 ? ITEMS[held] : null);
@@ -2215,7 +2231,7 @@ let eatLevel = 0;
 function floorAt(x, y, z) {
   if (me.where !== 'city') return -1e9;
   const L = lot(Math.floor(x / CELL), Math.floor(z / CELL));
-  return !L.park && Math.abs(x - L.cx) < L.w / 2 && Math.abs(z - L.cz) < L.d / 2 && y > L.h - 6 ? L.h + (L.cinema || L.court ? 0 : 0.8) : sandY(z);
+  return !L.park && Math.abs(x - L.cx) < L.w / 2 && Math.abs(z - L.cz) < L.d / 2 && y > L.h - 6 ? L.h + (L.cinema || L.court ? 0 : 0.8) : sandY(x, z);
 }
 function gobble(key, x, y, z, color, scale, mass) {
   me.mass += mass;
@@ -3053,13 +3069,13 @@ function simulate(now, dt) {
   updateSplash(dt);
   sea.update(GOD.sea, me.where === 'city', camera, T, day);
   if (me.where === 'city') {
-    coast.update(WATER_Y, camera.position.z > WATER_Z - 2400, camera, T, day);
+    coast.update(WATER_Y, true, camera, T, day);
     beach.update(camera);
     fun.update(dt, Math.hypot(camera.position.x + 286, camera.position.z + 52) < 1500);
   }
   flyers.update(dt, belly.set(me.pos.x, me.pos.y + 0.2 * me.size, me.pos.z), R * 1.05);
   for (const e of echoes) e.update(dt);
-  const under = me.where === 'city' && (camera.position.y < GOD.sea || (camera.position.z > WATER_Z + 8 && camera.position.y < WATER_Y)) ? 0.5 : 0;
+  const under = me.where === 'city' && (camera.position.y < GOD.sea || (inSea(camera.position.x, camera.position.z) && camera.position.y < WATER_Y)) ? 0.5 : 0;
   if (under !== fx.under) underEl.style.opacity = fx.under = under;
 
   if (net.connected && now - lastSend > 50) {
@@ -3106,7 +3122,7 @@ function simulate(now, dt) {
   // sobe devagar, pra um ganho repentino não dar tranco na tela; desce rápido, pro topo do balanço parecer lento
   speedK += (speedWant - speedK) * (1 - Math.exp(-dt * (speedWant > speedK ? 1.5 : 9)));
   speedWind += dt * (1 + 2 * speedK);
-  speedFx.draw(speedK, view.fp, speedWind, speedDir, camera.fov);
+  if (!LEVE) speedFx.draw(speedK, view.fp, speedWind, speedDir, camera.fov);
   // o telão só existe por perto do cinema: de longe a camada CSS 3D nem precisa ser desenhada
   const nearScreen = me.where === 'city' && me.pos.y < CINEMA.hall + 20 && Math.hypot(me.pos.x - CINE.cx, me.pos.z - CINE.cz) < 60;
   if (nearScreen !== cssOn) { cssOn = nearScreen; cssRenderer.domElement.style.visibility = nearScreen ? 'visible' : 'hidden'; }
@@ -3146,11 +3162,14 @@ async function preload() {
   skyline.rebuild(me.pos.x, me.pos.z, isLoaded);
 
   await say(50, 'Montando a Lua, os asteroides e as backrooms...');
-  if (!space.floor) space.buildFloor();
-  if (!space.belt) space.buildBelt();
-  space.followBelt(new V3(0, 0, -30000));
-  space.followFloor(0, 0);
-  const warmChunks = mine.warm(me.pos.x, me.pos.z);
+  // no modo leve a Lua, os asteroides e o Minecraft só são montados se alguém for até lá
+  if (!LEVE) {
+    if (!space.floor) space.buildFloor();
+    if (!space.belt) space.buildBelt();
+    space.followBelt(new V3(0, 0, -30000));
+    space.followFloor(0, 0);
+  }
+  const warmChunks = LEVE ? [] : mine.warm(me.pos.x, me.pos.z);
 
   // o que só aparece mais tarde também passa por aqui: portal e boneco quadrado
   const extras = new THREE.Group(), block = new BlockBody(extras, 'spider', COLOR);
@@ -3175,10 +3194,10 @@ async function preload() {
   // Shaders: uma vez como vão pra tela, outra como vão pros estilos de arte, com todos os mundos à vista.
   // Mudar a quantidade de luzes acesas recompila todos os materiais, e isso acontece ao se afastar da laje, ao sair da
   // cidade ou quando a qualidade automática desliga a sombra. Por isso cada combinação é compilada aqui, de uma vez.
-  const shown = [city, space.sky, space.moon, space.floor, space.beltGroup, back.group, mine.group, day.sky, day.stars, extras, sea.mesh, coast.mesh, fun.group, beach.group];
+  const shown = [city, space.sky, space.moon, space.floor, space.beltGroup, back.group, mine.group, day.sky, day.stars, extras, sea.mesh, coast.mesh, fun.group, beach.group].filter(Boolean);
   const was = shown.map(o => o.visible);
   shown.forEach(o => { o.visible = true; });
-  const rt = new THREE.WebGLRenderTarget(8, 8, { type: THREE.HalfFloatType }), combos = [[true, true], [true, false], [false, true], [false, false]];
+  const rt = new THREE.WebGLRenderTarget(8, 8, { type: THREE.HalfFloatType }), combos = LEVE ? [[false, false]] : [[true, true], [true, false], [false, true], [false, false]];
   // Depois de compilar, um desenho de verdade por combinação, com uma câmera que vê a cidade inteira e sem descartar nada:
   // joga cada malha na placa de vídeo e cobre o que compilar não cobre, como a sombra, que tem shader próprio por quantidade de luzes.
   const wide = new THREE.OrthographicCamera(-4000, 4000, 4000, -4000, -6000, 6000), culled = [];
@@ -3203,8 +3222,7 @@ async function preload() {
   day.light.castShadow = Q.shadow > 0;
   roofFx.setLamps(Q.lamps);
   courtFx.setLamps(Q.lamps);
-  await say(80, 'Compilando os estilos de arte...');
-  await art.warmUp();
+  if (!LEVE) { await say(80, 'Compilando os estilos de arte...'); await art.warmUp(); }
   rt.dispose();
   shown.forEach((o, k) => { o.visible = was[k]; });
   warmChunks.forEach(c => mine.drop(c));
@@ -3218,7 +3236,7 @@ async function preload() {
   simulate(last, 1 / 60);
   const ahead = new V3(0, 0, -1).applyQuaternion(camera.quaternion), side = new V3(1, 0, 0).applyQuaternion(camera.quaternion), top = new V3(0, 1, 0).applyQuaternion(camera.quaternion);
   [-6, 6].forEach((s, color) => portals.set('ensaio', color, { c: camera.position.clone().addScaledVector(ahead, 24).addScaledVector(side, s).toArray(), n: ahead.clone().negate().toArray(), u: top.toArray(), where: me.where }));
-  for (const S of ART_STYLES) {
+  for (const S of LEVE ? [] : ART_STYLES) {
     art.set(S.id);
     ground.geometry = S.jelly ? denseGround() : flatGround;
     last = performance.now();
@@ -3230,8 +3248,8 @@ async function preload() {
 
   // o Minecraft também: liga, joga uns quadros (o boneco quadrado, a tela de vida e fome) e devolve você onde estava
   const wanted = prefs.art || 'normal', spot = me.pos.clone();
-  setArt('blocos', true);
-  for (let k = 0; k < 20; k++) {
+  if (!LEVE) setArt('blocos', true);
+  for (let k = 0; k < (LEVE ? 0 : 20); k++) {
     last = performance.now();
     simulate(last, 1 / 60);
     await say(88);
@@ -3244,10 +3262,11 @@ async function preload() {
   toast = null;
   if (mine.active) { mine.stream(me.pos.x, me.pos.z); while (mine.queue.length) { mine.stream(me.pos.x, me.pos.z); await say(92); } }
   // alguns quadros de verdade atrás da tela: o navegador otimiza o código antes de você entrar
-  for (let k = 0; k < 90; k++) {
+  const warm = LEVE ? 20 : 90;
+  for (let k = 0; k < warm; k++) {
     last = performance.now();
     simulate(last, 1 / 60);
-    await say(90 + 10 * k / 90);
+    await say(90 + 10 * k / warm);
   }
   await say(100, 'Pronto!');
 }

@@ -11,17 +11,23 @@ const S2 = SX * SX;
 const at = (x, y, z) => (x + 1) + SX * (z + 1) + S2 * (y - Y0);
 const floor = Math.floor;
 
-export const B = { AIR: 0, GRASS: 1, DIRT: 2, STONE: 3, COBBLE: 4, SAND: 5, PLANK: 6, LOG: 7, LEAVES: 8, BRICK: 9, GLASS: 10, CONCRETE: 11, ASPHALT: 12, WHITE: 13, COAL: 14, IRON: 15, GOLD: 16, DIAMOND: 17, BEDROCK: 18, YELLOW: 19, RED: 20, BLUE: 21 };
+export const B = { AIR: 0, GRASS: 1, DIRT: 2, STONE: 3, COBBLE: 4, SAND: 5, PLANK: 6, LOG: 7, LEAVES: 8, BRICK: 9, GLASS: 10, CONCRETE: 11, ASPHALT: 12, WHITE: 13, COAL: 14, IRON: 15, GOLD: 16, DIAMOND: 17, BEDROCK: 18, YELLOW: 19, RED: 20, BLUE: 21, OBSIDIAN: 22, NETHERRACK: 23, LAVA: 24, GLOW: 25, ENDSTONE: 26, PORTAL: 27, TABLE: 28, NBRICK: 29 };
 // tile de cima, do lado e de baixo no atlas
-const FACES = { 1: [0, 1, 2], 2: [2, 2, 2], 3: [3, 3, 3], 4: [4, 4, 4], 5: [5, 5, 5], 6: [6, 6, 6], 7: [8, 7, 8], 8: [9, 9, 9], 9: [10, 10, 10], 10: [11, 11, 11], 11: [12, 12, 12], 12: [13, 13, 13], 13: [14, 14, 14], 14: [15, 15, 15], 15: [16, 16, 16], 16: [17, 17, 17], 17: [18, 18, 18], 18: [19, 19, 19], 19: [20, 20, 20], 20: [21, 21, 21], 21: [22, 22, 22] };
-const NAMES = { 1: 'Grama', 2: 'Terra', 3: 'Pedra', 4: 'Pedregulho', 5: 'Areia', 6: 'Tábuas', 7: 'Tronco', 8: 'Folhas', 9: 'Tijolos', 10: 'Vidro', 11: 'Concreto', 12: 'Asfalto', 13: 'Concreto branco', 14: 'Carvão', 15: 'Ferro', 16: 'Ouro', 17: 'Diamante', 18: 'Rocha-mãe', 19: 'Bloco amarelo', 20: 'Bloco vermelho', 21: 'Bloco azul' };
+export const FACES = { 1: [0, 1, 2], 2: [2, 2, 2], 3: [3, 3, 3], 4: [4, 4, 4], 5: [5, 5, 5], 6: [6, 6, 6], 7: [8, 7, 8], 8: [9, 9, 9], 9: [10, 10, 10], 10: [11, 11, 11], 11: [12, 12, 12], 12: [13, 13, 13], 13: [14, 14, 14], 14: [15, 15, 15], 15: [16, 16, 16], 16: [17, 17, 17], 17: [18, 18, 18], 18: [19, 19, 19], 19: [20, 20, 20], 20: [21, 21, 21], 21: [22, 22, 22], 22: [23, 23, 23], 23: [24, 24, 24], 24: [25, 25, 25], 25: [26, 26, 26], 26: [27, 27, 27], 27: [28, 28, 28], 28: [30, 29, 6], 29: [31, 31, 31] };
+const NAMES = { 1: 'Grama', 2: 'Terra', 3: 'Pedra', 4: 'Pedregulho', 5: 'Areia', 6: 'Tábuas', 7: 'Tronco', 8: 'Folhas', 9: 'Tijolos', 10: 'Vidro', 11: 'Concreto', 12: 'Asfalto', 13: 'Concreto branco', 14: 'Carvão', 15: 'Ferro', 16: 'Ouro', 17: 'Diamante', 18: 'Rocha-mãe', 19: 'Bloco amarelo', 20: 'Bloco vermelho', 21: 'Bloco azul', 22: 'Obsidiana', 23: 'Pedra do inferno', 24: 'Lava', 25: 'Pedra brilhante', 26: 'Pedra do fim', 27: 'Portal', 28: 'Mesa de trabalho', 29: 'Tijolo do inferno' };
 // segundos pra quebrar na mão (com a picareta, pedra sai bem mais rápido)
-const HARD = { 1: 0.5, 2: 0.45, 3: 1.6, 4: 1.7, 5: 0.45, 6: 1, 7: 1.1, 8: 0.2, 9: 1.8, 10: 0.25, 11: 1.8, 12: 1.6, 13: 1.8, 14: 2, 15: 2.4, 16: 2.8, 17: 3.4, 18: Infinity, 19: 0.8, 20: 0.8, 21: 0.8 };
-const STONY = new Set([3, 4, 9, 11, 12, 13, 14, 15, 16, 17]);
-const SEE = new Uint8Array(32);
-SEE[B.AIR] = SEE[B.LEAVES] = SEE[B.GLASS] = 1;
+const HARD = { 1: 0.5, 2: 0.45, 3: 1.6, 4: 1.7, 5: 0.45, 6: 1, 7: 1.1, 8: 0.2, 9: 1.8, 10: 0.25, 11: 1.8, 12: 1.6, 13: 1.8, 14: 2, 15: 2.4, 16: 2.8, 17: 3.4, 18: Infinity, 19: 0.8, 20: 0.8, 21: 0.8, 22: 9, 23: 0.5, 24: Infinity, 25: 0.4, 26: 2, 27: Infinity, 28: 1.2, 29: 1.8 };
+const STONY = new Set([3, 4, 9, 11, 12, 13, 14, 15, 16, 17, 22, 23, 26, 29]);
+export const SEE = new Uint8Array(32);
+SEE[B.AIR] = SEE[B.LEAVES] = SEE[B.GLASS] = SEE[B.PORTAL] = 1;
+// o que não segura o corpo: dá pra atravessar (e na lava, afundar)
+export const SOFT = new Uint8Array(32);
+SOFT[B.AIR] = SOFT[B.LEAVES] = SOFT[B.PORTAL] = SOFT[B.LAVA] = 1;
+// o que brilha sozinho, de noite e no escuro
+export const LIT = new Uint8Array(32);
+LIT[B.LAVA] = LIT[B.GLOW] = LIT[B.PORTAL] = 1;
 const WALL = [B.BRICK, B.CONCRETE, B.WHITE, B.COBBLE, B.PLANK, B.BRICK];
-const COLORS = { 1: '#5f9f35', 2: '#79553a', 3: '#7d7d7d', 4: '#6e6e6e', 5: '#dccf9c', 6: '#a6804c', 7: '#5f4627', 8: '#3f7f2c', 9: '#96503c', 10: '#c8e8f0', 11: '#8a8a88', 12: '#3e3e42', 13: '#d4d4cc', 14: '#3a3a3a', 15: '#bfa58f', 16: '#e8c84a', 17: '#5fe0d8', 18: '#3a3a3a', 19: '#e8c030', 20: '#c83a2c', 21: '#2f5fc0' };
+const COLORS = { 1: '#5f9f35', 2: '#79553a', 3: '#7d7d7d', 4: '#6e6e6e', 5: '#dccf9c', 6: '#a6804c', 7: '#5f4627', 8: '#3f7f2c', 9: '#96503c', 10: '#c8e8f0', 11: '#8a8a88', 12: '#3e3e42', 13: '#d4d4cc', 14: '#3a3a3a', 15: '#bfa58f', 16: '#e8c84a', 17: '#5fe0d8', 18: '#3a3a3a', 19: '#e8c030', 20: '#c83a2c', 21: '#2f5fc0', 22: '#1c1228', 23: '#6e2a2a', 24: '#ff8a20', 25: '#ffe070', 26: '#dedca0', 27: '#8a3ae0', 28: '#a6804c', 29: '#3a1620' };
 
 function pix(seed) { let s = seed; return () => { s = (s * 16807) % 2147483647; return (s - 1) / 2147483646; }; }
 // o atlas: 8 por 4 ladrilhos de 16 pixels
@@ -52,17 +58,27 @@ function paintAtlas() {
   tile(19, (p, r) => noise(p, r, ['#3a3a3a', '#262626', '#4a4a4a', '#1a1a1a']));
   const flat = (n, cols) => tile(n, (p, r) => noise(p, r, cols));
   flat(20, ['#e8c030', '#f0c838', '#dcb428']); flat(21, ['#c83a2c', '#d04434', '#bc3428']); flat(22, ['#2f5fc0', '#3667c8', '#2a56b0']);
+  // os blocos do outro lado do portal
+  tile(23, (p, r) => { noise(p, r, ['#140c1e', '#1c1228', '#100a18', '#24183a']); for (let k = 0; k < 10; k++) p(floor(r() * 16), floor(r() * 16), '#3c2a5a'); });
+  tile(24, (p, r) => { noise(p, r, ['#6e2a2a', '#7a3030', '#5e2222', '#843838']); for (let k = 0; k < 18; k++) p(floor(r() * 16), floor(r() * 16), '#4a1818'); });
+  tile(25, (p, r) => { for (let y = 0; y < 16; y++) for (let x = 0; x < 16; x++) { const w = Math.sin(x * 0.8 + y * 0.35) + Math.sin(y * 0.9 - x * 0.3); p(x, y, w > 1.1 ? '#ffe070' : w > 0 ? '#ff9a20' : r() < 0.5 ? '#e05a10' : '#f07018'); } });
+  tile(26, (p, r) => { noise(p, r, ['#c8a050', '#e8c870', '#a87a30']); for (let k = 0; k < 14; k++) { const x = floor(r() * 15), y = floor(r() * 15); p(x, y, '#fff0b0'); p(x + 1, y, '#ffe090'); p(x, y + 1, '#ffe090'); } });
+  tile(27, (p, r) => noise(p, r, ['#dedca0', '#e6e4ac', '#d2cf92', '#ebe9b8']));
+  tile(28, (p, r) => { for (let y = 0; y < 16; y++) for (let x = 0; x < 16; x++) { const w = Math.sin(x * 0.7 + y * 0.5) * Math.cos(y * 0.6 - x * 0.2); p(x, y, w > 0.4 ? '#c878ff' : w > -0.2 ? '#8a3ae0' : r() < 0.5 ? '#5a18b0' : '#6c22c8'); } });
+  tile(29, (p, r) => { noise(p, r, ['#a6804c', '#ae8854', '#9a7644']); for (let k = 0; k < 16; k++) { p(k, 0, '#5f4627'); p(k, 15, '#5f4627'); } for (let y = 4; y < 12; y++) { p(3, y, '#4a4a4a'); p(4, y, '#6a6a6a'); p(11, y, '#7a5a30'); p(12, y, '#5f4627'); } for (let x = 9; x < 14; x++) p(x, 4, '#9a9a9a'); });
+  tile(30, (p, r) => { noise(p, r, ['#b8925c', '#a6804c']); for (let k = 0; k < 16; k++) { p(k, 0, '#5f4627'); p(k, 15, '#5f4627'); p(0, k, '#5f4627'); p(15, k, '#5f4627'); p(k, 7, '#7a5a30'); p(7, k, '#7a5a30'); } });
+  tile(31, (p, r) => { for (let y = 0; y < 16; y++) for (let x = 0; x < 16; x++) { const row = floor(y / 4), odd = row % 2 ? 4 : 0; p(x, y, y % 4 === 3 || (x + odd) % 8 === 7 ? '#1a0a0e' : ['#3a1620', '#44202a', '#32121a'][floor(r() * 3)]); } });
   return c;
 }
 
-const FACE = [
+export const FACE = [
   { n: [1, 0, 0], v: [[1, 0, 1], [1, 0, 0], [1, 1, 0], [1, 1, 1]], s: 0.8, k: 1 }, { n: [-1, 0, 0], v: [[0, 0, 0], [0, 0, 1], [0, 1, 1], [0, 1, 0]], s: 0.8, k: 1 },
   { n: [0, 1, 0], v: [[0, 1, 1], [1, 1, 1], [1, 1, 0], [0, 1, 0]], s: 1, k: 0 }, { n: [0, -1, 0], v: [[0, 0, 0], [1, 0, 0], [1, 0, 1], [0, 0, 1]], s: 0.5, k: 2 },
   { n: [0, 0, 1], v: [[0, 0, 1], [1, 0, 1], [1, 1, 1], [0, 1, 1]], s: 0.66, k: 1 }, { n: [0, 0, -1], v: [[1, 0, 0], [0, 0, 0], [0, 1, 0], [1, 1, 0]], s: 0.66, k: 1 },
 ];
-const VERT = 'attribute float aS; varying vec2 vUv; varying float vS, vD; void main(){ vUv = uv; vS = aS; vec4 mv = modelViewMatrix * vec4(position, 1.0); vD = -mv.z; gl_Position = projectionMatrix * mv; }';
-const FRAG = `uniform sampler2D uAtlas; uniform float uLight, uFogD; uniform vec3 uFog; varying vec2 vUv; varying float vS, vD;
-  void main(){ vec4 c = texture2D(uAtlas, vUv); if (c.a < 0.5) discard; float f = uFogD * vD; gl_FragColor = vec4(mix(c.rgb * vS * uLight, uFog, 1.0 - exp(-f * f)), 1.0);
+export const VOX_VERT = 'attribute float aS; varying vec2 vUv; varying float vS, vD; void main(){ vUv = uv; vS = aS; vec4 mv = modelViewMatrix * vec4(position, 1.0); vD = -mv.z; gl_Position = projectionMatrix * mv; }';
+export const VOX_FRAG = `uniform sampler2D uAtlas; uniform float uLight, uFogD; uniform vec3 uFog; varying vec2 vUv; varying float vS, vD;
+  void main(){ vec4 c = texture2D(uAtlas, vUv); if (c.a < 0.5) discard; float f = uFogD * vD; vec3 lit = vS > 1.05 ? c.rgb * (vS - 0.3) : c.rgb * vS * uLight; gl_FragColor = vec4(mix(lit, uFog, 1.0 - exp(-f * f)), 1.0);
     #include <colorspace_fragment>
   }`;
 
@@ -199,6 +215,27 @@ const PICK = ['................', '....sssssss.....', '...ssssssssS....', '..ss.
 const APPLE = ['................', '.......B........', '.......Bg.......', '....aaaBaaa.....', '...aaaaaaaaa....', '..aaawaaaaaaa...', '..aaawaaaaaaa...', '..aaaaaaaaaaa...', '..aaaaaaaaaaR...', '...aaaaaaaaR....', '...aaaaaaaRR....', '....aaaaaRR.....', '.....aa.aa......', '................', '................', '................'];
 const BREAD = ['................', '................', '................', '.....yyyyy......', '...yyyyyyyyy....', '..yyccyccyccy...', '.yyyyyyyyyyyyy..', '.yyyyyyyyyyyyy..', '.yyyyyyyyyyyyB..', '..yyyyyyyyyyB...', '...BBBBBBBBB....', '................', '................', '................', '................', '................'];
 const MEATI = ['................', '...........cc...', '..........cccc..', '.........#ccc...', '...bbbbbb#c.....', '..bbbrrrbb#.....', '.bbrrrrrrbb.....', '.brrrrrrrrb.....', '.brrrrrrrrb.....', '.bbrrrrrrbb.....', '..bbbrrbbb......', '...bbbbb........', '................', '................', '................', '................'];
+// coisas que não são bloco nem comida: o isqueiro e o que vem do baú do inferno
+const pixels = (rows, pal) => {
+  const c = document.createElement('canvas');
+  c.width = c.height = 16;
+  const g = c.getContext('2d');
+  rows.forEach((row, y) => [...row].forEach((ch, x) => { if (pal[ch]) { g.fillStyle = pal[ch]; g.fillRect(x, y, 1, 1); } }));
+  return c;
+};
+const LIGHTER = ['................', '..........ff....', '.........fF.f...', '........fFFf....', '.......ssFs.....', '......sSss......', '.....sSs........', '....dSs.........', '...dds..........', '..dds...........', '.ddd..ggg.......', '.dd..ggGGg......', '.....gGGGg......', '......gGg.......', '................', '................'];
+const PEARL = ['................', '................', '.....kkkkk......', '....kmmmmmk.....', '...kmmwwmmmk....', '...kmwwmmmmk....', '..kmmmmmmmmmk...', '..kmmmmDDmmmk...', '..kmmmmDDmmmk...', '..kmmmmmmmmmk...', '...kmmmmmmmk....', '...kmmmmmmmk....', '....kmmmmmk.....', '.....kkkkk......', '................', '................'];
+const ROD = ['................', '............yy..', '...........yYy..', '..........yYy...', '.........yYy....', '........yYy.....', '.......yYy......', '......yYy.......', '.....yYy........', '....yYy.........', '...yYy..........', '..yYy...........', '..yy............', '................', '................', '................'];
+const EYE = ['................', '.....kkkkk......', '....kmmmmmk.....', '...kmmGGGmmk....', '..kmmGGGGGmmk...', '..kmGGkkkGGmk...', '..kmGGkDkGGmk...', '..kmGGkkkGGmk...', '..kmmGGGGGmmk...', '...kmmGGGmmk....', '....kmmmmmk.....', '.....kkkkk......', '................', '................', '................', '................'];
+const PAL = { f: '#ff9a20', F: '#ffe070', s: '#9a9a9a', S: '#d8d8d8', d: '#4a4a4a', g: '#5a5a5a', G: '#8a8a8a', k: '#0a2a24', m: '#1f7a6a', w: '#a8f0e0', D: '#06120f', y: '#e8a020', Y: '#fff070' };
+const EYE_PAL = { ...PAL, m: '#2f8a3a', G: '#6ad860', k: '#0c2410', D: '#000000' };
+export const THINGS = {
+  isqueiro: { name: 'Isqueiro', icon: () => pixels(LIGHTER, PAL) },
+  perola: { name: 'Pérola do fim', icon: () => pixels(PEARL, PAL) },
+  vara: { name: 'Vara de blaze', icon: () => pixels(ROD, PAL) },
+  olho: { name: 'Olho do fim', icon: () => pixels(EYE, EYE_PAL) },
+};
+
 const FOOD = { maca: { name: 'Maçã', fill: 4, icon: APPLE }, pao: { name: 'Pão', fill: 5, icon: BREAD }, carne: { name: 'Carne', fill: 8, icon: MEATI } };
 
 // ------------------------------------------------------------------ o mundo de blocos
@@ -222,7 +259,7 @@ export class Mine {
     tex.anisotropy = 4;
     tex.colorSpace = THREE.SRGBColorSpace;
     this.u = { uAtlas: { value: tex }, uLight: { value: 1 }, uFog: { value: new THREE.Color() }, uFogD: { value: 0.002 } };
-    this.mat = new THREE.ShaderMaterial({ vertexShader: VERT, fragmentShader: FRAG, uniforms: this.u, toneMapped: false });
+    this.mat = new THREE.ShaderMaterial({ vertexShader: VOX_VERT, fragmentShader: VOX_FRAG, uniforms: this.u, toneMapped: false });
     const q = 90000;
     this.tp = new Float32Array(q * 12); this.tu = new Float32Array(q * 8); this.ts = new Float32Array(q * 4); this.ti = new Uint32Array(q * 6);
     // o chão que falta além dos blocos carregados
@@ -251,6 +288,10 @@ export class Mine {
     this.items.forEach((it, i) => { if (i < 6) this.stacks[i + 1] = { t: 'item', i }; });
     this.stacks[7] = { t: 'block', b: B.COBBLE, n: 32 };
     this.stacks[8] = { t: 'food', f: 'pao', n: 8 };
+    // no fundo da mochila: material pra um portal de outro mundo
+    this.stacks[9] = { t: 'block', b: B.OBSIDIAN, n: 64 };
+    this.stacks[10] = { t: 'thing', k: 'isqueiro', n: 1 };
+    this.stacks[11] = { t: 'block', b: B.TABLE, n: 1 };
     this.zombies = [];
     this.zT = 3;
     this.buildHud();
@@ -365,7 +406,7 @@ export class Mine {
         for (let k = 0; k < 4; k++) {
           const V = F.v[k];
           tp[p + k * 3] = ox + x + V[0]; tp[p + k * 3 + 1] = y + V[1]; tp[p + k * 3 + 2] = oz + z + V[2];
-          ts[q * 4 + k] = F.s;
+          ts[q * 4 + k] = LIT[b] ? 1.3 : F.s;
         }
         tu[t] = u0; tu[t + 1] = v0; tu[t + 2] = u0 + w; tu[t + 3] = v0; tu[t + 4] = u0 + w; tu[t + 5] = v1; tu[t + 6] = u0; tu[t + 7] = v1;
         const a = q * 4, i = q * 6;
@@ -455,7 +496,7 @@ export class Mine {
     const out = [], R = Math.min(3, Math.ceil(r)), ax = floor(x), ay = floor(y), az = floor(z);
     for (let c = -R; c <= R; c++) for (let b = -R; b <= R; b++) for (let a = -R; a <= R; a++) {
       const X = ax + a, Y = ay + b, Z = az + c;
-      if (this.get(X, Y, Z) && this.get(X, Y, Z) !== B.LEAVES) out.push([X, Y, Z, X + 1, Y + 1, Z + 1]);
+      if (!SOFT[this.get(X, Y, Z)]) out.push([X, Y, Z, X + 1, Y + 1, Z + 1]);
     }
     return out;
   }
@@ -506,9 +547,69 @@ export class Mine {
     if (b === B.LEAVES) { if (Math.random() < 0.3) this.add(0, 1, 'maca'); } else if (b !== B.GLASS) this.add(b === B.STONE ? B.COBBLE : b === B.GRASS ? B.DIRT : b);
     this.sound.place?.();
   }
+  // coisas: quantas tem, pega e tira
+  count(k) { return this.stacks.reduce((n, s) => n + (s?.t === 'thing' && s.k === k ? s.n : 0), 0); }
+  give(k, n) {
+    const s = this.stacks.find(q => q?.t === 'thing' && q.k === k && q.n < 64);
+    if (s) s.n += n;
+    else { const i = this.stacks.findIndex(q => !q); if (i >= 0) this.stacks[i] = { t: 'thing', k, n }; }
+    this.drawHud();
+  }
+  take(k, n) {
+    for (let i = 0; i < this.stacks.length && n > 0; i++) {
+      const s = this.stacks[i];
+      if (s?.t !== 'thing' || s.k !== k) continue;
+      const m = Math.min(n, s.n);
+      s.n -= m; n -= m;
+      if (s.n <= 0) this.stacks[i] = null;
+    }
+    this.drawHud();
+  }
+  // a mesa de trabalho mais perto, a até 4 blocos
+  nearTable(p) {
+    const X = floor(p.x), Y = floor(p.y), Z = floor(p.z);
+    for (let y = -3; y <= 3; y++) for (let z = -4; z <= 4; z++) for (let x = -4; x <= 4; x++) if (this.get(X + x, Y + y, Z + z) === B.TABLE) return true;
+    return false;
+  }
+  // Isqueiro numa moldura de obsidiana em pé: o vão de dentro vira portal. Procura o vão nos dois sentidos (de frente pra x ou pra z).
+  ignite(h) {
+    const sx = h.x + h.nx, sy = h.y + h.ny, sz = h.z + h.nz;
+    if (this.get(sx, sy, sz) !== B.AIR) return false;
+    for (const along of [[1, 0], [0, 1]]) {
+      const seen = new Set([sx + ',' + sy + ',' + sz]), cells = [[sx, sy, sz]];
+      let ok = true;
+      for (let k = 0; k < cells.length && ok; k++) {
+        const [x, y, z] = cells[k];
+        for (const [du, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+          const X = x + du * along[0], Y = y + dy, Z = z + du * along[1], key = X + ',' + Y + ',' + Z;
+          if (seen.has(key)) continue;
+          const b = this.get(X, Y, Z);
+          if (b === B.OBSIDIAN) continue;
+          if (b !== B.AIR || cells.length > 21 * 21) { ok = false; break; }
+          seen.add(key);
+          cells.push([X, Y, Z]);
+        }
+      }
+      if (!ok) continue;
+      const ys = cells.map(c => c[1]), us = cells.map(c => c[0] * along[0] + c[2] * along[1]);
+      if (Math.max(...ys) - Math.min(...ys) < 2 || Math.max(...us) - Math.min(...us) < 1) continue;
+      for (const [x, y, z] of cells) this.set(x, y, z, B.PORTAL);
+      return true;
+    }
+    return false;
+  }
   // botão direito: põe bloco ou come. Devolve true se usou o clique.
   useRight() {
     const s = this.held;
+    if (this.hit?.b === B.TABLE && Math.hypot(this.hit.x + 0.5 - this.me.pos.x, this.hit.z + 0.5 - this.me.pos.z) < REACH) { this.onTable?.(); return true; }
+    if (s?.t === 'thing' && s.k === 'isqueiro') {
+      const h = this.hit;
+      if (!h) return true;
+      if (h.b === B.OBSIDIAN && this.ignite(h)) { this.sound.portal?.(1); this.toast('🔥 O portal acendeu. Entre nele...'); }
+      else { this.sound.dig?.(); this.toast(h.b === B.OBSIDIAN ? 'A moldura precisa estar fechada, em pé, com um vão de pelo menos 2 de largura e 3 de altura' : 'O isqueiro só acende uma moldura de obsidiana'); }
+      return true;
+    }
+    if (s?.t === 'thing') return true;
     if (s?.t === 'food') {
       if (this.food >= 20) return true;
       this.food = Math.min(20, this.food + FOOD[s.f].fill);
@@ -630,6 +731,7 @@ export class Mine {
     c.width = c.height = 16;
     const g = c.getContext('2d');
     if (s.t === 'block') { const n = FACES[s.b][1]; g.drawImage(this.atlasCanvas, (n % 8) * 16, floor(n / 8) * 16, 16, 16, 0, 0, 16, 16); }
+    else if (s.t === 'thing') g.drawImage(THINGS[s.k].icon(), 0, 0);
     else if (s.t === 'item') { g.font = '13px serif'; g.textBaseline = 'middle'; g.textAlign = 'center'; const it = this.items[s.i]; if (it.icon) g.fillText(it.icon, 8, 9); else { g.strokeStyle = it.tint; g.lineWidth = 2; g.beginPath(); g.ellipse(8, 8, 4, 6, 0, 0, 7); g.stroke(); } }
     else { const img = new Image(); img.src = icon(s.t === 'pick' ? PICK : FOOD[s.f].icon); img.onload = () => g.drawImage(img, 0, 0); }
     return c;
@@ -640,7 +742,7 @@ export class Mine {
     d.dataset.i = i;
     if (s) {
       d.appendChild(this.iconOf(s));
-      d.title = s.t === 'block' ? NAMES[s.b] : s.t === 'food' ? FOOD[s.f].name : s.t === 'pick' ? 'Picareta' : this.items[s.i].name || 'Portal';
+      d.title = s.t === 'thing' ? THINGS[s.k].name : s.t === 'block' ? NAMES[s.b] : s.t === 'food' ? FOOD[s.f].name : s.t === 'pick' ? 'Picareta' : this.items[s.i].name || 'Portal';
       if (s.n > 1) { const n = document.createElement('span'); n.textContent = s.n; d.appendChild(n); }
     }
     return d;

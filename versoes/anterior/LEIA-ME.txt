@@ -61,7 +61,7 @@ O PERCURSO
 
 VERSÃO 3D (TESTE)
   Na tela inicial, clique em "Testar a versão 3D (beta)" (ou abra http://IP:3000/3d.html).
-  Mesma mecânica numa cidade 3D infinita: segure o clique mirando num ponto brilhante, solte pra voar.
+  Mesma mecânica numa cidade 3D numa ilha (uns 2,5 km de lado, com praia e mar em volta): segure o clique mirando num ponto brilhante, solte pra voar.
   Mouse olha · W A S D anda/impulso (diagonais) · Espaço pulo/pulo duplo · Q cambalhota
   Shift PRESO NA CORDA = BOOST (prende, boosta rapidinho, solta e acumula velocidade)
   Shift solto no ar = mergulho (no chão corre) · E ou rodinha = corda · T ir até o amigo · R voltar ao início
@@ -79,15 +79,15 @@ VERSÃO 3D (TESTE)
     Cuidado: CTRL+W fecha a aba. O jogo pede confirmação, mas se preferir use a tecla C.
   AMIGO: perto dele, F pega e F de novo arremessa. Se você estiver rápido, soma a sua velocidade. Espaço solta.
   PAREDE: Espaço perto de uma parede pula nela, e recarrega o pulo duplo.
-  ITENS: as teclas 1 a 6 pegam o item na mão, e a mesma tecla de novo guarda. Botão direito usa
+  ITENS: as teclas 1 e 2 pegam o item na mão, e a mesma tecla de novo guarda. Botão direito usa
     (e deixa de ser teia enquanto segura o item).
-    1 = portal azul, 2 = portal laranja, 3 = chuva de carros. G = primeira pessoa.
+    1 = portal azul, 2 = portal laranja. G = primeira pessoa.
 
     Quem entra num portal sai no outro com a mesma velocidade, e voando em direção a ele a rota ajuda um pouco.
     Dá pra ver o outro lado e jogar a teia num ponto brilhante através do portal: ela te leva junto.
   VELOCIDADE: não tem limite, mas acima de 360 km/h ela cai bem rápido.
   ESTILOS DE ARTE (aba Arte): tudo muda na hora e as mecânicas são as mesmas. B troca jogando.
-    Pixel Art, Game Boy, Minecraft, Geleia, Gibi, Simpsons, Bob Esponja, Neon, Vaporwave, ASCII, Noir e Sonho.
+    Pixel Art, Minecraft, Geleia, Gibi, Simpsons, Bob Esponja, Neon, Vaporwave, ASCII, Noir e Sonho.
     "Surpresa" troca sozinho a cada 25 s. Só você vê o seu estilo. Na Geleia, os pousos fortes viram ondas pela rua.
   MINECRAFT (estilo de arte): a cidade vira blocos. Perto, segure o clique pra quebrar (a picareta é mais rápida na pedra).
     Longe, a teia pega em qualquer bloco. Botão direito põe bloco ou come. 1 a 9 ou a rodinha trocam o item, E abre a mochila.
@@ -143,3 +143,5 @@ VERSÃO 3D (TESTE)
     demora mais; as seguintes são rápidas. O arquivo desempenho.log, na pasta do jogo, guarda o FPS real de cada jogador e os engasgos, com o que tinha acabado de acontecer.
   QUALIDADE (Esc): no modo Automática o jogo baixa sozinho se o FPS cair. Também dá pra fixar em Mínima, Baixa,
     Média ou Alta. P mostra o FPS, o pior quadro e a qualidade atual na tela.
+  MODO LEVE (pra PC fraco): na tela inicial, "Versão 3D leve", ou Esc > Ajustes > Modo leve. A imagem sai bem menor,
+    sem sombra, sem estilos de arte e com pouca gente e carro na rua, e o carregamento é bem mais curto. Fica guardado.

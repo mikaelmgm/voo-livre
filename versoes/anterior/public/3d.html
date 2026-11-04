@@ -100,10 +100,10 @@
   .legend { font-size: 13px; line-height: 1.6; color: var(--ink); }
   .val { font-size: 13px; color: var(--ink); font-weight: 600; white-space: nowrap; min-width: 62px; text-align: right; }
   /* a tela inteira em pixels pede letra de pixel e canto reto */
-  body[data-art="pixel"] #hud3, body[data-art="gameboy"] #hud3 { font-family: 'Press Start 2P', monospace; font-size: 80%; }
-  body[data-art="pixel"] #hud3 *, body[data-art="gameboy"] #hud3 * { border-radius: 0 !important; }
-  body[data-art="pixel"] #hint, body[data-art="gameboy"] #hint { font-size: 10px; line-height: 1.7; white-space: normal; max-width: 86vw; text-align: center; }
-  body[data-art="pixel"] #cross, body[data-art="gameboy"] #cross { border-radius: 0 !important; }
+  body[data-art="pixel"] #hud3 { font-family: 'Press Start 2P', monospace; font-size: 80%; }
+  body[data-art="pixel"] #hud3 * { border-radius: 0 !important; }
+  body[data-art="pixel"] #hint { font-size: 10px; line-height: 1.7; white-space: normal; max-width: 86vw; text-align: center; }
+  body[data-art="pixel"] #cross { border-radius: 0 !important; }
   #eat-hud { position: absolute; left: 22px; top: 128px; font-size: 15px; font-weight: 800; padding: 5px 10px; border-radius: 8px; background: rgba(10, 6, 20, 0.62); }
   #board-ui .size { color: var(--muted); padding-left: 6px; white-space: nowrap; }
 </style>
@@ -195,7 +195,7 @@
       <div><b>Espaço</b> pula · no ar = pulo duplo · perto de uma parede = pula nela · <b>Q</b> rolamento no ar: segue o seu movimento, pra frente, de costas ou de lado · <b>E</b> ou <b>rodinha</b> encurta / alonga a corda</div>
       <div><b>Cinema</b> (o prédio gigante na frente do início): entre pelas portas laterais · <b>Y</b> coloca vídeo no telão</div>
       <div><b>Laje</b> em cima do cinema: pegue o elevador na calçada ou suba pelos pontos · a <b>passarela</b> leva à quadra de basquete</div>
-      <div><b>1 a 3</b> pegam o item na mão, de novo guarda · <b>1</b> portal azul · <b>2</b> portal laranja · <b>3</b> chuva de carros · <b>botão direito</b> usa. Dá pra jogar a teia num ponto brilhante visto pelo portal</div>
+      <div><b>1 e 2</b> pegam o item na mão, de novo guarda · <b>1</b> portal azul · <b>2</b> portal laranja · <b>botão direito</b> usa. Dá pra jogar a teia num ponto brilhante visto pelo portal</div>
       <div><b>Espaço de verdade</b>: olhe 2 s pra Lua à noite e segure o clique. Lá em cima solte, pendure nos asteroides, mire na Lua ou na Terra pra ser levado · <b>W/S</b> jato · <b>Shift</b> turbo</div>
       <div><b>X</b> câmera lenta · <b>Z</b> rebobinar · <b>H</b> grava um clone · <b>J</b> apaga os clones · <b>N</b> para o mundo · <b>B</b> troca a arte · <b>G</b> primeira pessoa</div>
       <div><b>F</b> usa o que estiver perto: sentar, rádio, quadro, sinuca, ping pong, bola, elevador · perto do amigo <b>pega</b>, de novo <b>arremessa</b></div>
@@ -325,6 +325,10 @@
         <button data-v="3">Alta</button>
       </div>
       <div id="quality-note"></div>
+    </div>
+      <div class="box">
+      <div class="box-h">🐢 Modo leve <small>(pra PC fraco: imagem menor, sem sombra, sem estilos de arte e menos gente na rua)</small></div>
+      <div class="seg"><button id="opt-leve">🐢 Ligar o modo leve</button></div>
     </div>
       <div class="box">
       <div class="box-h">🎥 Câmera <small>(G troca no meio do jogo)</small></div>

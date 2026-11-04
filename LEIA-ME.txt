@@ -89,6 +89,11 @@ VERSÃO 3D (TESTE)
   ESTILOS DE ARTE (aba Arte): tudo muda na hora e as mecânicas são as mesmas. B troca jogando.
     Pixel Art, Minecraft, Geleia, Gibi, Simpsons, Bob Esponja, Neon, Vaporwave, ASCII, Noir e Sonho.
     "Surpresa" troca sozinho a cada 25 s. Só você vê o seu estilo. Na Geleia, os pousos fortes viram ondas pela rua.
+  OUTROS MUNDOS (segredo): na Lua tem uma moldura antiga com 12 encaixes vazios. No Minecraft, a mochila (E) tem
+    obsidiana, isqueiro e mesa de trabalho: monte uma moldura em pé e acenda com o isqueiro (botão direito) pra ir ao
+    inferno. Lá, do outro lado do lago de lava, tem um baú. Na mesa de trabalho, pérola + vara = olho do fim. Com 12
+    olhos a moldura da Lua abre e leva pro fim: pilares de obsidiana, cristais e o dragão. No fim o botão direito atira
+    com o arco; 5 flechas derrubam o dragão. Entre no portal que abre no meio da ilha pra ver os créditos.
   MINECRAFT (estilo de arte): a cidade vira blocos. Perto, segure o clique pra quebrar (a picareta é mais rápida na pedra).
     Longe, a teia pega em qualquer bloco. Botão direito põe bloco ou come. 1 a 9 ou a rodinha trocam o item, E abre a mochila.
     Queda forte tira vida, a fome baixa com o tempo, e à noite aparecem zumbis (três pancadas derrubam).
