@@ -152,7 +152,16 @@ export class Sound {
   ring() { [880, 1318.5, 1760, 2637].forEach((f, i) => this.tone(f, 0.35, 0.09, 'sine', i * 0.05)); }
   jump() { this.tone(300, 0.12, 0.08, 'triangle', 0, 520); }
   airJump() { this.burst(0.3, 400, 2600, 1.2, 0.3); this.tone(420, 0.18, 0.07, 'triangle', 0, 900); }
-  splash() { this.burst(0.7, 1800, 200, 0.8, 0.5, 'lowpass'); }
+  // gota: a bolha sobe de tom bem rápido, e a água fecha logo depois
+  drop(k = 1) {
+    const f = 240 + Math.random() * 120;
+    this.tone(f, 0.12, 0.22 * k, 'sine', 0, f * 3.6);
+    this.tone(f * 1.9, 0.09, 0.09 * k, 'sine', 0.075, f * 5.2);
+    this.burst(0.34, 700, 240, 0.7, 0.05 * k, 'lowpass');
+  }
+  dig() { this.burst(0.09, 900, 300, 1.2, 0.16, 'lowpass'); }
+  place() { this.tone(170, 0.06, 0.14, 'triangle', 0, 110); this.burst(0.07, 700, 240, 1, 0.14, 'lowpass'); }
+  splash() { this.drop(1); this.tone(330, 0.1, 0.1, 'sine', 0.13, 1250); this.burst(0.55, 1000, 320, 0.6, 0.09, 'lowpass'); }
   whoosh() { this.burst(1.4, 220, 800, 0.6, 0.1); }
   twang(k = 1) { this.tone(180 + 240 * k, 0.32, 0.14, 'sawtooth', 0, 900 + 900 * k); this.burst(0.4, 500, 2400, 1, 0.18 * k); }
   liftoff() { this.burst(5, 180, 900, 0.7, 0.3, 'lowpass'); this.tone(70, 4, 0.16, 'sawtooth', 0, 340); }
@@ -179,7 +188,12 @@ export class Sound {
     }
     this.humGain.gain.setTargetAtTime(on ? 0.05 : 0, c.currentTime, 0.4);
   }
-  splat(k = 1) { this.tone(470, 0.16, 0.16 * k, 'sine', 0, 80); this.burst(0.13, 1200, 260, 1, 0.22 * k, 'lowpass'); }
+  portal(color = 0) { this.tone(color ? 620 : 880, 0.22, 0.09, 'sine', 0, color ? 240 : 320); this.burst(0.22, 2600, 500, 2, 0.12); }
+  warp() { this.tone(180, 0.28, 0.12, 'sine', 0, 900); this.burst(0.3, 400, 3000, 1, 0.14); }
+  gulp(k = 1) { this.tone(320 - 120 * k, 0.09, 0.14, 'sine', 0, 110); this.tone(150, 0.12, 0.12, 'sine', 0.08, 70); }
+  boom(k = 1) { this.tone(70, 0.9 + k * 0.5, 0.3, 'sine', 0, 28); this.burst(1.1, 900, 70, 0.7, 0.55 * Math.min(1, k), 'lowpass'); }
+  // batida de gelatina: um tum mole, sem estalo nenhum
+  splat(k = 1) { this.tone(105 + 40 * k, 0.2, 0.2 * k, 'sine', 0, 46); this.burst(0.17, 380, 110, 0.7, 0.13 * k, 'lowpass'); }
   stage() { [523.3, 659.3, 784, 1046.5].forEach((f, i) => this.tone(f, 1.2, 0.05, 'triangle', i * 0.12)); }
   laser(far = false) { this.tone(far ? 1500 : 2200, 0.11, far ? 0.025 : 0.06, 'sawtooth', 0, 240); }
   hitMark() { this.tone(1900, 0.06, 0.09, 'square'); this.tone(2500, 0.05, 0.06, 'square', 0.04); }

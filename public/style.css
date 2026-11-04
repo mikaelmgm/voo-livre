@@ -109,7 +109,7 @@ kbd { font: 600 12px var(--font); padding: 2px 7px; border-radius: 6px; border: 
 .pl b { font-weight: 600; }
 .pl span { color: var(--muted); font-size: 13px; min-width: 52px; text-align: right; }
 #hint {
-  position: absolute; left: 50%; bottom: 7%; transform: translateX(-50%);
+  position: absolute; left: 50%; bottom: 76px; transform: translateX(-50%);
   font-size: 18px; font-weight: 600; letter-spacing: 0.02em; text-align: center; white-space: nowrap;
   padding: 10px 20px; border-radius: 999px; background: rgba(20, 8, 35, 0.45); border: 1px solid rgba(255, 255, 255, 0.12);
   backdrop-filter: blur(6px); transition: opacity 0.4s; opacity: 0;

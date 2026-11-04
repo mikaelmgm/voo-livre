@@ -1,0 +1,360 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Voo Livre 3D</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800;900&family=Press+Start+2P&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+<style>
+  /* camadas: vídeo do telão (CSS 3D) < canvas do jogo < HUD < menu */
+  #css3 { position: fixed !important; inset: 0; z-index: 0; pointer-events: none; }
+  #c3 { position: fixed; inset: 0; width: 100vw; height: 100vh; display: block; z-index: 1; }
+  #hud3 { position: fixed; inset: 0; pointer-events: none; z-index: 2; }
+  #screen3 { width: 1280px; height: 720px; background: #000; position: relative; overflow: hidden; }
+  #screen3 .ph { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 28px; color: #ffd9ef; font-family: Outfit, system-ui, sans-serif; background: radial-gradient(circle at 50% 40%, #2a0d34, #000 70%); }
+  #screen3 .ph b { font-size: 170px; font-weight: 900; letter-spacing: 0.18em; color: #ff4fa3; text-shadow: 0 0 50px #ff4fa3; }
+  #screen3 .ph span { font-size: 44px; font-weight: 600; }
+  #screen3 .ph kbd { font-size: 40px; padding: 2px 16px; color: #ffcf3f; border-color: #ffcf3f; }
+  #yt-wrap, #yt-wrap iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
+  .cine { display: flex; flex-direction: column; gap: 8px; border-top: 1px solid var(--line); padding-top: 12px; }
+  .cine-h { font-weight: 800; font-size: 15px; }
+  .cine-h small { font-weight: 400; color: var(--muted); }
+  #cine-url { flex: 1; min-width: 0; font-size: 14px; padding: 9px 12px; }
+  #start3 button.small { padding: 9px 12px; font-size: 14px; flex: none; }
+  #start3 button.primary { background: linear-gradient(180deg, #ffe08a, #ff9f5a); color: #2a1020; justify-content: center; }
+  #cine-status { font-size: 12.5px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #cross { position: absolute; left: 50%; top: 50%; width: 22px; height: 22px; margin: -11px 0 0 -11px; border: 2px solid rgba(255, 255, 255, 0.85); border-radius: 50%; }
+  #cross::after { content: ''; position: absolute; left: 8px; top: 8px; width: 2px; height: 2px; background: #fff; border-radius: 50%; }
+  #cross.on { border-color: #4ff7ff; transform: scale(1.25); box-shadow: 0 0 12px #4ff7ff; }
+  .mark3 { position: absolute; transform: translate(-50%, -50%); font-size: 12px; font-weight: 700; text-align: center; padding: 4px 8px; border-radius: 10px; background: rgba(15, 8, 30, 0.6); white-space: nowrap; }
+  .mark3 b { display: block; font-size: 16px; line-height: 1; }
+  #start3 { position: fixed; inset: 0; z-index: 3; display: flex; align-items: center; justify-content: center; padding: 16px; background: rgba(10, 4, 24, 0.45); backdrop-filter: blur(2px); }
+  #start3 .panel { width: min(660px, 100%); max-height: calc(100vh - 32px); overflow-y: auto; }
+  #start3 .controls { text-align: left; font-size: 13.5px; }
+  #start3 a { color: #9fe8ff; text-align: center; font-size: 14px; font-weight: 600; text-decoration: none; }
+  #err3 { color: #ffb0a0; text-align: center; font-size: 13px; }
+  #hud-time { font-size: 13px; margin-top: 4px; color: var(--muted); }
+  /* desfoque por trás do HUD custa caro em cima de um canvas que muda todo quadro */
+  #hud3 .pl, #hud3 #hint { backdrop-filter: none; background: rgba(20, 10, 35, 0.62); }
+  #perf3 { position: absolute; left: 22px; bottom: 16px; font-size: 12.5px; font-weight: 600; padding: 5px 10px; border-radius: 8px; background: rgba(10, 6, 20, 0.7); }
+  #quality-note { font-size: 12.5px; color: var(--muted); }
+  #start3 .seg { display: flex; border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+  #start3 .seg button { flex: 1; font-size: 13.5px; font-weight: 600; padding: 9px 8px; border-radius: 0; color: var(--ink); background: rgba(255, 255, 255, 0.04); box-shadow: none; }
+  #start3 .seg button + button { border-left: 1px solid var(--line); }
+  #start3 .seg button.on { background: rgba(255, 207, 63, 0.22); color: #fff3c4; box-shadow: inset 0 -2px 0 #ffcf3f; }
+  #start3 .quick { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  #start3 .quick button { font-size: 14.5px; padding: 11px; color: var(--ink); background: rgba(255, 255, 255, 0.1); box-shadow: none; border: 1px solid var(--line); }
+  #radio-url { flex: 1; min-width: 0; font-size: 14px; padding: 9px 12px; }
+  #radio-status { font-size: 12.5px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #time-label { font-size: 13px; color: var(--ink); font-weight: 600; white-space: nowrap; }
+  #time-hour { width: 100%; }
+  #loading { position: fixed; inset: 0; z-index: 20; display: flex; align-items: center; justify-content: center; padding: 16px; background: radial-gradient(circle at 50% 40%, #2a1648, #0a0418 70%); color: var(--ink); font-family: Outfit, system-ui, sans-serif; }
+  #loading .lbox { width: min(460px, 100%); display: flex; flex-direction: column; gap: 14px; text-align: center; }
+  #load-text { font-size: 15px; font-weight: 600; min-height: 20px; }
+  #loading .lbar { height: 14px; border-radius: 8px; overflow: hidden; background: rgba(255, 255, 255, 0.12); }
+  #load-bar { display: block; width: 3%; height: 100%; border-radius: 8px; background: linear-gradient(90deg, #ff9f5a, #ffe08a); transition: width 0.2s; }
+  #load-note { font-size: 13px; color: var(--muted); }
+  #hotbar { position: absolute; left: 50%; bottom: 14px; transform: translateX(-50%); display: flex; gap: 6px; }
+  #hotbar .slot { position: relative; width: 46px; height: 46px; border-radius: 10px; background: rgba(15, 8, 30, 0.55); border: 2px solid rgba(255, 255, 255, 0.16); display: flex; align-items: center; justify-content: center; }
+  #hotbar .slot b { position: absolute; left: 5px; top: 1px; font-size: 11px; font-weight: 700; color: rgba(255, 255, 255, 0.75); }
+  #hotbar .slot i { width: 15px; height: 25px; border-radius: 50%; border: 3px solid; box-shadow: 0 0 8px currentColor; }
+  #hotbar .slot em { font-style: normal; font-size: 22px; line-height: 1; }
+  #hotbar .slot.on { border-color: #fff; background: rgba(255, 255, 255, 0.16); transform: translateY(-3px); }
+  #veil { position: fixed; inset: 0; z-index: 1; pointer-events: none; opacity: 0; background: #fff; }
+  #under { position: fixed; inset: 0; z-index: 1; pointer-events: none; opacity: 0; background: #0a4f7c; transition: opacity 0.15s; }
+  #chill { position: fixed; inset: 0; z-index: 1; pointer-events: none; opacity: 0; mix-blend-mode: screen; background: radial-gradient(ellipse at center, rgba(70, 120, 255, 0.05) 45%, rgba(130, 190, 255, 0.3) 100%); }
+  #gaze { position: absolute; left: 50%; top: 50%; width: 44px; height: 44px; margin: -22px 0 0 -22px; border-radius: 50%; opacity: 0; -webkit-mask: radial-gradient(circle, transparent 17px, #000 18px); mask: radial-gradient(circle, transparent 17px, #000 18px); }
+  .char { display: flex; gap: 12px; align-items: stretch; }
+  #slime-stage { width: 168px; height: 190px; flex: none; border-radius: 12px; cursor: pointer; background: radial-gradient(circle at 50% 70%, rgba(255, 255, 255, 0.16), rgba(255, 255, 255, 0.03) 70%); }
+  .char-opts { flex: 1; min-width: 0; display: flex; flex-direction: column; justify-content: center; gap: 10px; }
+  .char-opts .vol { display: flex; align-items: center; gap: 8px; }
+  #start3 .skins { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+  #start3 .skins button { font-size: 13px; font-weight: 600; padding: 8px 6px; color: var(--ink); background: rgba(255, 255, 255, 0.06); box-shadow: none; border: 1px solid var(--line); border-radius: 10px; }
+  #start3 .skins button.on { background: rgba(255, 207, 63, 0.22); color: #fff3c4; border-color: #ffcf3f; }
+  #slime-label { font-size: 13px; font-weight: 600; color: var(--ink); }
+  @media (max-width: 480px) { .char { flex-direction: column; align-items: center; } .char-opts { width: 100%; } }
+  .wide-vol { flex: 1; }
+  .wide-vol input { flex: 1; width: auto; }
+  #sp-box iframe { width: 320px !important; height: 152px !important; display: block; }
+  #board-ui { position: absolute; left: 50%; top: 16px; transform: translateX(-50%); display: flex; gap: 6px; align-items: center; padding: 8px 12px; border-radius: 14px; background: rgba(15, 8, 30, 0.72); font-size: 12px; font-weight: 700; }
+  #board-ui .sw { width: 28px; height: 28px; border-radius: 50%; display: flex; align-items: center; justify-content: center; color: #fff; text-shadow: 0 1px 2px #000; border: 2px solid rgba(255, 255, 255, 0.25); }
+  #board-ui .sw.on { border-color: #fff; box-shadow: 0 0 0 2px #ffcf3f; }
+  #board-ui .tool { width: auto; border-radius: 10px; padding: 0 10px; background: rgba(255, 255, 255, 0.12); }
+  .tabs { display: flex; flex-wrap: wrap; gap: 4px; }
+  #start3 .tabs button { flex: 1 1 auto; font-size: 13px; font-weight: 700; padding: 8px 9px; border-radius: 9px; color: var(--ink); background: rgba(255, 255, 255, 0.06); box-shadow: none; border: 1px solid var(--line); white-space: nowrap; }
+  #start3 .tabs button.on { background: rgba(255, 207, 63, 0.22); color: #fff3c4; border-color: #ffcf3f; }
+  section.tab { display: none; flex-direction: column; gap: 12px; }
+  section.tab.on { display: flex; }
+  section.tab > .box:first-child, section.tab > .cine:first-child { border-top: 0; padding-top: 0; }
+  #start3 .skins.arts { grid-template-columns: repeat(3, 1fr); }
+  #start3 .toggle { font-size: 13.5px; font-weight: 600; padding: 9px; color: var(--ink); background: rgba(255, 255, 255, 0.06); box-shadow: none; border: 1px solid var(--line); border-radius: 10px; }
+  #start3 .toggle.on { background: rgba(255, 207, 63, 0.22); color: #fff3c4; border-color: #ffcf3f; }
+  .powers { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+  @media (max-width: 480px) { .powers { grid-template-columns: 1fr; } #start3 .skins.arts { grid-template-columns: 1fr 1fr; } }
+  #start3 .powers button { display: flex; flex-direction: column; align-items: flex-start; gap: 1px; text-align: left; font-size: 13.5px; font-weight: 700; padding: 8px 10px; color: var(--ink); background: rgba(255, 255, 255, 0.06); box-shadow: none; border: 1px solid var(--line); border-radius: 10px; }
+  #start3 .powers button small { font-weight: 400; font-size: 12px; color: var(--muted); }
+  #start3 .powers button.on { background: rgba(255, 207, 63, 0.22); color: #fff3c4; border-color: #ffcf3f; }
+  .legend { font-size: 13px; line-height: 1.6; color: var(--ink); }
+  .val { font-size: 13px; color: var(--ink); font-weight: 600; white-space: nowrap; min-width: 62px; text-align: right; }
+  /* a tela inteira em pixels pede letra de pixel e canto reto */
+  body[data-art="pixel"] #hud3, body[data-art="gameboy"] #hud3 { font-family: 'Press Start 2P', monospace; font-size: 80%; }
+  body[data-art="pixel"] #hud3 *, body[data-art="gameboy"] #hud3 * { border-radius: 0 !important; }
+  body[data-art="pixel"] #hint, body[data-art="gameboy"] #hint { font-size: 10px; line-height: 1.7; white-space: normal; max-width: 86vw; text-align: center; }
+  body[data-art="pixel"] #cross, body[data-art="gameboy"] #cross { border-radius: 0 !important; }
+  #eat-hud { position: absolute; left: 22px; top: 128px; font-size: 15px; font-weight: 800; padding: 5px 10px; border-radius: 8px; background: rgba(10, 6, 20, 0.62); }
+  #board-ui .size { color: var(--muted); padding-left: 6px; white-space: nowrap; }
+</style>
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+} }
+</script>
+</head>
+<body>
+<canvas id="c3"></canvas>
+<div id="loading">
+  <div class="lbox">
+    <div class="logo small">VOO<span>LIVRE 3D</span></div>
+    <div id="load-text">Abrindo o jogo...</div>
+    <div class="lbar"><i id="load-bar"></i></div>
+    <div id="load-note">Deixando tudo pronto antes de entrar, pra não travar lá dentro</div>
+  </div>
+</div>
+<script>
+  // se o jogo quebrar antes de terminar de carregar, a tela some e o menu (com a volta de versão) continua acessível
+  addEventListener('error', () => { if (!window.__v3) document.querySelector('#loading').style.display = 'none'; });
+  setTimeout(() => { if (!window.__v3) document.querySelector('#loading').style.display = 'none'; }, 240000);
+</script>
+<div id="chill"></div>
+<div id="under"></div>
+<div id="veil"></div>
+
+<div id="hud3">
+  <div id="hud-left">
+    <div id="hud-biome">CIDADE · 3D (TESTE)</div>
+    <div id="hud-dist"><span id="d3">0</span><small>m</small></div>
+    <div id="hud-speed"><span id="s3">0</span> km/h</div>
+    <div id="hud-time"></div>
+  </div>
+  <div id="hud-right">
+    <div id="hud-net"></div>
+    <div id="hud-players"></div>
+  </div>
+  <div id="cross"></div>
+    <div id="gaze"></div>
+  <div id="marks3"></div>
+  <div id="hint" class="on"></div>
+  <div id="hotbar"></div>
+  <div id="perf3" class="hidden"></div>
+  <div id="eat-hud" class="hidden"></div>
+</div>
+
+<div id="music" class="hidden">
+  <div class="mhead">
+    <span id="music-title">📻 rádio</span>
+    <button id="music-stop" title="desligar pra todos">■</button>
+  </div>
+  <div id="yt-box"><div id="yt-frame"></div></div>
+  <div id="sp-box" class="hidden"><div id="sp-frame"></div></div>
+</div>
+
+<div id="start3">
+  <div class="panel">
+    <div class="logo small">VOO<span>LIVRE 3D</span></div>
+    <div class="tag">um playground pra brincar de Deus</div>
+    <button id="go3">Clique pra jogar</button>
+    <div id="err3"></div>
+    <div class="tabs" id="tabs">
+      <button data-tab="jogar" class="on">🎮 Jogar</button>
+      <button data-tab="boneco">🟢 Boneco</button>
+      <button data-tab="arte">🎨 Arte</button>
+      <button data-tab="poderes">⚡ Poderes</button>
+      <button data-tab="mundo">🌍 Mundo</button>
+      <button data-tab="som">📻 Som</button>
+      <button data-tab="ajustes">⚙️ Ajustes</button>
+      <button data-tab="mochila">🎒 Mochila</button>
+      <button data-tab="versao">🔄 Última atualização</button>
+    </div>
+    <section class="tab on" data-tab="jogar">
+      <div class="quick">
+      <button id="go-roof">🍖 Ir pra laje</button>
+      <button id="go-court">🏀 Ir pra quadra</button>
+      <button id="go-park">🎡 Ir pro parque</button>
+      <button id="go-beach">🏖️ Ir pra praia</button>
+    </div>
+      <div class="controls inline">
+      <div><b>Mouse</b> olha em volta · <b>segure o clique</b> mirando num ponto brilhante (ou no amigo) → teia · <b>solte</b> → voa · <b>botão direito</b> = a outra mão</div>
+      <div><b>CTRL</b> (ou C) no chão, com a teia presa: você finca o pé e ela não te leva. <b>Ande pra trás</b> pra puxar: o amigo vem arrastado e, num prédio, a teia estica feito estilingue. <b>Solte</b> e saia voando</div>
+      <div><b>Shift preso na corda = BOOST</b> (prende, boosta rapidinho, solta e acumula velocidade) · Shift solto no ar = mergulho · no chão = correr</div>
+      <div><b>W A S D</b> andar / impulso no balanço / controle no ar (combine pra ir na diagonal)</div>
+      <div><b>Espaço</b> pula · no ar = pulo duplo · perto de uma parede = pula nela · <b>Q</b> rolamento no ar: segue o seu movimento, pra frente, de costas ou de lado · <b>E</b> ou <b>rodinha</b> encurta / alonga a corda</div>
+      <div><b>Cinema</b> (o prédio gigante na frente do início): entre pelas portas laterais · <b>Y</b> coloca vídeo no telão</div>
+      <div><b>Laje</b> em cima do cinema: pegue o elevador na calçada ou suba pelos pontos · a <b>passarela</b> leva à quadra de basquete</div>
+      <div><b>1 a 3</b> pegam o item na mão, de novo guarda · <b>1</b> portal azul · <b>2</b> portal laranja · <b>3</b> chuva de carros · <b>botão direito</b> usa. Dá pra jogar a teia num ponto brilhante visto pelo portal</div>
+      <div><b>Espaço de verdade</b>: olhe 2 s pra Lua à noite e segure o clique. Lá em cima solte, pendure nos asteroides, mire na Lua ou na Terra pra ser levado · <b>W/S</b> jato · <b>Shift</b> turbo</div>
+      <div><b>X</b> câmera lenta · <b>Z</b> rebobinar · <b>H</b> grava um clone · <b>J</b> apaga os clones · <b>N</b> para o mundo · <b>B</b> troca a arte · <b>G</b> primeira pessoa</div>
+      <div><b>F</b> usa o que estiver perto: sentar, rádio, quadro, sinuca, ping pong, bola, elevador · perto do amigo <b>pega</b>, de novo <b>arremessa</b></div>
+      <div><b>T</b> ir até o amigo · <b>R</b> voltar ao início · <b>V</b> muta a voz · <b>P</b> mostra o FPS · <b>Esc</b> solta o mouse</div>
+    </div>
+      <a href="index.html">← voltar pro 2D</a>
+    </section>
+    <section class="tab" data-tab="boneco">
+      <div class="box">
+      <div class="box-h">🟢 Personagem <small>(todo mundo vê · clique nele pra cutucar)</small></div>
+      <div class="char">
+        <canvas id="slime-stage"></canvas>
+        <div class="char-opts">
+          <div class="skins" id="skin-pick"></div>
+          <label class="vol wide-vol">slime <input type="range" id="slime-amt" min="0" max="100" step="1"></label>
+          <span id="slime-label"></span>
+        </div>
+      </div>
+    </div>
+    </section>
+    <section class="tab" data-tab="arte">
+      <div class="box">
+        <div class="box-h">🎨 Estilo de arte <small>(só você vê · muda na hora · tecla B troca jogando)</small></div>
+        <div class="skins arts" id="art-pick"></div>
+        <button id="art-auto" class="toggle">🎲 Surpresa: muda sozinho a cada 25 s</button>
+      </div>
+    </section>
+    <section class="tab" data-tab="poderes">
+      <div class="box">
+        <div class="box-h">⚡ Poderes <small>(clique pra ligar e desligar)</small></div>
+        <div class="powers" id="power-pick"></div>
+      </div>
+      <div class="box">
+        <div class="box-h">📏 Tamanho <small>(todo mundo vê)</small></div>
+        <div class="musicrow">
+          <label class="vol wide-vol">tamanho <input type="range" id="size-amt" min="-100" max="100" step="1"></label>
+          <span id="size-label"></span>
+        </div>
+      </div>
+      <div class="box">
+        <div class="box-h">🧰 Na mão <small>(botão direito usa)</small></div>
+        <div class="legend" id="item-legend"></div>
+      </div>
+    </section>
+    <section class="tab" data-tab="mundo">
+      <div class="box">
+        <div class="box-h">🏁 Velocidade <small>(só pra você)</small></div>
+        <div class="musicrow"><label class="vol wide-vol">velocidade máxima <input type="range" id="spd-top" min="200" max="900" step="10" list="spd-top-t"></label><span id="spd-top-l" class="val"></span></div>
+        <small id="spd-top-m"></small>
+        <div class="musicrow"><label class="vol wide-vol">ganho de aceleração <input type="range" id="spd-gain" min="50" max="250" step="5" list="spd-gain-t"></label><span id="spd-gain-l" class="val"></span></div>
+        <small id="spd-gain-m"></small>
+        <div class="musicrow"><label class="vol wide-vol">desaceleração <input type="range" id="spd-drag" min="0" max="250" step="5" list="spd-drag-t"></label><span id="spd-drag-l" class="val"></span></div>
+        <small id="spd-drag-m"></small>
+        <datalist id="spd-top-t"><option value="360"></option><option value="470"></option></datalist>
+        <datalist id="spd-gain-t"><option value="100"></option><option value="140"></option></datalist>
+        <datalist id="spd-drag-t"><option value="0"></option><option value="100"></option></datalist>
+        <div class="quick">
+          <button id="spd-old">⏪ Como era antes</button>
+          <button id="spd-new">✨ Novo ajuste</button>
+        </div>
+      </div>
+      <div class="box">
+      <div class="box-h">🕑 Horário do dia <small>(vale pra todo mundo no 3D)</small></div>
+      <div class="seg" id="time-presets">
+        <button data-h="7.5">Manhã</button>
+        <button data-h="12">Dia</button>
+        <button data-h="17.4">Tarde</button>
+        <button data-h="22">Noite</button>
+      </div>
+      <div class="musicrow">
+        <label class="vol wide-vol">hora <input type="range" id="time-hour" min="0" max="23.75" step="0.25"></label>
+        <span id="time-label"></span>
+      </div>
+      <div class="seg" id="time-lock">
+        <button data-v="auto">Passar sozinho</button>
+        <button data-v="lock">Travar neste horário</button>
+      </div>
+    </div>
+      <div class="box">
+        <div class="box-h">🌍 Painel de Deus <small>(vale pra todo mundo)</small></div>
+        <div class="musicrow"><label class="vol wide-vol">gravidade <input type="range" id="god-grav" min="-100" max="300" step="5"></label><span id="god-grav-l" class="val"></span></div>
+        <div class="musicrow"><label class="vol wide-vol">nível do mar <input type="range" id="god-sea" min="0" max="220" step="2"></label><span id="god-sea-l" class="val"></span></div>
+        <div class="musicrow"><label class="vol wide-vol">mundo enrolado <input type="range" id="god-bend" min="-100" max="100" step="1"></label><span id="god-bend-l" class="val"></span></div>
+        <div class="musicrow"><label class="vol wide-vol">velocidade dos carros e pessoas <input type="range" id="god-pace" min="0" max="400" step="10"></label><span id="god-pace-l" class="val"></span></div>
+        <div class="quick">
+          <button id="god-reset">↩️ Tudo normal</button>
+          <button id="god-city">🏙️ Refazer a cidade</button>
+        </div>
+      </div>
+    </section>
+    <section class="tab" data-tab="som">
+      <div class="box">
+      <div class="box-h">📻 Rádio da laje <small>(YouTube ou Spotify, música ou playlist)</small></div>
+      <div class="musicrow">
+        <input id="radio-url" placeholder="cole um link do YouTube ou do Spotify" autocomplete="off" spellcheck="false">
+        <button id="radio-play" class="primary small">Tocar</button>
+        <button id="radio-stop" class="small">Parar</button>
+      </div>
+      <div class="musicrow">
+        <label class="vol">volume <input type="range" id="radio-vol" min="0" max="100"></label>
+        <span id="radio-status">desligado</span>
+      </div>
+    </div>
+      <div id="voice-box" class="box"></div>
+
+      <div class="cine">
+      <div class="cine-h">🎬 Telão do cinema <small>(toca pra todo mundo no 3D)</small></div>
+      <div class="musicrow">
+        <input id="cine-url" placeholder="cole um link do YouTube" autocomplete="off" spellcheck="false">
+        <button id="cine-play" class="primary small">Passar no telão</button>
+        <button id="cine-stop" class="small">Parar</button>
+      </div>
+      <div class="musicrow">
+        <label class="vol">volume <input type="range" id="cine-vol" min="0" max="100"></label>
+        <span id="cine-status">nada passando</span>
+      </div>
+    </div>
+    </section>
+    <section class="tab" data-tab="ajustes">
+      <div class="box">
+      <div class="box-h">⚙️ Qualidade <small>(P mostra o FPS na tela)</small></div>
+      <div class="seg" id="opt-quality">
+        <button data-v="auto">Automática</button>
+        <button data-v="0">Mínima</button>
+        <button data-v="1">Baixa</button>
+        <button data-v="2">Média</button>
+        <button data-v="3">Alta</button>
+      </div>
+      <div id="quality-note"></div>
+    </div>
+      <div class="box">
+      <div class="box-h">🎥 Câmera <small>(G troca no meio do jogo)</small></div>
+      <div class="seg"><button id="opt-fp">🎥 Terceira pessoa</button></div>
+    </div>
+    </section>
+    <section class="tab" data-tab="mochila">
+      <div class="box">
+        <div class="box-h">🎒 Mochila <small>(clique num item e depois em outro lugar · a fila de baixo é a sua barra)</small></div>
+        <div id="mine-inv"></div>
+      </div>
+    </section>
+    <section class="tab" data-tab="versao">
+      <div class="box">
+        <div class="box-h">🔄 Última atualização</div>
+        <div id="ver-slot"></div>
+      </div>
+    </section>
+  </div>
+</div>
+
+<script>
+  // fora do jogo de propósito: mesmo se o jogo quebrar, dá pra chegar na aba de voltar a versão
+  document.querySelector('#tabs').addEventListener('click', e => {
+    const b = e.target.closest('button');
+    if (!b) return;
+    document.querySelectorAll('#tabs button').forEach(x => x.classList.toggle('on', x === b));
+    document.querySelectorAll('section.tab').forEach(s => s.classList.toggle('on', s.dataset.tab === b.dataset.tab));
+  });
+</script>
+<script src="versao.js"></script>
+<script type="module" src="js3d/game3d.js"></script>
+</body>
+</html>

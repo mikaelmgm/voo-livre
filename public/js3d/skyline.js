@@ -1,6 +1,7 @@
 // O horizonte é uma simulação: além dos pedaços de cidade de verdade, cada prédio vira uma caixa só, sem colisão,
 // sem sombra e sem detalhe. As janelas são calculadas no shader, então a cidade inteira cabe numa chamada de desenho.
 import * as THREE from 'three';
+import { ART_VERT } from './art.js';
 
 const WALL = ['#6f8fae', '#bdb8ae', '#a96f58', '#dfd2be', '#5a6472', '#c6cccd'];
 
@@ -39,7 +40,8 @@ export class Skyline {
     const mat = new THREE.ShaderMaterial({
       uniforms: this.u,
       vertexShader: `varying vec3 vP; varying vec3 vN; varying vec3 vC;
-        void main(){ vec4 w = modelMatrix * instanceMatrix * vec4(position, 1.0); vP = w.xyz; vN = normal; vC = instanceColor; gl_Position = projectionMatrix * viewMatrix * w; }`,
+        ${ART_VERT}
+        void main(){ vec4 w = modelMatrix * instanceMatrix * vec4(position, 1.0); vP = w.xyz; vN = normal; vC = instanceColor; if (uArtOn > 0.5) w.xyz = artWorld(w.xyz); gl_Position = projectionMatrix * viewMatrix * w; }`,
       fragmentShader: FRAG,
     });
     this.mesh = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1).translate(0, 0.5, 0), mat, 6000);
@@ -92,10 +94,12 @@ export class Skyline {
     const f = {};
     day.cur.fog.getRGB(f, THREE.SRGBColorSpace);    // a neblina entra depois da conversão de cor, igual nos materiais do three
     u.fogCol.value.setRGB(f.r, f.g, f.b, THREE.LinearSRGBColorSpace);
-    if (this.wait > 0) { this.wait--; return; }
+    // refazer o horizonte inteiro custa caro e, enquanto a cidade carrega, ele fica pedindo isso o tempo todo
+    const now = performance.now();
+    if (now < this.wait) return;
     if (this.dirty || Math.hypot(x - this.at[0], z - this.at[1]) > this.cell * 2) {
       this.rebuild(x, z, loaded);
-      this.wait = 8;      // no máximo uns 15 ajustes por segundo
+      this.wait = now + 500;
     }
   }
 }

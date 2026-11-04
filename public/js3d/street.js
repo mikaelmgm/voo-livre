@@ -3,6 +3,7 @@
 import * as THREE from 'three';
 import { Boxes, rnd, solid, softDot } from './lib3d.js';
 import { TINTS, makeFacades, makeShops, grassTexture } from './textures.js';
+import { storeLayout, dressStore, storeSigns, inFun, BEACH_J } from './places.js';
 
 export const CELL = 52;       // lote + rua
 const WALK_MIN = 15.6;        // calçada por onde a gente anda (distância do centro do lote)
@@ -15,6 +16,8 @@ export function styleLot(L, i, j) {
   L.uvo = [Math.floor(rnd(i, j, 14) * 8) / 8, Math.floor(rnd(i, j, 15) * 16) / 16];
   if (L.park) return;
   const { cx, cz, w, d, h } = L;
+  if (L.low) { styleLow(L, i, j); return; }
+  if (!(i === 0 && j === 0) && styleShape(L, i, j)) return;
   if (!L.low && h > 30 && rnd(i, j, 16) < 0.38) {
     const m = Math.min(3, 15 - w / 2, 15 - d / 2);
     if (m > 1) {
@@ -29,6 +32,69 @@ export function styleLot(L, i, j) {
   }
 }
 
+// Prédios que não são caixa. parts = blocos que formam o prédio; a colisão e os pontos de teia saem deles.
+function setParts(L, i, j, parts, tops) {
+  L.parts = parts;
+  L.boxes = parts.filter(p => !p.deco).map(p => {
+    const hx = p.round ? p.r * 0.92 : p.w / 2, hz = p.round ? p.r * 0.92 : p.d / 2;
+    return [p.x - hx, p.y0, p.z - hz, p.x + hx, p.y1 + 0.6, p.z + hz];
+  });
+  L.anchors = [];
+  tops.forEach((p, n) => {
+    const hx = p.round ? p.r * 0.72 : p.w / 2, hz = p.round ? p.r * 0.72 : p.d / 2;
+    const corners = rnd(i, j, 5 + n) < 0.5 ? [[1, 1], [-1, -1]] : [[1, -1], [-1, 1]];
+    corners.forEach(([sx, sz], k) => L.anchors.push({
+      x: p.x + sx * (hx + 2.5), y: p.y1 + 3, z: p.z + sz * (hz + 2.5), bx: p.x + sx * hx, bz: p.z + sz * hz, roof: p.y1, id: (i * 4099 + j) * 2 + k + n * 1000000,
+    }));
+  });
+  L.h = Math.max(...parts.map(p => p.y1));
+}
+function styleShape(L, i, j) {
+  const { cx: x, cz: z, w, d, h } = L, pick = rnd(i, j, 41);
+  if (h > 60 && pick < 0.2) {
+    // escalonado, como os arranha-céus antigos
+    const a = { x, z, w, d, y0: 0, y1: h * 0.52 }, b = { x, z, w: w * 0.76, d: d * 0.76, y0: h * 0.52, y1: h * 0.8 }, c = { x, z, w: w * 0.52, d: d * 0.52, y0: h * 0.8, y1: h };
+    setParts(L, i, j, [a, b, c], [c]);
+  } else if (h > 44 && pick < 0.34) {
+    // torres gêmeas com passarela
+    const tw = w * 0.4, A = { x: x - w * 0.29, z, w: tw, d, y0: 0, y1: h }, B = { x: x + w * 0.29, z, w: tw, d, y0: 0, y1: h * 0.84 };
+    setParts(L, i, j, [{ x, z, w, d, y0: 0, y1: 9 }, A, B, { x, z, w: w * 0.3, d: 3, y0: h * 0.6, y1: h * 0.6 + 3 }], [A, B]);
+  } else if (h > 28 && pick < 0.46) {
+    const r = Math.min(w, d) / 2, A = { round: true, x, z, r, y0: 0, y1: h };
+    setParts(L, i, j, [A], [A]);
+  } else if (h > 24 && pick < 0.58) {
+    // em L: um bloco alto e uma ala mais baixa
+    const A = { x: x - w * 0.2, z, w: w * 0.6, d, y0: 0, y1: h }, B = { x: x + w * 0.3, z: z - d * 0.22, w: w * 0.4, d: d * 0.56, y0: 0, y1: h * 0.58 };
+    setParts(L, i, j, [A, B], [A]);
+  } else return false;
+  return true;
+}
+function styleLow(L, i, j) {
+  const k = rnd(i, j, 42), { cx: x, cz: z, w, d } = L;
+  if (k < 0.5) {
+    storeLayout(L, i, j);
+    for (const an of L.anchors) { an.y = L.h + 3; an.roof = L.h; }
+  } else if (k < 0.72) {
+    // casinhas geminadas
+    const n = 3, hw = w / n, h = 6 + rnd(i, j, 45) * 2;
+    const parts = [];
+    for (let m = 0; m < n; m++) parts.push({ x: x - w / 2 + hw * (m + 0.5), z, w: hw - 0.3, d: d * 0.7, y0: 0, y1: h, house: m });
+    L.kind = 'casas';
+    setParts(L, i, j, parts, []);
+    L.anchors = [];
+  } else if (k < 0.86) {
+    const nave = { x, z: z + d * 0.08, w: w * 0.46, d: d * 0.72, y0: 0, y1: 11 }, tw = { x, z: z - d * 0.37, w: 5.6, d: 5.6, y0: 0, y1: 30 };
+    L.kind = 'igreja';
+    setParts(L, i, j, [nave, tw], [tw]);
+  } else {
+    const shop = { x: x - w * 0.22, z: z - d * 0.26, w: w * 0.42, d: d * 0.34, y0: 0, y1: 4.6 };
+    L.kind = 'posto';
+    setParts(L, i, j, [shop], [shop]);
+    L.anchors = [];
+    L.h = 6;
+  }
+}
+
 // ---- materiais compartilhados por todos os pedaços de cidade
 export function cityMaterials() {
   const facades = makeFacades();
@@ -38,6 +104,9 @@ export function cityMaterials() {
     facades, grass,
     shops: makeShops(),
     plain: new THREE.MeshLambertMaterial({ vertexColors: true }),
+    small: new THREE.MeshLambertMaterial({ vertexColors: true }),
+    glowBox: new THREE.MeshBasicMaterial({ vertexColors: true, toneMapped: false }),
+    signs: storeSigns(),
     heads: new THREE.MeshBasicMaterial({ color: 0xffe2b0, toneMapped: false }),
     canopy: new THREE.MeshLambertMaterial({ flatShading: true }),
     pool: new THREE.MeshBasicMaterial({ map: dot, color: 0xffb468, transparent: true, depthWrite: false, opacity: 0, blending: THREE.AdditiveBlending, fog: false }),
@@ -55,7 +124,7 @@ export function lightCity(mats, env) {
 }
 
 export function newKit(mats) {
-  return { mats, facade: mats.facades.map(() => new Boxes()), plain: new Boxes(), small: new Boxes(), shops: new Boxes(), heads: new Boxes(), grass: new Boxes(), trees: [], lamps: [] };
+  return { mats, facade: mats.facades.map(() => new Boxes()), plain: new Boxes(), small: new Boxes(), shops: new Boxes(), heads: new Boxes(), grass: new Boxes(), glowBox: new Boxes(), signs: new Boxes(), trees: [], lamps: [] };
 }
 
 // ---- peças pequenas
@@ -227,8 +296,74 @@ function dressSidewalk(L, i, j, kit) {
   }
 }
 
+function dressParts(L, i, j, kit) {
+  const P = kit.plain, F = kit.facade[L.style];
+  F.tint(L.tint);
+  F.uvo = L.uvo;
+  for (const p of L.parts) {
+    if (p.round) {
+      F.tower(p.x, p.z, p.r, p.y0, p.y1, 20);
+      P.tint('#8c8a84').prism(p.x, p.y1, p.y1 + 0.7, p.z, p.r + 0.3, 20);
+    } else {
+      F.box(p.x - p.w / 2, p.y0, p.z - p.d / 2, p.x + p.w / 2, p.y1, p.z + p.d / 2, true);
+      P.tint('#8c8a84').box(p.x - p.w / 2 - 0.3, p.y1, p.z - p.d / 2 - 0.3, p.x + p.w / 2 + 0.3, p.y1 + 0.6, p.z + p.d / 2 + 0.3);
+    }
+  }
+  const base = L.parts[0], top = L.parts.reduce((a, b) => (b.y1 > a.y1 ? b : a));
+  if (!base.round) shopsAround(L, i, j, kit, base.x - base.w / 2, base.z - base.d / 2, base.x + base.w / 2, base.z + base.d / 2);
+  if (!top.round) roofJunk({ ...L, h: top.y1 - 0.2, cx: top.x, cz: top.z, w: top.w, d: top.d, crown: null }, i, j, kit);
+}
+function dressHouses(L, i, j, kit) {
+  const P = kit.plain, Q = kit.small, walls = ['#e8d8b8', '#c8d8e0', '#e0c0b0', '#d0dcc0', '#f0e8dc'], roofs = ['#8a3a2c', '#5a5a64', '#6a3e2a'];
+  for (const p of L.parts) {
+    const x0 = p.x - p.w / 2, x1 = p.x + p.w / 2, z0 = p.z - p.d / 2, z1 = p.z + p.d / 2, c = (i * 3 + j * 5 + p.house) & 7;
+    P.tint(walls[c % walls.length]).box(x0, 0, z0, x1, p.y1, z1);
+    P.tint(roofs[c % roofs.length]).gable(x0 - 0.3, z0 - 0.4, x1 + 0.3, z1 + 0.4, p.y1, 3);
+    for (const sz of [-1, 1]) {
+      const z = p.z + sz * (p.d / 2 + 0.05);
+      Q.tint('#5a3a24').box(p.x - 0.6, 0, z - 0.04, p.x + 0.6, 2.2, z + 0.04);
+      for (const sx of [-1, 1]) kit.glowBox.tint('#bcd8ea').box(p.x + sx * 2 - 0.5, 1.2, z - 0.03, p.x + sx * 2 + 0.5, 2.2, z + 0.03);
+      kit.glowBox.tint('#bcd8ea').box(p.x - 0.5, 3.6, z - 0.03, p.x + 0.5, 4.6, z + 0.03);
+    }
+  }
+}
+function dressChurch(L, kit) {
+  const P = kit.plain, [nave, tw] = L.parts, x0 = nave.x - nave.w / 2, x1 = nave.x + nave.w / 2, z0 = nave.z - nave.d / 2, z1 = nave.z + nave.d / 2;
+  P.tint('#ece4d4').box(x0, 0, z0, x1, nave.y1, z1);
+  P.tint('#7a4a34').gable(x0 - 0.4, z0, x1 + 0.4, z1, nave.y1, 6);
+  P.tint('#e4dccc').box(tw.x - 2.8, 0, tw.z - 2.8, tw.x + 2.8, tw.y1, tw.z + 2.8);
+  P.tint('#7a4a34').gable(tw.x - 3, tw.z - 3, tw.x + 3, tw.z + 3, tw.y1, 5);
+  P.tint('#d8c070').box(tw.x - 0.1, tw.y1 + 5, tw.z - 0.1, tw.x + 0.1, tw.y1 + 7.6, tw.z + 0.1);
+  P.box(tw.x - 0.7, tw.y1 + 6.4, tw.z - 0.1, tw.x + 0.7, tw.y1 + 6.6, tw.z + 0.1);
+  for (let k = 0; k < 4; k++) {
+    const z = z0 + 3 + k * (nave.d - 6) / 3;
+    for (const x of [x0 - 0.04, x1 + 0.04]) kit.glowBox.tint(['#4f8ae0', '#e0584f', '#e8c04a', '#58c07a'][k]).box(x - 0.03, 3, z - 0.5, x + 0.03, 8, z + 0.5);
+  }
+  P.tint('#5a3a24').box(nave.x - 1.1, 0, z1, nave.x + 1.1, 3.4, z1 + 0.1);
+}
+function dressStation(L, i, j, kit) {
+  const P = kit.plain, Q = kit.small, shop = L.parts[0], { cx, cz, w, d } = L, c = ['#e8483a', '#2f6fc0', '#3c9a5c', '#f0c030'][(i + j * 3) & 3];
+  P.tint('#e8e4dc').box(shop.x - shop.w / 2, 0, shop.z - shop.d / 2, shop.x + shop.w / 2, 4.2, shop.z + shop.d / 2);
+  P.tint(c).box(shop.x - shop.w / 2 - 0.2, 4.2, shop.z - shop.d / 2 - 0.2, shop.x + shop.w / 2 + 0.2, 4.8, shop.z + shop.d / 2 + 0.2);
+  kit.glowBox.tint('#bcd8ea').box(shop.x - shop.w / 2 + 1, 0.6, shop.z + shop.d / 2, shop.x + shop.w / 2 - 1, 3.2, shop.z + shop.d / 2 + 0.04);
+  P.tint('#55585e').box(cx - w / 2, 0.02, cz - d / 2, cx + w / 2, 0.05, cz + d / 2);
+  const px = cx + w * 0.16, pz = cz + d * 0.16;
+  P.tint(c).box(px - 8, 5.6, pz - 5, px + 8, 6.2, pz + 5);
+  P.tint('#f4f4f0').box(px - 8.1, 5.4, pz - 5.1, px + 8.1, 5.62, pz + 5.1);
+  for (const sx of [-1, 1]) {
+    P.tint('#d8d8d0').box(px + sx * 5 - 0.2, 0, pz - 0.2, px + sx * 5 + 0.2, 5.5, pz + 0.2);
+    Q.tint(c).box(px + sx * 5 - 0.45, 0, pz - 1.6, px + sx * 5 + 0.45, 1.5, pz - 0.9);
+    Q.box(px + sx * 5 - 0.45, 0, pz + 0.9, px + sx * 5 + 0.45, 1.5, pz + 1.6);
+  }
+}
+
 export function dressLot(L, i, j, kit) {
-  if (L.cinema || L.court) return;
+  if (L.cinema || L.court || L.fun || L.beach) return;
+  if (L.store) { dressStore(L, i, j, kit); dressSidewalk(L, i, j, kit); return; }
+  if (L.kind === 'casas') { dressHouses(L, i, j, kit); dressSidewalk(L, i, j, kit); return; }
+  if (L.kind === 'igreja') { dressChurch(L, kit); dressSidewalk(L, i, j, kit); return; }
+  if (L.kind === 'posto') { dressStation(L, i, j, kit); dressSidewalk(L, i, j, kit); return; }
+  if (L.parts) { dressParts(L, i, j, kit); dressSidewalk(L, i, j, kit); return; }
   if (L.park) { dressPark(L, i, j, kit); lampPost(kit, L.cx + 18.6, L.cz + 18.6, 1); lampPost(kit, L.cx - 18.6, L.cz - 18.6, -1); return; }
   const P = kit.plain;
   const x0 = L.cx - L.w / 2, x1 = L.cx + L.w / 2, z0 = L.cz - L.d / 2, z1 = L.cz + L.d / 2;
@@ -266,10 +401,12 @@ export function kitMeshes(kit, group) {
   if (!kit.plain.empty) group.add(solid(kit.plain.build(), mats.plain));
   const detail = new THREE.Group();
   group.add(detail);
-  if (!kit.small.empty) detail.add(solid(kit.small.build(), mats.plain));
+  if (!kit.small.empty) detail.add(solid(kit.small.build(), mats.small));
   if (!kit.grass.empty) group.add(solid(kit.grass.build(), mats.grass, false));
   if (!kit.shops.empty) group.add(solid(kit.shops.build(), mats.shops, false));
   if (!kit.heads.empty) group.add(new THREE.Mesh(kit.heads.build(), mats.heads));
+  if (!kit.signs.empty) group.add(new THREE.Mesh(kit.signs.build(), mats.signs));
+  if (!kit.glowBox.empty) group.add(new THREE.Mesh(kit.glowBox.build(), mats.glowBox));
   const m = new THREE.Matrix4(), c = new THREE.Color();
   if (kit.trees.length) {
     const inst = new THREE.InstancedMesh(canopyGeo, mats.canopy, kit.trees.length);
@@ -319,18 +456,49 @@ export class Crowd {
     this.hair = inst(new THREE.SphereGeometry(0.135, 8, 4, 0, Math.PI * 2, 0, Math.PI * 0.55), count);
     this.legs = inst(new THREE.BoxGeometry(0.16, 0.84, 0.17).translate(0, -0.42, 0), count * 2);
     this.arms = inst(new THREE.BoxGeometry(0.1, 0.6, 0.11).translate(0, -0.3, 0), count * 2);
+    // o que varia de pessoa pra pessoa: cada coisa é uma chamada de desenho só
+    const hat = new Boxes();
+    hat.rgb(1, 1, 1).prism(0, 0, 0.13, 0, 0.15, 8);
+    hat.box(-0.11, 0, 0.1, 0.11, 0.03, 0.27);
+    const dog = new Boxes();
+    dog.rgb(1, 1, 1).box(-0.1, 0.22, -0.28, 0.1, 0.4, 0.26);
+    dog.box(-0.08, 0.36, 0.24, 0.08, 0.5, 0.44);
+    dog.box(-0.03, 0.36, -0.42, 0.03, 0.42, -0.26);
+    for (const sx of [-1, 1]) for (const sz of [-1, 1]) dog.box(sx * 0.07 - 0.03, 0, sz * 0.2 - 0.03, sx * 0.07 + 0.03, 0.24, sz * 0.2 + 0.03);
+    const hatMat = new THREE.MeshLambertMaterial({ vertexColors: true });
+    const extra = (geo, n, material = mat) => {
+      const m = new THREE.InstancedMesh(geo, material, n);
+      m.frustumCulled = false;
+      m.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+      scene.add(m);
+      return m;
+    };
+    this.hats = extra(hat.build(), 80, hatMat);
+    this.skirts = extra(new THREE.CylinderGeometry(0.13, 0.31, 0.6, 8), 70);
+    this.bags = extra(new THREE.BoxGeometry(0.3, 0.42, 0.15), 70);
+    this.dogs = extra(dog.build(), 36, hatMat);
+    this.extraMat = hatMat;
+    let nHat = 0, nSkirt = 0, nBag = 0, nDog = 0;
     this.people = [];
-    const R = Math.random;
+    const R = Math.random, tint = new THREE.Color();
     for (let k = 0; k < count; k++) {
       const shirt = pick(SHIRTS, R()), pants = pick(PANTS, R()), skin = pick(SKINS, R());
+      this.shirts = this.shirts || [];
+      this.shirts[k] = '#' + shirt.getHexString();
       this.torso.setColorAt(k, shirt);
       this.head.setColorAt(k, skin);
       this.hair.setColorAt(k, pick(HAIR, R()));
       for (const s of [0, 1]) { this.legs.setColorAt(k * 2 + s, pants); this.arms.setColorAt(k * 2 + s, R() < 0.5 ? skin : shirt); }
+      const kid = R() < 0.14, old = !kid && R() < 0.12;
+      const hatSlot = !kid && R() < 0.24 && nHat < 80 ? nHat++ : -1, skirt = !kid && R() < 0.22 && nSkirt < 70 ? nSkirt++ : -1, bag = R() < 0.22 && nBag < 70 ? nBag++ : -1, dogSlot = !kid && R() < 0.11 && nDog < 36 ? nDog++ : -1;
+      if (hatSlot >= 0) this.hats.setColorAt(hatSlot, tint.set(pick(SHIRTS, R())));
+      if (skirt >= 0) this.skirts.setColorAt(skirt, tint.set(pick(SHIRTS, R())));
+      if (bag >= 0) this.bags.setColorAt(bag, tint.set(pick(PANTS, R())));
+      if (dogSlot >= 0) this.dogs.setColorAt(dogSlot, tint.set(['#c8a070', '#4a3424', '#e8e0d0', '#8a6a44'][Math.floor(R() * 4)]));
       this.people.push({
         bi: Math.floor(R() * this.spanBlocks), bj: Math.floor(R() * this.spanBlocks),
-        s: WALK_MIN + R() * 1.3, dir: R() < 0.5 ? 1 : -1, phase: R() * 200, speed: R() < 0.13 ? 0 : 1.15 + R() * 0.75,
-        size: 0.92 + R() * 0.16, shown: true, key: '', blocked: false, face: Math.floor(R() * 4),
+        s: WALK_MIN + R() * 1.3, dir: R() < 0.5 ? 1 : -1, phase: R() * 200, speed: R() < 0.13 ? 0 : (kid ? 1.6 : old ? 0.8 : 1.15) + R() * 0.75,
+        size: kid ? 0.6 + R() * 0.14 : 0.92 + R() * 0.16, wide: kid ? 0.9 : 0.84 + R() * 0.42, shown: true, key: '', blocked: false, face: Math.floor(R() * 4), hat: hatSlot, skirt, bag, dog: dogSlot,
       });
     }
     this.d = new THREE.Object3D();
@@ -344,6 +512,11 @@ export class Crowd {
     this.torso.setMatrixAt(k, z); this.head.setMatrixAt(k, z); this.hair.setMatrixAt(k, z);
     this.legs.setMatrixAt(k * 2, z); this.legs.setMatrixAt(k * 2 + 1, z);
     this.arms.setMatrixAt(k * 2, z); this.arms.setMatrixAt(k * 2 + 1, z);
+    const p = this.people[k];
+    if (p.hat >= 0) this.hats.setMatrixAt(p.hat, z);
+    if (p.skirt >= 0) this.skirts.setMatrixAt(p.skirt, z);
+    if (p.bag >= 0) this.bags.setMatrixAt(p.bag, z);
+    if (p.dog >= 0) this.dogs.setMatrixAt(p.dog, z);
   }
 
   part(mesh, k, base, x, y, z, swing) {
@@ -355,13 +528,17 @@ export class Crowd {
 
   // lotOf(i, j) devolve o lote; o cinema e a quadra ocupam a calçada, ali ninguém anda
   update(t, px, pz, lotOf) {
-    const span = this.spanBlocks, { d } = this;
+    const span = this.spanBlocks, { d } = this, now = performance.now();
     const ci = px / CELL - 0.5, cj = pz / CELL - 0.5;
     for (let k = 0; k < this.people.length; k++) {
       const p = this.people[k];
       const bi = p.bi + span * Math.round((ci - p.bi) / span), bj = p.bj + span * Math.round((cj - p.bj) / span);
+      if (p.gone) {
+        if (now < p.gone) { if (p.shown) { this.hide(k); p.shown = false; } continue; }
+        p.gone = 0;
+      }
       const key = bi + ',' + bj;
-      if (key !== p.key) { p.key = key; const L = lotOf(bi, bj); p.blocked = !!(L.cinema || L.court); }
+      if (key !== p.key) { p.key = key; const L = lotOf(bi, bj); p.blocked = !!(L.cinema || L.court || L.beach); }
       const s = p.s, perim = 8 * s;
       const dist = ((p.phase * 7 + p.speed * p.dir * t) % perim + perim) % perim;
       const side = Math.min(3, Math.floor(dist / (2 * s))), u = dist - side * 2 * s - s;
@@ -372,6 +549,7 @@ export class Crowd {
       const near = !p.blocked && Math.hypot(x - px, z - pz) < this.range;
       if (!near) { if (p.shown) { this.hide(k); p.shown = false; } continue; }
       p.shown = true;
+      p.x = x; p.z = z;
       // quem está parado olha pras lojas; quem anda olha pra frente
       const yaw = p.speed ? Math.atan2(dx * p.dir, dz * p.dir) : Math.atan2(-Math.sign(x - (bi + 0.5) * CELL) * (side % 2), -Math.sign(z - (bj + 0.5) * CELL) * ((side + 1) % 2));
       const phase = t * p.speed * 3.6 + p.phase;
@@ -389,21 +567,76 @@ export class Crowd {
       this.part(this.legs, k * 2 + 1, base, 0.11, 0.86, 0, -swing);
       this.part(this.arms, k * 2, base, -0.28, 1.44, 0, -swing * 0.8);
       this.part(this.arms, k * 2 + 1, base, 0.28, 1.44, 0, swing * 0.8);
+      if (p.hat >= 0) this.part(this.hats, p.hat, base, 0, 1.68, 0, 0);
+      if (p.skirt >= 0) this.part(this.skirts, p.skirt, base, 0, 0.62, 0, 0);
+      if (p.bag >= 0) this.part(this.bags, p.bag, base, 0, 1.2, -0.2, 0);
+      if (p.dog >= 0) this.part(this.dogs, p.dog, base, 0.9, 0, 0.3, Math.sin(phase * 2) * 0.03);
     }
-    for (const m of [this.torso, this.head, this.hair, this.legs, this.arms]) m.instanceMatrix.needsUpdate = true;
+    for (const m of [this.torso, this.head, this.hair, this.legs, this.arms, this.hats, this.skirts, this.bags, this.dogs]) m.instanceMatrix.needsUpdate = true;
   }
 }
 
 // ------------------------------------------------------------------ trânsito
 
+// junta peças com cor por vértice numa geometria só
+function paint(geo, r, g, b) {
+  const G = geo.index ? geo.toNonIndexed() : geo, n = G.attributes.position.count, c = new Float32Array(n * 3);
+  for (let i = 0; i < n; i++) { c[i * 3] = r; c[i * 3 + 1] = g; c[i * 3 + 2] = b; }
+  G.setAttribute('color', new THREE.BufferAttribute(c, 3));
+  G.deleteAttribute('uv');
+  return G;
+}
+function merge(list) {
+  const out = new THREE.BufferGeometry();
+  for (const key of ['position', 'normal', 'color']) {
+    const total = list.reduce((n, g) => n + g.attributes[key].array.length, 0), arr = new Float32Array(total);
+    let o = 0;
+    for (const g of list) { arr.set(g.attributes[key].array, o); o += g.attributes[key].array.length; }
+    out.setAttribute(key, new THREE.BufferAttribute(arr, 3));
+  }
+  return out;
+}
+// lataria: o desenho de lado é puxado na largura do carro (o nariz aponta pra +z)
+function side(points, width, r, g, b) {
+  const shape = new THREE.Shape(points.map(p => new THREE.Vector2(p[0], p[1])));
+  const geo = new THREE.ExtrudeGeometry(shape, { depth: width, bevelEnabled: true, bevelSize: 0.05, bevelThickness: 0.05, bevelSegments: 1, steps: 1 });
+  geo.translate(0, 0, -width / 2);
+  geo.rotateY(-Math.PI / 2);
+  return paint(geo, r, g, b);
+}
+function wheels(front, back, track, radius) {
+  const out = [];
+  for (const z of [front, back]) for (const sx of [-1, 1]) {
+    const tyre = new THREE.CylinderGeometry(radius, radius, 0.26, 12).rotateZ(Math.PI / 2).translate(sx * track, radius, z);
+    const hub = new THREE.CylinderGeometry(radius * 0.52, radius * 0.52, 0.28, 8).rotateZ(Math.PI / 2).translate(sx * track, radius, z);
+    out.push(paint(tyre, 0.05, 0.05, 0.06), paint(hub, 0.7, 0.72, 0.75));
+  }
+  return out;
+}
+const GLASS = [0.1, 0.14, 0.2];
+const VEHICLES = [
+  // sedã
+  () => merge([side([[-2.15, 0.34], [-2.18, 0.7], [-2, 0.84], [-1.25, 0.9], [-0.72, 1.36], [0.6, 1.38], [1.2, 0.93], [2.05, 0.8], [2.18, 0.62], [2.15, 0.34]], 1.74, 1, 1, 1),
+    side([[-1.14, 0.93], [-0.7, 1.32], [0.56, 1.34], [1.1, 0.96]], 1.8, ...GLASS), ...wheels(1.36, -1.36, 0.82, 0.34)]),
+  // hatch
+  () => merge([side([[-1.7, 0.34], [-1.76, 0.9], [-1.52, 1.34], [0.5, 1.4], [1.05, 0.95], [1.75, 0.82], [1.85, 0.6], [1.8, 0.34]], 1.7, 1, 1, 1),
+    side([[-1.42, 0.96], [-1.32, 1.3], [0.46, 1.36], [0.94, 0.97]], 1.76, ...GLASS), ...wheels(1.16, -1.14, 0.8, 0.33)]),
+  // van
+  () => merge([side([[-2.3, 0.36], [-2.32, 1.92], [-2.12, 2.06], [0.9, 2.06], [1.6, 1.24], [2.24, 0.98], [2.32, 0.6], [2.3, 0.36]], 1.84, 1, 1, 1),
+    side([[0.95, 1.98], [1.5, 1.28], [0.1, 1.28], [0.1, 1.96]], 1.9, ...GLASS), ...wheels(1.5, -1.5, 0.86, 0.36)]),
+  // caminhonete
+  () => merge([side([[-2.4, 0.38], [-2.42, 1.02], [-0.5, 1.02], [-0.48, 1.5], [0.72, 1.52], [1.3, 1.04], [2.2, 0.9], [2.32, 0.62], [2.3, 0.38]], 1.84, 1, 1, 1),
+    side([[-0.4, 1.06], [-0.38, 1.44], [0.68, 1.46], [1.18, 1.06]], 1.9, ...GLASS), side([[-2.3, 0.96], [-2.3, 1.02], [-0.56, 1.02], [-0.56, 0.96]], 1.5, 0.08, 0.08, 0.09), ...wheels(1.42, -1.46, 0.88, 0.38)]),
+  // ônibus
+  () => merge([side([[-4.6, 0.42], [-4.62, 2.86], [-4.4, 3.02], [4.4, 3.02], [4.62, 2.8], [4.66, 0.42]], 2.26, 1, 1, 1),
+    side([[-4.3, 1.6], [-4.3, 2.6], [4.5, 2.6], [4.62, 1.5]], 2.32, ...GLASS), side([[-4.64, 0.84], [-4.64, 1.02], [4.66, 1.02], [4.66, 0.84]], 2.3, 0.95, 0.95, 0.92), ...wheels(3, -3, 1.04, 0.5)]),
+];
+
 export class Traffic {
   constructor(scene, count = 76) {
-    const b = new Boxes();
-    b.rgb(1, 1, 1).box(-0.92, 0.3, -2.1, 0.92, 0.92, 2.1);
-    b.rgb(0.13, 0.17, 0.22).box(-0.8, 0.92, -1.1, 0.8, 1.42, 0.95);
-    b.rgb(0.05, 0.05, 0.06);
-    for (const sx of [-1, 1]) for (const sz of [-1, 1]) b.box(sx * 0.85 - 0.28, 0, sz * 1.35 - 0.3, sx * 0.85 + 0.28, 0.6, sz * 1.35 + 0.3);
-    this.body = new THREE.InstancedMesh(b.build(), new THREE.MeshLambertMaterial({ vertexColors: true }), count);
+    this.mat = new THREE.MeshLambertMaterial({ vertexColors: true });
+    this.geos = VEHICLES.map(make => make());
+    this.bodies = this.geos.map(g => new THREE.InstancedMesh(g, this.mat, count));
     const l = new Boxes();
     l.rgb(1, 0.95, 0.75);
     for (const s of [-1, 1]) l.box(s * 0.62 - 0.2, 0.55, 2.08, s * 0.62 + 0.2, 0.72, 2.14);
@@ -411,41 +644,54 @@ export class Traffic {
     for (const s of [-1, 1]) l.box(s * 0.62 - 0.2, 0.6, -2.14, s * 0.62 + 0.2, 0.74, -2.08);
     this.lightMat = new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, opacity: 0, toneMapped: false, depthWrite: false });
     this.lights = new THREE.InstancedMesh(l.build(), this.lightMat, count);
-    for (const m of [this.body, this.lights]) {
+    for (const m of [...this.bodies, this.lights]) {
       m.frustumCulled = false;
       m.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
       scene.add(m);
     }
-    this.body.castShadow = true;
+    for (const b of this.bodies) b.castShadow = true;
     this.cars = [];
-    const R = Math.random, c = new THREE.Color();
+    const R = Math.random, c = new THREE.Color(), order = [0, 1, 0, 2, 1, 0, 3, 1, 0, 2, 4, 1], slots = this.bodies.map(() => 0);
+    this.zero = new THREE.Matrix4().makeScale(0, 0, 0);
     for (let k = 0; k < count; k++) {
-      this.body.setColorAt(k, c.set(CAR_COLORS[(R() * CAR_COLORS.length) | 0]));
-      this.cars.push({ axis: k & 1, dir: k & 2 ? 1 : -1, lane: Math.floor(R() * 12), phase: R() * 1000, speed: 9 + R() * 7 });
+      const color = CAR_COLORS[(R() * CAR_COLORS.length) | 0], kind = order[k % order.length], slot = slots[kind]++;
+      this.bodies[kind].setColorAt(slot, c.set(color));
+      this.cars.push({ axis: k & 1, dir: k & 2 ? 1 : -1, lane: Math.floor(R() * 12), phase: R() * 1000, speed: (kind === 4 ? 7 : 9) + R() * 7, color, gone: 0, x: 0, z: 0, kind, slot });
     }
     this.spanLane = 12 * CELL;
     this.spanRun = 14 * CELL;
     this.d = new THREE.Object3D();
+    this.count = count;
   }
 
-  setCount(n) { this.body.count = this.lights.count = n; }
+  setCount(n) {
+    this.count = this.lights.count = n;
+    const seen = this.bodies.map(() => 0);
+    for (let k = 0; k < n; k++) seen[this.cars[k].kind]++;
+    this.bodies.forEach((b, i) => { b.count = seen[i]; });
+  }
 
   update(t, px, pz, night) {
-    const { d } = this, n = this.body.count;
+    const { d } = this, n = this.count, now = performance.now(), shoreZ = BEACH_J * CELL - 27;
     this.lightMat.opacity = Math.max(0.15, night);
     for (let k = 0; k < n; k++) {
-      const c = this.cars[k];
+      const c = this.cars[k], body = this.bodies[c.kind];
+      if (c.gone > now) { body.setMatrixAt(c.slot, this.zero); this.lights.setMatrixAt(k, this.zero); continue; }
       const lat = c.axis ? px : pz, run = c.axis ? pz : px;
       const lane = c.lane * CELL + this.spanLane * Math.round((lat - c.lane * CELL) / this.spanLane);
       let a = ((c.phase + c.dir * c.speed * t) % this.spanRun + this.spanRun) % this.spanRun;
       a += this.spanRun * Math.round((run - a) / this.spanRun);
       if (c.axis) d.position.set(lane - c.dir * 2.7, 0, a);   // mão direita
       else d.position.set(a, 0, lane + c.dir * 2.7);
+      // nem areia nem parque têm rua
+      if (d.position.z > shoreZ || inFun(Math.floor(d.position.x / CELL), Math.floor(d.position.z / CELL))) { c.gone = now + 800; body.setMatrixAt(c.slot, this.zero); this.lights.setMatrixAt(k, this.zero); continue; }
       d.rotation.y = c.axis ? (c.dir > 0 ? 0 : Math.PI) : (c.dir > 0 ? Math.PI / 2 : -Math.PI / 2);
+      c.x = d.position.x; c.z = d.position.z;
       d.updateMatrix();
-      this.body.setMatrixAt(k, d.matrix);
+      body.setMatrixAt(c.slot, d.matrix);
       this.lights.setMatrixAt(k, d.matrix);
     }
-    this.body.instanceMatrix.needsUpdate = this.lights.instanceMatrix.needsUpdate = true;
+    for (const b of this.bodies) b.instanceMatrix.needsUpdate = true;
+    this.lights.instanceMatrix.needsUpdate = true;
   }
 }

@@ -14,8 +14,14 @@ import { roofLayout, courtLayout, groundLift, buildRoof, buildCourt } from './ro
 import { Skyline } from './skyline.js';
 import { Whiteboard } from './board.js';
 import { Slime, SlimeWorld, SlimeStage, SLIME_SKINS } from './slime.js';
-import { Space, SUN } from './space.js';
+import { Space, SUN, EARTH, MOON, BODIES } from './space.js';
 import { Backrooms, BACK_H } from './backrooms.js';
+import { Portals, PORTAL_W, PORTAL_H, PORTAL_COLORS } from './portals.js';
+import { Art, ART_STYLES, compileAll } from './art.js';
+import { Flyers, Sea } from './god.js';
+import { SpeedFx } from './speedfx.js';
+import { Mine, BlockBody, REACH } from './mine.js';
+import { FunPark, Beach, funLot, inFun, sandY, BEACH_J, WATER_Y, WATER_Z, BEACH_SPOT, FUN_GATE } from './places.js';
 import { Sinuca, Pong, Basket } from './games.js';
 
 const $ = s => document.querySelector(s);
@@ -38,19 +44,31 @@ const ROPE_MAX = 115, ROPE_MIN = 3;
 const WALK = 10, SPRINT = 18, JUMP = 11, AIR_JUMP = 13;
 const PUMP = 16, AIR = 9, DIVE = 24, DRAG = 0.012, RELEASE_BOOST = 6, REEL = 18;
 // não existe teto de velocidade: o que passa de CRUISE evapora, o excesso cai pela metade a cada meio segundo
-const CRUISE = 100, OVERSPEED = 1.3;
+const OVERSPEED = 1.3;
+const AIR_FREE = 42, AIR_THICK = 0.006;                   // resistência do ar: nada até 150 km/h, depois cresce rápido; 460 km/h exige mergulho e boost
 const WALL_REACH = 1.1, WALL_PUSH = 17, WALL_UP = 14;     // pulo na parede
-// estilingue: recua até SLING_MAX, ou mais SLING_TUG com um amigo puxando; quanto mais longe, mais pesado
-const SLING_MAX = 24, SLING_TUG = 28, SLING_RATE = 15, SLING_POWER = 9;
-const PULL_RATE = 26, THROW = 60, CARRY_Y = 2.7;          // puxar o amigo pela teia, arremessar quem está no colo
+// estilingue: a teia estica até SLING_MAX, ou mais SLING_TUG com um amigo puxando; quanto mais longe, mais pesado
+const SLING_MAX = 24, SLING_TUG = 28, SLING_POWER = 9, BRACE_WALK = 0.7;
+const THROW = 60, CARRY_Y = 2.7;                          // arremessar quem está no colo
+// pouso: os dois botões juntos num telhado ou no chão levam você até ali, e a chegada é parada seca
+const LAND_TOGETHER = 170, LAND_LATE = 140;               // ms: diferença entre os botões pra contar como juntos; com o outro já preso, quanto esperar um ponto brilhante
+const LAND_PACE = 55, LAND_ARC = 0.5, LAND_ARC_TOP = 24, LAND_INSET = 2.5, LAND_CLEAR = 3;
+const WARP_REEL = 24, WARP_PULL = 34;                      // teia que entra num portal: recolhe e leva você pra boca dele
+// espaço: a teia alcança muito mais, o jato empurra de leve e, solto, o excesso de velocidade vai embora devagar
+const SPACE_ROPE = 620, SPACE_JET = 34, SPACE_TURBO = 90, SPACE_CRUISE = 260, SPACE_FADE = 0.55, SPACE_KICK = 34;
+const PLANET_PULL = 230, PLANET_TOP = 3200;                // teia presa num astro: te leva até ele em uns 25 segundos
 // a teia é uma mola: estica até um limite e devolve, em vez de ser uma barra rígida que freia você
 const ROPE_K = 70, ROPE_DAMP = 5, ROPE_STRETCH = 0.16;
 const GROUND_CLEAR = 3.4, GUARD_RATE = 48;     // o arco da teia nunca passa rente ao chão (S segurado libera)
-const ASSIST = 7, ASSIST_TOP = 75;             // empurrãozinho pra manter o embalo enquanto balança
+const ASSIST = 5, ASSIST_TOP = 50;             // empurrãozinho pra manter o embalo enquanto balança
 const STEER_MIN = 20;                          // acima disso o voo desvia sozinho dos prédios
-const BOOST = 30;             // Shift preso na corda: empurra na direção do balanço
+const BOOST = 24;             // Shift preso na corda: empurra na direção do balanço
 const STEP = 0.65;            // degrau que dá pra subir andando
-const R = 0.6;                // raio do corpo pra colisão
+const R0 = 0.6;               // raio do corpo pra colisão, no tamanho normal
+let R = R0;
+// comilão: o que cada coisa pesa, e a partir de que tamanho dá pra comer
+const CAR_MASS = 6, EAT_CAR = 1.5, EAT_LOT = 6, GONE_MS = 60000;
+const GOD = { grav: 1, sea: 0, bend: 0, pace: 1 };   // painel de Deus: vale pra todo mundo da party
 
 let prefs = {};
 try { prefs = JSON.parse(localStorage.getItem('voolivre') || '{}'); } catch { /* sem storage */ }
@@ -69,14 +87,17 @@ function savePrefs() {
 // ------------------------------------------------------------------ cidade procedural
 
 const lots = new Map();
+const eatenLots = new Set();
 function lot(i, j) {
   const key = i + ',' + j;
   let L = lots.get(key);
   if (L) return L;
   const cx = (i + 0.5) * CELL, cz = (j + 0.5) * CELL;
+  if (j >= BEACH_J) { L = { cx, cz, w: 0, d: 0, h: 0, park: true, beach: true, anchors: [], boxes: [] }; lots.set(key, L); return L; }
+  if (inFun(i, j)) { L = funLot(i, j); lots.set(key, L); return L; }
   if (i === CINEMA.i && j === CINEMA.j) { L = cinemaLot(cx, cz); lots.set(key, L); return L; }
   if (i === COURT.i && j === COURT.j) { L = courtLot(cx, cz); lots.set(key, L); return L; }
-  let park = rnd(i, j, 1) < 0.07;
+  let park = rnd(i, j, 1) < 0.07 || eatenLots.has(key);
   let low = !park && rnd(i, j, 12) < 0.13;    // sobradinho comercial no meio dos prédios
   let w = 14 + rnd(i, j, 2) * 12, d = 14 + rnd(i, j, 3) * 12, h = 16 + Math.pow(rnd(i, j, 4), 2.2) * 120;
   if (low) { w = 22 + rnd(i, j, 2) * 7; d = 22 + rnd(i, j, 3) * 7; h = 8 + rnd(i, j, 4) * 6; }
@@ -164,8 +185,10 @@ function inCinema(p) {
 
 // o que tem de sólido por perto no mundo em que você está
 function lotsNear(x, z, r) {
+  if (voxels()) return [{ boxes: mine.around(x, me.pos.y, z, 1 + R) }];
   return me.where === 'city' ? lotsAround(x, z, r) : me.where === 'back' ? back.near(x, z) : [];
 }
+const voxels = () => mine?.active && me.where === 'city';
 
 function lotsAround(x, z, r) {
   const out = [];
@@ -201,7 +224,7 @@ renderer.toneMapping = THREE.ACESFilmicToneMapping;
 const scene = new THREE.Scene();
 const city = new THREE.Group();
 scene.add(city);
-const camera = new THREE.PerspectiveCamera(72, 1, 0.1, 4500);
+const camera = new THREE.PerspectiveCamera(72, 1, 0.25, 4500);
 camera.rotation.order = 'YXZ';
 
 const day = new DayCycle(scene, renderer);
@@ -220,6 +243,10 @@ const ground = new THREE.Mesh(new THREE.PlaneGeometry(CELL * 120, CELL * 120), n
 ground.rotation.x = -Math.PI / 2;
 ground.receiveShadow = true;
 city.add(ground);
+// na geleia o chão ondula, e pra isso precisa de vértices
+const flatGround = ground.geometry;
+let jellyGround = null;
+const denseGround = () => jellyGround || (jellyGround = new THREE.PlaneGeometry(CELL * 120, CELL * 120, 300, 300));
 
 // ---- o prédio do cinema
 const hallMat = new THREE.MeshLambertMaterial({ color: '#3a2147' });
@@ -328,7 +355,8 @@ function buildCinema(L) {
 }
 
 const chunks = new Map();
-let chunkWait = 0;
+let chunkWait = 0, hitPress = false;
+const nearVox = (i, j) => Math.max(Math.abs(i - Math.floor(me.pos.x / CELL)), Math.abs(j - Math.floor(me.pos.z / CELL))) <= 2;
 const chunkOf = i => Math.floor(i / CHUNK);
 const isLoaded = (i, j) => chunks.has(chunkOf(i) + ',' + chunkOf(j));
 function buildChunk(ci, cj) {
@@ -373,18 +401,24 @@ function updateChunks(x, z) {
   for (let a = -view; a <= view; a++) for (let b = -view; b <= view; b++) {
     if (!chunks.has((ci + a) + ',' + (cj + b))) missing.push([ci + a, cj + b, a * a + b * b]);
   }
-  if (chunkWait > 0) chunkWait--;
-  else if (missing.length) {
-    // um pedaço a cada três quadros, o mais perto primeiro. Até ele ficar pronto, quem aparece é o horizonte simulado.
+  const holes = portals.list.filter(p => p.where === 'city').map(p => [Math.floor(p.c.x / size), Math.floor(p.c.z / size)]);
+  for (const [pi, pj] of holes) for (let a = -1; a <= 1; a++) for (let b = -1; b <= 1; b++) {
+    if (!chunks.has((pi + a) + ',' + (pj + b))) missing.push([pi + a, pj + b, 3 + a * a + b * b]);
+  }
+  const clock = performance.now();
+  if (clock >= chunkWait && missing.length) {
+    // um pedaço por vez, o mais perto primeiro e no máximo uns 30 por segundo. Até ele ficar pronto, quem aparece é o horizonte simulado.
     missing.sort((p, q) => p[2] - q[2]);
-    for (const [a, b] of missing.slice(0, chunks.size ? 1 : 9)) chunks.set(a + ',' + b, buildChunk(a, b));
-    chunkWait = 2;
+    const [a, b] = missing[0];
+    if (!chunks.has(a + ',' + b)) chunks.set(a + ',' + b, buildChunk(a, b));
+    chunkWait = clock + 33;
     skyline.dirty = true;
   }
   for (const [k, c] of chunks) {
     // carros, árvores e mobília só existem por perto: de longe ninguém vê e pesa bastante
     c.detail.visible = Math.hypot((c.ci + 0.5) * size - x, (c.cj + 0.5) * size - z) < Q.detail + size / 2;
-    if (Math.abs(c.ci - ci) > view + 1 || Math.abs(c.cj - cj) > view + 1) {
+    const kept = holes.some(([pi, pj]) => Math.abs(c.ci - pi) <= 2 && Math.abs(c.cj - pj) <= 2);
+    if (!kept && (Math.abs(c.ci - ci) > view + 2 || Math.abs(c.cj - cj) > view + 2)) {
       skyline.dirty = true;
       city.remove(c.group);
       c.group.traverse(o => { if ((o.isMesh || o.isPoints) && !o.geometry.userData.shared) o.geometry.dispose(); if (o.isInstancedMesh) o.dispose(); });
@@ -409,6 +443,30 @@ function glowTexture(color) {
 }
 
 const slimes = new SlimeWorld(scene, renderer, day);
+const portals = new Portals(scene, renderer, slimes);
+const art = new Art(renderer, slimes);
+const speedFx = new SpeedFx(renderer);
+
+// a arma de portais: ela aponta pra +z do grupo
+function makeGun() {
+  const g = new THREE.Group();
+  const shell = art.rigid(new THREE.MeshLambertMaterial({ color: '#e9edf2' })), dark = art.rigid(new THREE.MeshLambertMaterial({ color: '#23262e' }));
+  const add = (geo, mat, x, y, z) => { const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); g.add(m); return m; };
+  add(new THREE.BoxGeometry(0.2, 0.2, 0.5), shell, 0, 0.03, 0.08);
+  add(new THREE.BoxGeometry(0.12, 0.24, 0.13), dark, 0, -0.14, -0.04);
+  add(new THREE.CylinderGeometry(0.13, 0.09, 0.2, 10).rotateX(Math.PI / 2), dark, 0, 0.03, 0.38);
+  g.userData.tip = add(new THREE.SphereGeometry(0.1, 10, 8), new THREE.MeshBasicMaterial({ color: PORTAL_COLORS[0], toneMapped: false }), 0, 0.03, 0.47);
+  g.visible = false;
+  scene.add(g);
+  return g;
+}
+function holdGun(gun, item, hand, aim, show) {
+  gun.visible = !!item && show;
+  if (!gun.visible) return;
+  gun.position.copy(hand);
+  gun.lookAt(hand.x + aim.x, hand.y + aim.y, hand.z + aim.z);
+  gun.userData.tip.material.color.set(item.tint);
+}
 
 // o grupo só guarda a orientação e o halo; a gelatina é desenhada à parte, nos eixos do mundo
 function makeBody(skin, color, amount) {
@@ -424,19 +482,19 @@ function makeBody(skin, color, amount) {
 const SIT_Y = 0.55 + 0.55;   // do chão da fileira até o centro do boneco sentado
 
 function makeRope(skin, color) {
-  const m = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.07, 1, 6, 1), new THREE.MeshBasicMaterial({ color: skin === 'scarf' ? color : '#f4f6ff' }));
+  const m = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.07, 1, 6, 1), art.rigid(new THREE.MeshBasicMaterial({ color: SLIME_SKINS[skin]?.arm ? color : '#f4f6ff' })));
   m.visible = false;
   scene.add(m);
   return m;
 }
 const UP = new V3(0, 1, 0);
 // a teia sai da mão e voa até o ponto; nas skins sem teia quem faz esse papel é o próprio braço
-const ropeEnd = new V3();
+const ropeEnd = new V3(), ropeTip = new V3(), roofSway = new V3(), ZERO3 = new V3();
 function placeRopes(ropes, hooks, body) {
   ropes.forEach((rope, i) => {
     const h = hooks[i];
     if (!h || body.armOnly) { rope.visible = false; return; }
-    placeRope(rope, body.hands[i], ropeEnd.copy(body.hands[i]).lerp(h.p, Math.min(1, h.t / 0.12 || 1)));
+    placeRope(rope, body.hands[i], ropeEnd.copy(body.hands[i]).lerp(art.bent(h.p, ropeTip), Math.min(1, h.t / 0.12 || 1)));
   });
 }
 function placeRope(rope, a, b) {
@@ -445,7 +503,7 @@ function placeRope(rope, a, b) {
   rope.visible = len > 0.1;
   if (!rope.visible) return;
   rope.position.copy(a).addScaledVector(d, 0.5);
-  rope.scale.set(1, len, 1);
+  rope.scale.set(art.rope, len, art.rope);
   rope.quaternion.setFromUnitVectors(UP, d.divideScalar(len));
 }
 
@@ -466,29 +524,56 @@ function makeLabel(text, color) {
 }
 
 // orientação visual: "cabeça" pra corda quando pendurado, pro movimento quando voando
-const tmpM = new THREE.Matrix4(), tmpQ = new THREE.Quaternion();
-function orient(obj, pos, vel, hook, onGround, dt) {
+// A frente fica guardada e gira até o rumo novo, e o corpo inteiro tem limite de velocidade de giro: nada vira de uma vez.
+const tmpM = new THREE.Matrix4(), tmpQ = new THREE.Quaternion(), TURN_MAX = 15;
+function orient(obj, pos, vel, hook, onGround, dt, braced) {
   let up = new V3(0, 1, 0);
-  if (hook) up = new V3().subVectors(hook, pos).normalize();
+  if (hook && !braced) up = new V3().subVectors(hook, pos).normalize();
   else if (!onGround && vel.length() > 12) up.lerp(vel.clone().normalize(), 0.55).normalize();
-  let fwd = new V3(vel.x, 0, vel.z);
-  if (fwd.lengthSq() < 0.5) fwd.set(0, 0, -1).applyQuaternion(obj.quaternion).setY(0);
-  fwd.normalize();
-  const right = new V3().crossVectors(fwd, up);
-  if (right.lengthSq() < 1e-4) right.set(1, 0, 0);
+  let head = obj.userData.head;
+  if (!head) {
+    head = obj.userData.head = new V3(0, 0, -1).applyQuaternion(obj.quaternion).setY(0);
+    if (head.lengthSq() < 1e-4) head.set(0, 0, -1);
+    head.normalize();
+  }
+  const want = hook && braced ? new V3(hook.x - pos.x, 0, hook.z - pos.z) : new V3(vel.x, 0, vel.z);     // de pé fincado, encara a teia mesmo andando de ré
+  if (want.lengthSq() >= 0.5) {
+    const turn = Math.atan2(head.x * want.z - head.z * want.x, head.x * want.x + head.z * want.z);
+    const step = clamp(turn * (1 - Math.exp(-dt * 16)), -TURN_MAX * dt, TURN_MAX * dt);
+    head.applyAxisAngle(UP, -step).normalize();
+  }
+  const right = new V3().crossVectors(head, up);
+  if (right.lengthSq() < 1e-3) right.set(1, 0, 0).applyQuaternion(obj.quaternion);    // corda na mesma linha da frente: segue o lado de antes
   right.normalize();
   const back = new V3().crossVectors(right, up).normalize();
   tmpM.makeBasis(right, up, back);
   tmpQ.setFromRotationMatrix(tmpM);
-  obj.quaternion.slerp(tmpQ, 1 - Math.exp(-dt * (hook ? 14 : 8)));
+  const left = obj.quaternion.angleTo(tmpQ);
+  obj.quaternion.rotateTowards(tmpQ, Math.min(left * (1 - Math.exp(-dt * (hook ? 16 : 12))), TURN_MAX * dt));
+}
+
+// O rolamento segue o movimento visto pela câmera: pra frente, de costas, de lado ou na diagonal, e pelas teclas se houver.
+function startFlip() {
+  const f = new V3(0, 0, -1).applyQuaternion(camera.quaternion), r = new V3(1, 0, 0).applyQuaternion(camera.quaternion);
+  let ahead = (keys.KeyW ? 1 : 0) - (keys.KeyS ? 1 : 0), side = (keys.KeyD ? 1 : 0) - (keys.KeyA ? 1 : 0);
+  if (!ahead && !side) {
+    ahead = me.vel.dot(f);
+    side = me.vel.dot(r);
+    if (Math.abs(ahead) + Math.abs(side) < 3) { ahead = 1; side = 0; }
+  }
+  me.flipAxis.copy(f).multiplyScalar(side).addScaledVector(r, -ahead).normalize();
+  me.flipT = 0.5;
+  me.vel.multiplyScalar(1.04);
 }
 
 // ------------------------------------------------------------------ jogador local
 
 const me = {
-  pos: new V3(), vel: new V3(), onGround: false, hooks: [null, null], airJumps: 1, flipT: 0, boosting: false, seat: null, wet: false,
-  sling: null, tug: null, carry: 0, carried: 0, wallCool: 0, where: 'city', home: new V3(),
-  mesh: makeBody(SKIN3, COLOR, SLIME), ropes: [makeRope(SKIN3, COLOR), makeRope(SKIN3, COLOR)],
+  pos: new V3(), vel: new V3(), onGround: false, hooks: [null, null], airJumps: 1, flipT: 0, flipAxis: new V3(1, 0, 0), boosting: false, seat: null, wet: false,
+  sling: null, braced: false, strain: 0, airT: 0, tug: null, carry: 0, carried: 0, wallCool: 0, where: 'city', home: new V3(),
+  size: 1, base: 1, mass: 0, eaten: 0, rock: null, land: null,
+  mesh: makeBody(SKIN3, COLOR, SLIME), ropes: [makeRope(SKIN3, COLOR), makeRope(SKIN3, COLOR)], ropes2: [makeRope(SKIN3, COLOR), makeRope(SKIN3, COLOR)],
+  gun: makeGun(),
   get hook() { return this.hooks[0] || this.hooks[1]; },        // uma teia qualquer, a que estiver presa
   set hook(v) { this.hooks[0] = v; this.hooks[1] = null; },
 };
@@ -527,6 +612,7 @@ function sitDown(s) {
   me.vel.set(0, 0, 0);
   me.pos.set(s.x, s.floor + SIT_Y, s.z);
   me.mesh.quaternion.setFromAxisAngle(UP, s.ry || 0);
+  me.mesh.userData.head = null;
   const C = lot(CINEMA.i, CINEMA.j);
   yaw = s.ry || 0;
   pitch = s.ry === undefined ? Math.atan2(C.screen.y - (me.pos.y + 0.95), me.pos.z - C.screen.z) : -0.1;
@@ -546,10 +632,37 @@ const hookWait = [false, false];    // depois de um lançamento, a mão só atir
 const pulling = () => !!(keys.ControlLeft || keys.ControlRight || keys.KeyC);
 
 const here = r => r.pos && !r.stale && r.where === me.where;
+function anchorsNear(x, z, r) {
+  const out = [];
+  if (me.where === 'city') for (const L of lotsAround(x, z, r)) out.push(...L.anchors);
+  if (me.where === 'moon') for (const k of space.rocksNear(x, z, r)) if (k.anchor) out.push({ x: k.x, y: k.y + k.top, z: k.z, id: k.id });
+  return out;
+}
+const inSpace = () => me.where === 'trip';
+// velocidade e pulo crescem mais devagar que o corpo; encolhendo caem quase junto, senão o miúdo escorrega
+const big = () => (me.size < 1 ? Math.pow(me.size, 0.8) : Math.sqrt(me.size));
+const reach = () => (inSpace() ? SPACE_ROPE : ROPE_MAX) * Math.max(1, big());
 function hookTargets() {
   const out = [];
-  if (me.where === 'city') for (const L of lotsAround(me.pos.x, me.pos.z, ROPE_MAX + 10)) for (const a of L.anchors) out.push({ p: new V3(a.x, a.y, a.z), id: a.id });
-  if (me.where === 'moon') for (const r of space.rocksNear(me.pos.x, me.pos.z, ROPE_MAX)) if (r.anchor) out.push({ p: new V3(r.x, r.y + r.top, r.z), id: r.id });
+  for (const a of anchorsNear(me.pos.x, me.pos.z, ROPE_MAX + 10)) out.push({ p: new V3(a.x, a.y, a.z), id: a.id });
+  if (inSpace()) for (const k of space.rocksHere) {
+    const d = Math.hypot(k.x - me.pos.x, k.y - me.pos.y, k.z - me.pos.z);
+    if (d - k.r < SPACE_ROPE) out.push({ p: new V3(k.x, k.y, k.z).lerp(me.pos, k.r / Math.max(d, k.r)), id: k.id, wide: Math.asin(Math.min(1, k.r / Math.max(d, k.r))) });
+  }
+  // o que dá pra ver pelo buraco também é alvo: a teia entra num portal e sai no outro
+  for (const p of portals.list) {
+    const q = p.where === me.where && p.open > 0.5 ? portals.partner(p) : null;
+    if (!q) continue;
+    const left = reach() - p.c.distanceTo(me.pos);
+    if (left < 5 || (me.pos.x - p.c.x) * p.n.x + (me.pos.y - p.c.y) * p.n.y + (me.pos.z - p.c.z) * p.n.z <= 0) continue;
+    const M = portals.matrix(q, p);
+    for (const a of anchorsNear(q.c.x, q.c.z, left)) {
+      const real = new V3(a.x, a.y, a.z);
+      if ((real.x - q.c.x) * q.n.x + (real.y - q.c.y) * q.n.y + (real.z - q.c.z) * q.n.z < 1) continue;
+      const v = real.clone().applyMatrix4(M);
+      if (portals.crossing(p, me.pos, v, 0.98) && portals.crossing(p, camera.position, v)) out.push({ p: v, id: a.id, via: [p, q], real });
+    }
+  }
   for (const r of remotes.values()) if (here(r) && r.id !== me.carry) out.push({ p: r.pos.clone().add(new V3(0, 0.4, 0)), pid: r.id });
   return out;
 }
@@ -559,20 +672,32 @@ function findTarget(dt) {
   const dir = new V3(0, 0, -1).applyQuaternion(camera.quaternion);
   watchSky(dir);
   if (gaze.ready && dir.dot(skyDir()) > 0.994) return { p: me.pos.clone(), sky: true };
+  if (voxels()) {
+    const top = reach(), h = mine.ray(camera.position, dir, top + 12);
+    if (!h || h.t < REACH + camera.position.distanceTo(me.pos)) return null;
+    const p = camera.position.clone().addScaledVector(dir, h.t);
+    return p.distanceTo(me.pos) > top ? null : { p, id: 500000000 + (h.x * 73 + h.y * 179 + h.z * 283) };
+  }
   let best = null, bestA = 0.22;
+  const top = reach();
   for (const t of hookTargets()) {
     const dme = t.p.distanceTo(me.pos);
-    if (dme > ROPE_MAX || dme < 2) continue;
+    if (dme > top || dme < 2) continue;
     if (me.hooks.some(h => h && (t.pid ? h.pid === t.pid : h.id === t.id))) continue;    // a outra mão vai pra outro lugar
     const toT = new V3().subVectors(t.p, camera.position).normalize();
-    const ang = Math.acos(clamp(toT.dot(dir), -1, 1));
+    const ang = Math.acos(clamp(toT.dot(dir), -1, 1)) - (t.wide || 0);
     if (ang < bestA) { bestA = ang; best = t; }
+  }
+  if (inSpace() && bestA > 0.02) for (const b of BODIES) {
+    // Terra e Lua sempre dão pra mirar: é só o disco estar na mira
+    const to = lookTmp.subVectors(b.c, camera.position), d = to.length();
+    if (dir.dot(to.divideScalar(d)) > Math.cos(Math.asin(Math.min(0.99, b.r / d)) + 0.02)) return { planet: b, p: camera.position.clone().addScaledVector(dir, 3900) };
   }
   return best;
 }
 
 function attach(t, hand = 0) {
-  me.hooks[hand] = { p: t.p.clone(), L: clamp(t.p.distanceTo(me.pos), ROPE_MIN, ROPE_MAX + 10), pid: t.pid || 0, id: t.id, t: 0 };
+  me.hooks[hand] = { p: t.p.clone(), L: clamp(t.p.distanceTo(me.pos), ROPE_MIN, reach() + 10), pid: t.pid || 0, id: t.id, t: 0, warp: t.via ? { a: t.via[0], b: t.via[1] } : null, real: t.real || null };
   me.airJumps = 1;
 }
 
@@ -586,36 +711,141 @@ function release(hand) {
   if (s > 5) me.vel.addScaledVector(me.vel, RELEASE_BOOST / s);
 }
 
-// CTRL com a teia presa em algo que não mexe: quem vai pra trás é você, esticando a teia feito um estilingue
-function startSling() {
-  const fixed = me.hooks.filter(h => h && !h.pid);
-  for (const h of fixed) h.L = Math.max(h.L, me.pos.distanceTo(h.p));
-  me.sling = { home: me.pos.clone(), x: 0, ropes: fixed.length, back: new V3() };
+// Onde uma reta cai pra pousar: topo de alguma coisa ou chão. Na parede não dá, a não ser perto do topo:
+// quem está mais baixo que o telhado não enxerga o topo, então mirar a beirada vale como mirar o telhado.
+function surfaceOn(from, dir, top) {
+  const solid = -Math.max(0, R - R0), hit = me.where === 'moon' ? null : sweep(from, dir, top, solid);     // a mira vê o prédio de verdade, sem a folga do corpo
+  if (!voxels() && dir.y < -0.01) {
+    let g = groundAt(from.x, from.z), t = 0;
+    for (let k = 0; k < 4; k++) { t = (from.y - g) / -dir.y; g = groundAt(from.x + dir.x * t, from.z + dir.z * t); }
+    if (t > 0 && t < (hit ? hit.t : top)) return new V3(from.x + dir.x * t, g, from.z + dir.z * t);
+  }
+  if (!hit) return null;
+  const p = from.clone().addScaledVector(dir, hit.t), b = hit.box;
+  if (hit.axis === 1 && hit.sign < 0) return null;
+  if (hit.axis !== 1 && (!b || b[4] - p.y > clamp(hit.t * 0.12, 3, 12))) return null;
+  if (b) {
+    const m = hit.axis === 1 ? R + 0.5 : R + LAND_INSET, inside = (v, lo, hi) => (hi - lo < m * 2 ? (lo + hi) / 2 : clamp(v, lo + m, hi - m));
+    p.x = inside(p.x, b[0], b[3]);
+    p.z = inside(p.z, b[2], b[5]);
+    const sky = b[4] + 60, over = sweep(new V3(p.x, sky, p.z), DOWN, 70, solid);
+    p.y = over ? sky - over.t : b[4];
+    if (p.y - b[4] > 3) return null;             // tem mais prédio em cima dessa caixa
+  }
+  return p;
 }
-function slingStep(dt) {
-  const S = me.sling, tugged = me.tug && performance.now() < me.tug.until, top = SLING_MAX + (tugged ? SLING_TUG : 0);
-  if (tugged) S.back.subVectors(me.tug.p, S.home).normalize();                  // o amigo puxa pro lado dele
-  else S.back.set(0, 0, 1).applyQuaternion(camera.quaternion);                  // sozinho, você recua do lado oposto de onde olha
-  S.x = Math.min(top, S.x + SLING_RATE * (tugged ? 2.4 : 1) * Math.pow(Math.max(0, 1 - S.x / top), 1.5) * dt);
-  me.pos.lerp(new V3().copy(S.home).addScaledVector(S.back, S.x), 1 - Math.exp(-dt * 9));
+function landSpot() {
+  if (inSpace()) return null;
+  const look = new V3(0, 0, -1).applyQuaternion(camera.quaternion), dir = new V3(), top = reach() + camera.position.distanceTo(me.pos);
+  // um pouco acima da beirada também vale: a mira raramente fica exata no meio do voo
+  for (const dip of [0, 0.03, 0.06]) {
+    dir.copy(look).setY(look.y - dip).normalize();
+    const p = surfaceOn(camera.position, dir, top);
+    if (p) return p.distanceTo(me.pos) <= reach() ? p : null;
+  }
+  return null;
+}
+function startLand(p) {
+  standUp();
+  const d = p.distanceTo(me.pos), T = 0.35 + (d / 70 + me.vel.length() / 300) / Math.max(1, big());
+  me.land = { p: p.clone().setY(p.y + R), T, left: T + 1.2 };
+  for (let i = 0; i < 2; i++) {
+    me.hooks[i] = { p: p.clone(), L: 1e9, pid: 0, id: -3, t: 0, warp: null, real: null };
+    hookWait[i] = true;                           // chegou com os botões presos: não atira de novo sozinho
+  }
+  me.sling = null;
+  me.airJumps = 1;
+}
+const landWho = [false, false], landT = [0, 0];
+let landArmed = false;
+// Os dois botões juntos pousam na hora. Com uma mão já na teia, o segundo botão espera um instante por um ponto brilhante,
+// pra não atrapalhar quem troca de mão balançando; não aparecendo nenhum, pousa.
+function tryLand(now, held) {
+  for (let i = 0; i < 2; i++) {
+    const down = i ? mouseRight : mouseDown;       // só clique de verdade conta: quebrando bloco, held[0] pisca
+    if (down && !landWho[i]) { landT[i] = now; landArmed = true; }
+    landWho[i] = down;
+  }
+  if (!held[0] || !held[1]) landArmed = false;
+  if (!landArmed) return;
+  const late = landT[0] > landT[1] ? 0 : 1;
+  if (landT[late] - landT[1 - late] >= LAND_TOGETHER) {
+    if (me.hooks[late]) { landArmed = false; return; }
+    if (target || now - landT[late] < LAND_LATE) return;
+  }
+  landArmed = false;
+  if (me.land || act || me.carried || me.ride || trip.on || pulling() || target?.sky) return;
+  // bem em cima de um ponto brilhante ou do amigo, é teia dupla
+  const aim = new V3(0, 0, -1).applyQuaternion(camera.quaternion);
+  if (target && !voxels() && lookTmp.subVectors(target.p, camera.position).normalize().dot(aim) > 0.9985) return;
+  const p = landSpot();
+  if (p) startLand(p);
+}
+// a mesma conta de um foguete pousando: a cada passo refaz o caminho até o ponto, então uma batida no meio não estraga a chegada
+function landPull(acc, dt) {
+  const L = me.land, gap = lookTmp.subVectors(L.p, me.pos), d = gap.length();
+  L.T -= dt;
+  L.left -= dt;
+  // com um prédio no caminho, sobe primeiro: mira acima da beirada até a reta ficar livre
+  const wall = d > 1 ? sweep(me.pos, new V3().copy(gap).divideScalar(d), d, 0.4) : null;
+  if (wall && wall.box) {
+    if (wall.axis !== 1) { gap.x *= wall.t / d; gap.z *= wall.t / d; }
+    gap.y = Math.max(gap.y, wall.box[4] + LAND_CLEAR + R - me.pos.y);
+  }
+  const T = Math.max(L.T, d / (LAND_PACE * Math.max(1, big())), 0.14);
+  acc.copy(gap).multiplyScalar(6 / T / T).addScaledVector(me.vel, -4 / T);
+  acc.y += 2 * Math.min(Math.hypot(gap.x, gap.z) * LAND_ARC, LAND_ARC_TOP) / T;       // de longe chega por cima, de perto só desce
+}
+function landDone() {
+  const L = me.land, far = Math.hypot(L.p.x - me.pos.x, L.p.z - me.pos.z);
+  if (me.pos.distanceTo(L.p) > 0.25 && !(me.onGround && far < 1.2 * big())) {
+    if (L.left < 0) { me.land = null; me.hooks[0] = me.hooks[1] = null; }       // ficou preso em alguma coisa: solta
+    return;
+  }
+  me.land = null;
+  me.hooks[0] = me.hooks[1] = null;
   me.vel.set(0, 0, 0);
-  collide();
-  S.x = Math.min(S.x, me.pos.distanceTo(S.home) + 3);                           // encostou em algo: a teia não estica além do corpo
+  sound.splat(0.25);
+}
+
+// CTRL no chão finca o pé: a teia não te leva. Quem puxa é você andando pra trás, e quanto mais estica, mais pesa.
+// Soltando o CTRL ou as mãos, a teia devolve tudo de uma vez. No ar o CTRL não faz nada.
+function holdRopes() {
+  const tugged = !!me.tug, top = SLING_MAX + (tugged ? SLING_TUG : 0);      // amigo na teia: dá pra esticar bem mais
+  let x = 0;
+  for (const h of me.hooks) if (h && !h.pid) x = Math.max(x, me.pos.distanceTo(h.p) - h.L);
+  if (x > top) for (const h of me.hooks) {
+    if (!h || h.pid) continue;
+    const d = me.pos.distanceTo(h.p), over = d - h.L - top;
+    if (over > 0) me.pos.lerp(h.p, over / d);
+  }
+  x = Math.min(x, top);
+  const dragging = me.hooks.some(h => h && h.pid && me.pos.distanceTo(h.p) > h.L + 0.3);
+  me.strain = Math.max(x / top, dragging ? 0.2 : 0);
+  me.sling = x > 0.6 ? { x } : null;
 }
 function launch() {
-  const S = me.sling;
+  const S = me.sling, d = new V3();
+  let n = 0;
+  for (const h of me.hooks) if (h && !h.pid) { d.add(new V3().subVectors(h.p, me.pos).normalize()); n++; }
   me.sling = null;
+  me.strain = 0;
   me.hooks[0] = me.hooks[1] = null;
   hookWait[0] = hookWait[1] = true;
-  const d = new V3().subVectors(S.home, me.pos), x = d.length();
-  if (x < 1) return;
-  d.divideScalar(x);
-  me.vel.copy(d).multiplyScalar(SLING_POWER * x * (S.ropes > 1 ? 1 : 0.72));
-  me.vel.y += 6;
+  // quem está com a teia em você solta junto, senão ela te segura na saída
+  me.tug = null;
+  for (const r of remotes.values()) {
+    const s = r.snaps[r.snaps.length - 1];
+    if (s && (s.hk === myId || s.hk2 === myId)) net.send({ t: 'p3', to: r.id, k: 'cut' });
+  }
+  if (!n || d.lengthSq() < 1e-4) return;
+  d.normalize();
+  me.vel.copy(d).multiplyScalar(SLING_POWER * S.x * (n > 1 ? 1 : 0.72));
+  me.vel.y += 4;
   me.onGround = false;
   me.airJumps = 1;
-  me.mesh.userData.slime.fling(d.x, d.y, d.z, x / SLING_MAX);
-  sound.twang(x / SLING_MAX);
+  me.mesh.userData.slime.fling(d.x, d.y, d.z, S.x / SLING_MAX);
+  sound.twang(S.x / SLING_MAX);
 }
 
 // amigo no colo: F pega, F de novo arremessa pra onde você olha, somando a sua velocidade
@@ -643,7 +873,8 @@ function throwFriend() {
 }
 // o que os outros jogadores fazem com você
 function touched(m) {
-  if (m.k === 'tug') me.tug = { p: new V3(m.p[0], m.p[1], m.p[2]), L: m.L, until: performance.now() + 220 };
+  if (m.k === 'tug') me.tug = { p: new V3(m.p[0], m.p[1], m.p[2]), L: m.L, until: performance.now() + 220, keep: performance.now() + 900 };
+  else if (m.k === 'cut') me.hooks.forEach((h, i) => { if (h && h.pid === m.from) { me.hooks[i] = null; hookWait[i] = true; } });
   else if (m.k === 'grab') {
     leaveAct();
     standUp();
@@ -664,15 +895,17 @@ function touched(m) {
 function collide() {
   me.onGround = false;
   if (me.where === 'moon') { moonCollide(); return; }
-  if (me.pos.y < R) { me.pos.y = R; if (me.vel.y < 0) me.vel.y = 0; me.onGround = true; }
+  if (inSpace()) { spaceCollide(); return; }
+  const land = voxels() ? -1e9 : me.where === 'city' ? sandY(me.pos.z) : 0;
+  if (me.pos.y < R + land) { me.pos.y = R + land; if (me.vel.y < 0) me.vel.y = 0; me.onGround = true; }
   if (me.where === 'back' && me.pos.y > BACK_H - 1.15) { me.pos.y = BACK_H - 1.15; if (me.vel.y > 0) me.vel.y = 0; }
-  for (const L of lotsNear(me.pos.x, me.pos.z, CELL)) for (const b of L.boxes) {
+  if (!powers.ghost) for (const L of lotsNear(me.pos.x, me.pos.z, CELL + R * 2)) for (const b of L.boxes) {
     const qx = clamp(me.pos.x, b[0], b[3]), qy = clamp(me.pos.y, b[1], b[4]), qz = clamp(me.pos.z, b[2], b[5]);
     const dx = me.pos.x - qx, dy = me.pos.y - qy, dz = me.pos.z - qz;
     const d2 = dx * dx + dy * dy + dz * dz;
     if (d2 >= R * R) continue;
     const rise = b[4] - (me.pos.y - R);
-    if (rise > 0 && rise < STEP && me.vel.y < 4) {
+    if (rise > 0 && rise < STEP * Math.max(1, me.size) && me.vel.y < 4) {
       // degrau baixo (plateia do cinema): sobe andando
       me.pos.y = b[4] + R;
       if (me.vel.y < 0) me.vel.y = 0;
@@ -686,7 +919,7 @@ function collide() {
     if (vn < 0) {
       const s0 = me.vel.length();
       me.vel.addScaledVector(n, -vn);
-      if (s0 > 14 && n.y < 0.7) {
+      if (s0 > 14 && n.y < 0.7 && !me.land) {
         // em alta velocidade a parede não para você: de raspão escorrega nela, de frente corre pro canto mais perto
         const s1 = me.vel.length();
         if (s1 > s0 * 0.5) me.vel.multiplyScalar(s0 * 0.96 / s1);
@@ -702,6 +935,31 @@ function collide() {
     if (n.y > 0.7) me.onGround = true;
   }
   if (me.onGround) me.airJumps = 1;
+}
+
+// bate na pedra e escorrega nela. Pular daqui empurra pra longe da pedra.
+function spaceCollide() {
+  me.rock = null;
+  if (!me.hooks.some(h => h && h.planet)) for (const k of space.rocksHere) {
+    const dx = me.pos.x - k.x, dy = me.pos.y - k.y, dz = me.pos.z - k.z, far = k.r * 1.12 + R;
+    if (Math.abs(dx) > far || Math.abs(dy) > far || Math.abs(dz) > far) continue;
+    const d = Math.hypot(dx, dy, dz);
+    if (d >= far || d < 1e-4) continue;
+    const n = new V3(dx / d, dy / d, dz / d);
+    me.pos.set(k.x + n.x * far, k.y + n.y * far, k.z + n.z * far);
+    const vn = me.vel.dot(n);
+    if (vn < 0) me.vel.addScaledVector(n, -vn * 1.25);
+    me.vel.multiplyScalar(0.985);
+    me.rock = n;
+    me.airJumps = 1;
+  }
+  for (const b of BODIES) {
+    const d = me.pos.distanceTo(b.c);
+    if (d - b.r > 140) continue;
+    if (b === MOON) landOnMoon();
+    else arriveHome();
+    return;
+  }
 }
 
 function moonCollide() {
@@ -726,38 +984,61 @@ function inPool() {
 }
 
 function step(dt) {
-  if (me.sling) { jumpPressed = false; slingStep(dt); return; }
+  const space3d = inSpace();
   const fwd = new V3(-Math.sin(yaw), 0, -Math.cos(yaw));
   const right = new V3(Math.cos(yaw), 0, -Math.sin(yaw));
+  // no espaço não existe chão: W anda pra onde a câmera aponta, inclusive pra cima
+  if (space3d) fwd.set(0, 0, -1).applyQuaternion(camera.quaternion);
   const wish = new V3()
     .addScaledVector(fwd, (keys.KeyW ? 1 : 0) - (keys.KeyS ? 1 : 0))
     .addScaledVector(right, (keys.KeyD ? 1 : 0) - (keys.KeyA ? 1 : 0));
   if (wish.lengthSq() > 0) wish.normalize();
-  const onMoon = me.where === 'moon', jump = onMoon ? JUMP * 1.6 : JUMP;
-  const acc = new V3(0, onMoon ? -G / 5 : -G, 0);
-  const wet = me.where === 'city' && inPool();
-  if (wet && !me.wet && me.vel.y < -3) { sound.splash(); splash(me.pos); }
+  const onMoon = me.where === 'moon', tall = big(), jump = (onMoon ? JUMP * 1.6 : JUMP) * Math.sqrt(me.size);
+  const acc = new V3(0, space3d ? 0 : (onMoon ? -G / 5 : -G) * GOD.grav, 0);
+  const well = space3d ? gravity(acc) : false;
+  const waterTop = me.where === 'city' ? Math.max(GOD.sea, me.pos.z > WATER_Z ? WATER_Y : 0) : 0, seaUp = waterTop > 0 && me.pos.y < waterTop;
+  const wet = me.where === 'city' && (seaUp || inPool());
+  if (wet && !me.wet && me.vel.y < -3) { sound.splash(); if (!seaUp) splash(me.pos); }
   me.wet = wet;
   me.wallCool -= dt;
   if (jumpPressed && !me.onGround && !wet && me.wallCool <= 0) {
     const w = nearWall();
     if (w) { wallJump(w); jumpPressed = false; }
   }
+  if (me.land && !me.hook) me.land = null;
 
-  // puxando o amigo com CTRL você continua de pé no chão, nada te segura pela teia
-  const tied = me.hook && !me.hooks.every(h => !h || (h.pid && pulling()));
-  if (wet && !tied) {
-    const W = lot(CINEMA.i, CINEMA.j).roof.pool, k = Math.min(1, dt * 5);
-    me.vel.x += (wish.x * 5.5 - me.vel.x) * k;
-    me.vel.z += (wish.z * 5.5 - me.vel.z) * k;
-    acc.y = me.pos.y < W.water - 0.35 ? G * 0.8 : -G * 0.5;
+  me.airT = me.onGround ? 0 : me.airT + dt;
+  const braced = !me.land && me.airT < 0.08 && pulling() && !!me.hook, tied = me.hook && !braced;
+  if (braced && !me.braced) for (const h of me.hooks) if (h) h.L = me.pos.distanceTo(h.p);    // a teia fica do tamanho que está
+  me.braced = braced;
+  if (!braced) {
+    me.strain = 0;
+    if (me.sling) launch();
+  }
+  if (me.land) {
+    landPull(acc, dt);
+    if (jumpPressed && me.airJumps > 0) { me.land = null; release(); airJump(wish, fwd); acc.set(0, -G * GOD.grav, 0); }
+  } else if (wet && !tied) {
+    const top = seaUp ? waterTop : lot(CINEMA.i, CINEMA.j).roof.pool.water, k = Math.min(1, dt * 5), swim = (seaUp ? 14 : 5.5) * tall;
+    me.vel.x += (wish.x * swim - me.vel.x) * k;
+    me.vel.z += (wish.z * swim - me.vel.z) * k;
+    acc.y = seaUp && (keys.ShiftLeft || keys.ShiftRight) ? -G : me.pos.y < top - 0.35 ? G * 0.8 : -G * 0.5;     // no mar, Shift mergulha
     me.vel.y *= Math.exp(-dt * 3.5);
-    if (jumpPressed) { me.vel.y = JUMP; me.onGround = false; }
+    if (jumpPressed) { me.vel.y = JUMP * tall; me.onGround = false; }
+  } else if (powers.fly && !tied && !space3d) {
+    // voo de herói: vai pra onde a câmera aponta, Espaço sobe e Shift acelera
+    const look = new V3(0, 0, -1).applyQuaternion(camera.quaternion);
+    const go = look.multiplyScalar((keys.KeyW ? 1 : 0) - (keys.KeyS ? 1 : 0)).addScaledVector(right, (keys.KeyD ? 1 : 0) - (keys.KeyA ? 1 : 0));
+    if (keys.Space) go.y += 1;
+    if (go.lengthSq() > 0) go.normalize();
+    me.vel.lerp(go.multiplyScalar((keys.ShiftLeft || keys.ShiftRight ? 150 : 55) * tall), Math.min(1, dt * 4));
+    acc.set(0, 0, 0);
+    me.onGround = false;
   } else if (me.onGround && !tied) {
-    const sp = keys.ShiftLeft || keys.ShiftRight ? SPRINT : WALK;
-    if (Math.hypot(me.vel.x, me.vel.z) > SPRINT + 1) {
+    const sp = (braced ? WALK * BRACE_WALK * Math.pow(1 - me.strain, 1.5) : keys.ShiftLeft || keys.ShiftRight ? SPRINT : WALK) * tall;
+    if (Math.hypot(me.vel.x, me.vel.z) > (SPRINT + 1) * tall) {
       // chegou embalado: desliza e perde velocidade aos poucos, dá pra emendar outro pulo sem parar
-      const f = Math.exp(-dt * 1.1);
+      const f = Math.exp(-dt * 1.1 / Math.min(1, tall * tall));
       me.vel.x = me.vel.x * f + wish.x * AIR * dt;
       me.vel.z = me.vel.z * f + wish.z * AIR * dt;
     } else {
@@ -776,8 +1057,14 @@ function step(dt) {
     f.addScaledVector(n, -f.dot(n));
     acc.add(f);
     // perto do chão a teia encurta sozinha, pra você passar por cima em vez de arrastar o pé
-    if (!keys.KeyS) for (const h of me.hooks) {
-      if (!h || h.pid) continue;
+    for (const h of me.hooks) {
+      if (!h || !h.warp) continue;
+      h.L = Math.max(ROPE_MIN, h.L - WARP_REEL * dt);
+      acc.addScaledVector(new V3().subVectors(h.warp.a.c, me.pos).normalize(), WARP_PULL);
+    }
+    for (const h of me.hooks) if (h && h.planet) acc.addScaledVector(lookTmp.subVectors(h.planet.c, me.pos).normalize(), PLANET_PULL);
+    if (!keys.KeyS && !space3d) for (const h of me.hooks) {
+      if (!h || h.pid || h.warp) continue;
       // conta quanto a teia vai esticar nessa velocidade, senão a mola leva você pro chão do mesmo jeito
       const sag = Math.min(h.L * ROPE_STRETCH + 1.5, me.vel.lengthSq() / (Math.max(h.L, 4) * ROPE_K));
       const safe = Math.max(ROPE_MIN, h.p.y - GROUND_CLEAR - sag);
@@ -785,12 +1072,14 @@ function step(dt) {
     }
     // ajuda a manter o embalo: empurra de leve pra onde você já está indo
     const along = me.vel.clone().addScaledVector(n, -me.vel.dot(n)), sp = along.length();
-    if (sp > 8 && sp < ASSIST_TOP) acc.addScaledVector(along, ASSIST * (1 - sp / ASSIST_TOP) / sp);
+    const gain = speedCfg.gain / 100 - 1, helpTop = ASSIST_TOP + 62.5 * gain;
+    if (sp > 8 && sp < helpTop) acc.addScaledVector(along, ASSIST * (1 + gain) * (1 - sp / helpTop) / sp);
     let dl = wheel;
     if (keys.KeyE) dl -= REEL * dt;
     if (dl) for (const h of me.hooks) {
       if (!h) continue;
-      const L0 = h.L, L1 = clamp(L0 + dl, ROPE_MIN, ROPE_MAX + 10);
+      if (h.planet) continue;
+      const L0 = h.L, L1 = clamp(L0 + dl, ROPE_MIN, reach() + 10);
       if (L1 < L0 && me.pos.distanceTo(h.p) >= L0 - 0.1) {
         // encurtar com a corda esticada gira mais rápido (momento angular)
         const vr = me.vel.dot(n);
@@ -804,29 +1093,153 @@ function step(dt) {
       // boost: acelera pra onde você já está balançando (ou pra onde olha, se estiver parado)
       let t = me.vel.clone().addScaledVector(n, -me.vel.dot(n));
       if (t.lengthSq() < 4) { t = new V3(0, 0, -1).applyQuaternion(camera.quaternion); t.addScaledVector(n, -t.dot(n)); }
-      if (t.lengthSq() > 1e-6) acc.addScaledVector(t.normalize(), BOOST);
+      if (t.lengthSq() > 1e-6) acc.addScaledVector(t.normalize(), BOOST + 15 * (speedCfg.gain / 100 - 1));
       me.boosting = true;
     }
-    if (jumpPressed && me.airJumps > 0) { release(); airJump(wish, fwd); }
+    if (jumpPressed && me.airJumps > 0) { release(); if (space3d) spaceKick(wish, fwd); else airJump(wish, fwd); }
+  } else if (space3d) {
+    acc.addScaledVector(wish, SPACE_JET);
+    if (keys.ShiftLeft || keys.ShiftRight) { acc.addScaledVector(fwd, SPACE_TURBO); me.boosting = true; }
+    if (jumpPressed && (me.rock || me.airJumps > 0)) spaceKick(wish, fwd);
   } else {
-    acc.addScaledVector(wish, AIR);
+    acc.addScaledVector(wish, AIR * Math.min(1, tall));
     if (keys.ShiftLeft || keys.ShiftRight) acc.y -= DIVE;
     if (jumpPressed && me.airJumps > 0) airJump(wish, fwd);
   }
   jumpPressed = false;
+  if (braced) {
+    // E ou a rodinha recolhem a teia presa no amigo: as de prédio só esticam andando
+    let dl = wheel;
+    if (keys.KeyE) dl -= REEL * dt;
+    wheel = 0;
+    if (dl) for (const h of me.hooks) if (h && h.pid) h.L = clamp(h.L + dl, ROPE_MIN, ROPE_MAX + 10);
+  }
 
   me.vel.addScaledVector(acc, dt);
   me.vel.multiplyScalar(Math.exp(-DRAG * dt));
   const s = me.vel.length();
-  if (s > CRUISE) me.vel.multiplyScalar((CRUISE + (s - CRUISE) * Math.exp(-OVERSPEED * dt)) / s);
-  me.pos.addScaledVector(me.vel, dt);
-
-  for (const h of me.hooks) if (h && !(h.pid && pulling())) ropePull(h, dt);    // com CTRL, quem vem é o amigo, não você
-  if (me.tug) {
-    if (performance.now() < me.tug.until) ropePull(me.tug, dt);
-    else me.tug = null;
+  if (space3d) {
+    // puxado pela teia ou caindo num astro, a velocidade fica; solto no vazio, ela cai até dar pra pegar uma pedra
+    if (me.hooks.some(h => h && h.planet)) { if (s > PLANET_TOP) me.vel.multiplyScalar(PLANET_TOP / s); }
+    else if (s > SPACE_CRUISE && !well) me.vel.multiplyScalar((SPACE_CRUISE + (s - SPACE_CRUISE) * Math.exp(-SPACE_FADE * dt)) / s);
+  } else {
+    const over = s / big() - AIR_FREE;
+    if (over > 0 && !powers.fly) me.vel.multiplyScalar(Math.max(0, s - AIR_THICK * speedCfg.drag / 100 * over * over * big() * dt) / s);
+    const top = speedCfg.top / 3.6;
+    if (s > top) me.vel.multiplyScalar((top + (s - top) * Math.exp(-OVERSPEED * dt)) / s);
   }
+  me.pos.addScaledVector(me.vel, dt);
+  portalCross();
+
+  if (!braced) for (const h of me.hooks) if (h) ropePull(h, dt);
+  if (me.tug) {
+    const t = performance.now();
+    if (t < me.tug.until) ropePull(me.tug, dt);
+    else if (t > me.tug.keep) me.tug = null;
+  }
+  const fall = -me.vel.y, wasDown = me.onGround;
   collide();
+  if (me.pos.y > 1400 && GOD.grav < 0) { me.pos.y = 1400; if (me.vel.y > 0) me.vel.y = 0; }   // gravidade ao contrário: o céu tem teto
+  if (me.onGround && !wasDown && voxels()) mine.fell(fall);
+  if (me.onGround && !wasDown && fall > 30) landed(fall);
+  if (braced) holdRopes();
+  if (me.land) landDone();
+}
+
+// A gravidade dos astros. É alta de propósito: perto deles você cai sozinho. Devolve se está dentro do poço de algum.
+function gravity(acc) {
+  let well = false;
+  for (const b of BODIES) {
+    const to = lookTmp.subVectors(b.c, me.pos), d = to.length();
+    acc.addScaledVector(to, b.g * Math.pow(b.r / d, 1.7) / d);
+    if (d < b.r * 5) well = true;
+  }
+  return well;
+}
+function spaceKick(wish, fwd) {
+  if (me.rock) me.vel.addScaledVector(me.rock, SPACE_KICK);
+  else me.airJumps--;
+  me.vel.addScaledVector(wish.lengthSq() ? wish : fwd, SPACE_KICK);
+  me.rock = null;
+}
+// indo mais ou menos na direção de um astro, a rota vai curvando pra ele: é fácil acertar
+function bodyAssist(dt) {
+  const speed = me.vel.length();
+  if (speed < 12) return;
+  const dir = me.vel.clone().divideScalar(speed);
+  for (const b of BODIES) {
+    const to = new V3().subVectors(b.c, me.pos), d = to.length();
+    if (d > b.r * 9 || to.divideScalar(d).dot(dir) < 0.55) continue;
+    dir.lerp(to, 1 - Math.exp(-dt * (0.4 + 2.2 * (1 - d / (b.r * 9))))).normalize();
+    me.vel.copy(dir).multiplyScalar(speed);
+    return;
+  }
+}
+
+// encostou na boca de um portal: sai no outro com a mesma velocidade, girada junto com ele
+function portalCross() {
+  for (const p of portals.list) {
+    if (p.where !== me.where || p.open < 0.5) continue;
+    const d = (me.pos.x - p.c.x) * p.n.x + (me.pos.y - p.c.y) * p.n.y + (me.pos.z - p.c.z) * p.n.z;
+    if (d > R + 0.3 || d < -1.5 || me.vel.dot(p.n) >= 0) continue;
+    const rope = me.hooks.some(h => h && h.warp && h.warp.a === p);
+    if (!portals.inside(p, me.pos, rope ? 1.3 : me.vel.length() > 40 ? 1.14 : 1.03)) continue;
+    const q = portals.partner(p);
+    if (!q) continue;
+    goThrough(p, q);
+    return;
+  }
+}
+function goThrough(p, q) {
+  const M = portals.matrix(p, q), look = new V3(0, 0, -1).applyQuaternion(camera.quaternion);
+  me.pos.applyMatrix4(M);
+  const out = (me.pos.x - q.c.x) * q.n.x + (me.pos.y - q.c.y) * q.n.y + (me.pos.z - q.c.z) * q.n.z;
+  me.pos.addScaledVector(q.n, R + 0.35 - out);
+  const speed = me.vel.length();
+  me.vel.transformDirection(M).multiplyScalar(speed);
+  const leaving = me.vel.dot(q.n);
+  if (leaving < 6) me.vel.addScaledVector(q.n, 6 - leaving);          // nunca fica parado na boca
+  look.transformDirection(M);
+  yaw = Math.atan2(-look.x, -look.z);
+  pitch = clamp(Math.atan2(look.y, Math.hypot(look.x, look.z)), -1.4, 1.25);
+  me.mesh.quaternion.premultiply(new THREE.Quaternion().setFromRotationMatrix(M));
+  me.mesh.userData.head = null;
+  me.onGround = false;
+  me.mesh.userData.slime.reset();
+  if (me.land) { me.land = null; me.hooks[0] = me.hooks[1] = null; }     // o ponto do pouso ficou do outro lado
+  // a teia atravessa junto: a que entrava por aqui volta pro ponto de verdade, a outra passa a cruzar o portal
+  me.hooks.forEach((h, i) => {
+    if (!h) return;
+    if (h.pid || (h.warp && h.warp.a !== p)) me.hooks[i] = null;
+    else if (h.warp) { h.p.copy(h.real); h.warp = null; h.real = null; }
+    else { h.real = h.p.clone(); h.p.applyMatrix4(M); h.warp = { a: q, b: p }; }
+  });
+  sound.warp();
+}
+
+// voando na direção de um portal e olhando pra ele, a rota curva de leve pro centro. Só direção: a velocidade fica igual.
+function portalAssist(dt) {
+  const speed = me.vel.length();
+  if (speed < 14) return false;
+  const look = new V3(0, 0, -1).applyQuaternion(camera.quaternion), dir = me.vel.clone().divideScalar(speed), to = new V3();
+  const ahead = me.pos.clone().addScaledVector(me.vel, 3);
+  let best = null, bd = 240, inLine = false;
+  for (const p of portals.list) {
+    if (p.where !== me.where || p.open < 0.5 || !portals.partner(p)) continue;
+    if (portals.crossing(p, me.pos, ahead, 1.1)) inLine = true;    // a rota já cai no oval: o desvio de prédios fica de fora
+    to.subVectors(p.c, me.pos);
+    const d = to.length();
+    if (d >= bd || d < 3) continue;
+    to.divideScalar(d);
+    if (to.dot(p.n) > -0.15 || to.dot(dir) < 0.9 || to.dot(look) < 0.93) continue;
+    bd = d;
+    best = p;
+  }
+  if (!best) return inLine;
+  to.subVectors(best.c, me.pos).normalize();
+  dir.lerp(to, 1 - Math.exp(-dt * (1.1 + 2.6 * (1 - bd / 240)))).normalize();
+  me.vel.copy(dir).multiplyScalar(speed);
+  return true;
 }
 
 function ropePull(h, dt) {
@@ -876,6 +1289,11 @@ function wallJump(n) {
 
 // Reta contra as caixas dos prédios, com uma folga em volta. Devolve a distância, o eixo da face e a caixa.
 function sweep(from, dir, max, pad) {
+  if (voxels()) {
+    const h = mine.ray(from, dir, Math.min(max, 200));
+    return h ? { t: h.t, axis: h.nx ? 0 : h.ny ? 1 : 2, sign: h.nx + h.ny + h.nz, box: null } : null;
+  }
+  pad += Math.max(0, R - R0);
   let best = null, tmin = max;
   const o = [from.x, from.y, from.z], v = [dir.x, dir.y, dir.z];
   for (const L of lotsNear(from.x + dir.x * max / 2, from.z + dir.z * max / 2, max / 2 + 4)) for (const b of L.boxes) {
@@ -899,7 +1317,7 @@ function sweep(from, dir, max, pad) {
 // Entre dois prédios, puxa pro meio do vão. Só muda a direção: a velocidade continua a mesma.
 function avoid(dt) {
   const speed = me.vel.length();
-  if (speed < STEER_MIN || me.onGround || me.wet || me.where !== 'city') return;
+  if (speed < STEER_MIN || me.onGround || me.wet || me.where !== 'city' || powers.ghost || voxels()) return;
   const dir = me.vel.clone().divideScalar(speed);
   const look = clamp(speed * 0.9, 16, 160);
   let hit = sweep(me.pos, dir, look, 1.2);
@@ -936,10 +1354,11 @@ function avoid(dt) {
 
 // altura do que está embaixo de um ponto: telhado, degrau ou a rua
 const DOWN = new V3(0, -1, 0);
+const groundAt = (x, z) => (me.where === 'moon' ? space.height(x, z) : me.where === 'city' ? Math.max(sandY(z), GOD.sea, z > WATER_Z ? WATER_Y : 0) : 0);
 function floorUnder(p) {
   if (me.where === 'moon') return space.height(p.x, p.z);
   const hit = sweep(p, DOWN, 40, 0);
-  return hit ? p.y - hit.t : 0;
+  return hit ? p.y - hit.t : sandY(p.z);
 }
 
 function airJump(wish, fwd) {
@@ -967,7 +1386,7 @@ function hookCenter(list) {
   return n ? midHook.divideScalar(n) : null;
 }
 function sendJoin() { net.send({ t: 'join', name: NAME, color: COLOR, skin: SKIN, skin3: SKIN3, slime: SLIME }); }
-me.mesh.userData.slime.onSplat = hard => { if (hard > 14) sound.splat(clamp(hard / 60, 0.3, 1)); };
+me.mesh.userData.slime.onSplat = hard => { if (hard > 14 && !me.wet) sound.splat(clamp(hard / 60, 0.3, 1)); };
 voice.mount($('#voice-box'));
 
 // a laje e a quadra ficam sempre na cena (não entram e saem com os pedaços de cidade)
@@ -976,6 +1395,7 @@ const roofFx = buildRoof(CINE, mats, city, day);
 const courtFx = buildCourt(COURT_LOT, mats, city, day);
 const crowd = new Crowd(city);
 const traffic = new Traffic(city);
+for (const m of [crowd.torso.material, crowd.extraMat, traffic.mat, mats.small, mats.canopy]) art.markFine(m);
 const skyline = new Skyline(city, lot, CELL);
 const ctx = { scene: city, mats, sound, send: o => net.send(o), toast: t => showToast(t), myId: () => myId, myName: () => NAME };
 const board = new Whiteboard(ctx, CINE.roof.board);
@@ -1031,6 +1451,10 @@ function onNet(m) {
       applyCinema(m.party && m.party.cinema, null);
       applyRadio(m.party && m.party.radio, null);
       if (m.party?.time) timeState = m.party.time;
+      if (m.party?.god) applyGod(m.party.god);
+      for (const k of m.eaten || []) eatenLots.add(k);
+      for (const [x, y, z, b] of m.vox || []) mine.set(x, y, z, b, true);
+      if (m.eaten?.length) refreshLots();
       if (m.shared?.sinuca) sinuca.onNet(m.shared.sinuca, true);
       if (m.shared?.pong) pong.onNet(m.shared.pong);
       if (m.shared?.bola) basket.onNet(m.shared.bola);
@@ -1039,6 +1463,7 @@ function onNet(m) {
       clockOffset = m.now - Date.now();
       if (m.changed.includes('cinema')) applyCinema(m.party.cinema, m.by);
       if (m.changed.includes('radio')) applyRadio(m.party.radio, m.by);
+      if (m.changed.includes('god')) applyGod(m.party.god);
       if (m.changed.includes('time')) {
         timeState = m.party.time;
         if (m.by && m.by !== NAME) showToast(`🕑 ${m.by} ${timeState.locked ? 'travou' : 'mudou'} o horário: ${hourLabel(timeState.hour)}`);
@@ -1057,6 +1482,8 @@ function onNet(m) {
       else if (m.k === 'cesta') showToast(`🏀 ${m.n} fez uma cesta de ${m.pts}!`);
       break;
     case 'p3': touched(m); break;
+    case 'e3': godEvent(m); break;
+    case 'pt': portals.set(m.id, m.c, { c: m.p, n: m.n, u: m.u, where: m.wd }); break;
     case 'join': case 'players':
       for (const p of m.players || [m]) { infos.set(p.id, p); const r = remotes.get(p.id); if (r) r.setInfo(p); }
       break;
@@ -1064,6 +1491,7 @@ function onNet(m) {
       const r = remotes.get(m.id);
       if (r) r.dispose();
       remotes.delete(m.id);
+      portals.clear(m.id);
       if (me.carry === m.id) me.carry = 0;
       if (me.carried === m.id) me.carried = 0;
       infos.delete(m.id);
@@ -1107,9 +1535,10 @@ class Remote3 {
     this.label.position.y = 2;
     this.mesh.add(this.label);
     this.ropes = [makeRope(info.skin3 || 'spider', info.color || '#ffffff'), makeRope(info.skin3 || 'spider', info.color || '#ffffff')];
+    this.gun = makeGun();
     scene.add(this.mesh);
   }
-  dispose() { if (this.mesh) { scene.remove(this.mesh, ...this.ropes); this.mesh.userData.slime.dispose(); } }
+  dispose() { if (this.mesh) { scene.remove(this.mesh, ...this.ropes, this.gun); this.mesh.userData.slime.dispose(); } }
   push(s) { s.rt = performance.now(); this.snaps.push(s); if (this.snaps.length > 30) this.snaps.shift(); }
   get stale() { const l = this.snaps[this.snaps.length - 1]; return !l || performance.now() - l.rt > 4000; }
   update(dt) {
@@ -1123,7 +1552,8 @@ class Remote3 {
     this.pos = new V3(P(a, 0), P(a, 1), P(a, 2));
     const src = b && k > 0.5 ? b : a;
     this.mesh.position.copy(this.pos);
-    this.mesh.quaternion.set(src.q[0], src.q[1], src.q[2], src.q[3]);
+    this.mesh.quaternion.set(a.q[0], a.q[1], a.q[2], a.q[3]);
+    if (b) this.mesh.quaternion.slerp(tmpQ.set(b.q[0], b.q[1], b.q[2], b.q[3]), k);
     this.where = src.wd || 'city';
     this.mesh.visible = !this.stale && this.where === me.where;
     const V = (s, i) => (b ? s.v[i] + (b.v[i] - s.v[i]) * k : s.v[i]);
@@ -1135,11 +1565,14 @@ class Remote3 {
       return p && { p, t: this.shot[i] };
     });
     const body = this.mesh.userData.slime;
+    if ((src.sz || 1) !== body.size) { body.setSize(src.sz || 1); this.label.position.y = 2 * (src.sz || 1); }
+    this.front = new V3(0, 0, -1).applyQuaternion(this.mesh.quaternion);
     this.pending = (this.pending || 0) + dt;
     this.turn = ((this.turn || 0) + 1) % 3;
     if (this.turn && this.pos.distanceToSquared(camera.position) > 6400) { body.group.position.copy(this.pos); body.group.visible = this.mesh.visible; }
-    else { body.update(this.pending, { pos: this.pos, vel: this.vel, quat: this.mesh.quaternion, hooks, onGround: !!src.g, flip: src.fl || 0, sit: !!src.st, wet: !!src.w, sling: src.sl || 0, hold: !!src.c, floor: src.g ? this.pos.y - R : floorUnder(this.pos), visible: this.mesh.visible }); this.pending = 0; }
+    else { body.update(this.pending, { pos: this.pos, vel: this.vel, quat: this.mesh.quaternion, hooks, onGround: !!src.g, flip: src.fl || 0, flipAxis: src.fa ? (this.flipV ||= new V3()).fromArray(src.fa) : null, sit: !!src.st, wet: !!src.w, sling: src.sl || 0, braced: !!src.br, hold: !!src.c, aim: src.it ? this.front : null, floor: this.where === 'trip' ? undefined : src.g ? this.pos.y - R0 * (src.sz || 1) : floorUnder(this.pos), visible: this.mesh.visible }); this.pending = 0; }
     placeRopes(this.ropes, hooks, body);
+    holdGun(this.gun, ITEMS[(src.it || 0) - 1], body.hands[1], this.front, this.mesh.visible && !hooks[1]);
   }
 }
 
@@ -1241,8 +1674,10 @@ $('#radio-play').onclick = radioFromInput;
 $('#radio-stop').onclick = () => { setRadio(null); lockMouse(); };
 $('#music-stop').onclick = () => setRadio(null);
 radioUi.url.addEventListener('keydown', e => { if (e.key === 'Enter') radioFromInput(); });
+const openTab = name => $(`#tabs [data-tab="${name}"]`).click();
 function openRadio() {
   unlockMouse();
+  openTab('som');
   setTimeout(() => radioUi.url.focus(), 60);
 }
 
@@ -1273,7 +1708,7 @@ charUi.skins.onclick = e => {
   SKIN3 = prefs.skin3 = b.dataset.v;
   savePrefs();
   me.mesh.userData.slime.setSkin(SKIN3, COLOR);
-  for (const r of me.ropes) r.material.color.set(SKIN3 === 'scarf' ? COLOR : '#f4f6ff');
+  for (const r of [...me.ropes, ...me.ropes2]) r.material.color.set(SLIME_SKINS[SKIN3].arm ? COLOR : '#f4f6ff');
   stage?.body.setSkin(SKIN3, COLOR);
   stage?.poke();
   sendJoin();
@@ -1287,6 +1722,51 @@ charUi.amt.oninput = () => {
 };
 charUi.amt.onchange = () => { prefs.slime = SLIME; savePrefs(); sendJoin(); stage?.poke(); };
 renderChar();
+
+// ------------------------------------------------------------------ estilos de arte (menu)
+
+const artUi = $('#art-pick');
+let artAuto = false, artClock = 0;
+// o mundo de blocos toma o lugar dos prédios; gente, carros, horizonte, parque e praia continuam
+const mineHid = new Set();     // só volta o que estava à vista: o que já vivia escondido continua escondido
+function syncMine() {
+  const on = !!art.style.mine && me.where === 'city';
+  if (on === mine.active) return;
+  const keep = new Set([skyline.mesh, crowd.torso, crowd.head, crowd.legs, crowd.arms, crowd.hats, crowd.skirts, crowd.bags, crowd.dogs, ...traffic.bodies, traffic.lights, fun.group, coast.mesh, beach.group]);
+  if (on) { for (const c of city.children) if (!keep.has(c) && c.visible) { c.visible = false; mineHid.add(c); } }
+  else { for (const c of mineHid) c.visible = true; mineHid.clear(); }
+  crowd.head.geometry = on ? squareHead : roundHead;
+  crowd.hair.visible = !on;
+  beach.sand.visible = beach.walk.visible = !on;
+  mine.setActive(on);
+  selectSlot(on ? mine.slot : -1);
+  skyline.dirty = true;
+  slimes.blocky = on ? (skin, color) => new BlockBody(scene, skin, color) : null;
+  if (on) showToast('⛏️ Perto: segure o clique pra quebrar · Longe: teia em qualquer bloco · E = mochila · Direito = põe bloco ou come');
+}
+function setArt(id, quiet) {
+  art.set(id);
+  moment('arte ' + art.style.id);
+  prefs.art = art.style.id;
+  savePrefs();
+  ground.geometry = art.style.jelly || GOD.bend ? denseGround() : flatGround;
+  glowMat.opacity = art.glow;
+  syncMine();
+  artUi.querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.v === art.style.id));
+  if (!quiet) showToast(`${art.style.icon} ${art.style.label}`);
+}
+for (const s of ART_STYLES) {
+  const b = document.createElement('button');
+  b.dataset.v = s.id;
+  b.textContent = `${s.icon} ${s.label}`;
+  artUi.appendChild(b);
+}
+artUi.onclick = e => { const b = e.target.closest('button'); if (b) { artAuto = false; $('#art-auto').classList.remove('on'); setArt(b.dataset.v); } };
+function nextArt(rand) {
+  const list = ART_STYLES, k = list.findIndex(s => s.id === art.style.id);
+  setArt(list[rand ? (k + 1 + Math.floor(Math.random() * (list.length - 1))) % list.length : (k + 1) % list.length].id);
+}
+$('#art-auto').onclick = e => { artAuto = !artAuto; artClock = 0; e.currentTarget.classList.toggle('on', artAuto); };
 
 // ------------------------------------------------------------------ horário do dia (menu)
 
@@ -1303,6 +1783,10 @@ function renderTime() {
 }
 
 // ------------------------------------------------------------------ qualidade: no automático, acompanha o FPS real
+
+// o que acabou de acontecer: um quadro demorado vai pro registro com o nome do que o causou
+const lastMoment = { what: '', at: -1e9 };
+const moment = what => { lastMoment.what = what; lastMoment.at = performance.now(); };
 
 let qLevel = 3;
 const perf = { sum: 0, n: 0, worst: 0, fps: 0, shownWorst: 0, hold: performance.now() + 8000, good: 0, raisedAt: -1e9, ceiling: 3, show: false, drew: 0 };
@@ -1337,8 +1821,16 @@ function setQuality(v) {
 qualSeg.onclick = e => { const b = e.target.closest('button'); if (b) setQuality(b.dataset.v); };
 applyQuality(['0', '1', '2', '3'].includes(prefs.quality) ? Number(prefs.quality) : SOFTWARE ? 0 : 3);
 
+const report = { at: performance.now() + 15000, sum: 0, n: 0, worst: 0, best: 1000, spikes: [] };
+const gpuName = (() => {
+  const gl = renderer.getContext(), e = gl.getExtension('WEBGL_debug_renderer_info');
+  return e ? String(gl.getParameter(e.UNMASKED_RENDERER_WEBGL)).slice(0, 90) : '?';
+})();
 function watchFrames(ms, now) {
-  if (ms > 500 || document.hidden) return;     // pausa ou aba escondida não contam
+  if (document.hidden) return;                 // aba escondida não conta
+  if (ms > 50 && report.spikes.length < 8) report.spikes.push(`${now - lastMoment.at < 1500 ? lastMoment.what : 'jogando'} ${Math.round(ms)} ms`);
+  if (ms > 500) return;
+  report.best = Math.min(report.best, ms);
   perf.sum += ms;
   perf.n++;
   perf.worst = Math.max(perf.worst, ms);
@@ -1346,6 +1838,11 @@ function watchFrames(ms, now) {
   const avg = perf.sum / perf.n;
   perf.fps = 1000 / avg;
   perf.shownWorst = perf.worst;
+  report.sum += perf.fps; report.n++; report.worst = Math.max(report.worst, perf.worst);
+  if (now > report.at) {
+    net.send({ t: 'perf', fps: Math.round(report.sum / report.n), worst: Math.round(report.worst), q: Q.name, art: art.style.id, where: me.where, gpu: gpuName, w: renderer.domElement.width, h: renderer.domElement.height, hz: Math.round(1000 / Math.max(1, report.best)), prog: renderer.info.programs.length, spikes: report.spikes.join(', ') });
+    report.at = now + 15000; report.sum = report.n = report.worst = 0; report.best = 1000; report.spikes = [];
+  }
   perf.sum = perf.n = perf.worst = 0;
   if ((prefs.quality ?? 'auto') !== 'auto' || now < perf.hold) return;
   if (avg > 28 && qLevel > 0) {
@@ -1372,11 +1869,19 @@ function teleport(p) {
 }
 $('#go-roof').onclick = () => { teleport(new V3(CINE.cx + 8, CINE.roof.Y + 0.7, CINE.cz + 4)); yaw = 0; lockMouse(); };
 $('#go-court').onclick = () => { teleport(new V3(COURT_LOT.cx - 13, COURT_LOT.courtData.Y + 0.7, COURT_LOT.cz)); yaw = -Math.PI / 2; lockMouse(); };
+$('#go-park').onclick = () => { teleport(FUN_GATE); yaw = Math.PI / 2; pitch = 0; lockMouse(); };
+$('#go-beach').onclick = () => { teleport(BEACH_SPOT); yaw = Math.PI; pitch = -0.05; lockMouse(); };
 
 // ------------------------------------------------------------------ mundos: cidade, viagem, lua e backrooms
 
 const space = new Space(scene);
 const back = new Backrooms(scene);
+const sea = new Sea(scene, slimes.u.uSun.value);
+const coast = new Sea(city, slimes.u.uSun.value, WATER_Z);
+const fun = new FunPark(city);
+const beach = new Beach(city);
+const underEl = $('#under');
+let timeK = 1, worldT = null, worldStopped = false;
 const fx = { veil: 0, chill: 0, veilOn: 0, chillOn: 0, ring: 0 };
 const veilEl = $('#veil'), chillEl = $('#chill'), gazeEl = $('#gaze');
 const SPACE_LIGHT = { sun: SUN, col: '#fff4e0', i: 3.6, sky: '#26345c', gnd: '#0a0c14', hor: '#0c1224', top: '#02030a', hemi: 0.75, night: 0.22, box: 0.9 };
@@ -1385,6 +1890,7 @@ const BACK_LIGHT = { sun: new V3(0.1, 1, 0.1).normalize(), col: '#fff2c0', i: 1.
 function setWhere(w) {
   if (me.carry && w !== me.where) throwFriend();
   me.where = w;
+  moment('mundo ' + w);
   const out = w !== 'city';
   city.visible = !out;
   day.sky.visible = day.stars.visible = !out;
@@ -1393,6 +1899,8 @@ function setWhere(w) {
   renderer.setClearColor(w === 'back' ? 0x5e5226 : 0x000000, out ? 1 : 0);    // nas backrooms, o fim do corredor some na neblina
   slimes.override = w === 'back' ? BACK_LIGHT : out ? SPACE_LIGHT : null;
   sound.hum(w === 'back');
+  art.setBend(w === 'city' ? GOD.bend * 1.5e-5 : 0);
+  if (mine) syncMine();
 }
 
 function warp(color, fn) {
@@ -1441,7 +1949,7 @@ function watchSky(dir) {
 
 // a viagem é um roteiro: nada de física, o corpo só vai. Lá fora a câmera fica parada e os astros é que mudam de tamanho.
 const trip = {
-  on: false, back: false, landing: false, t: 0, stage: 0, clouds: false, shownSpeed: 0, nextBeat: 0,
+  on: false, back: false, landing: false, t: 0, hand: 0, clouds: false, shownSpeed: 0, nextBeat: 0,
   dir: new V3(), far: new V3(), hooks: [null, null], earth: space.earthSky.clone(), earthA: 0.05, moon: new V3(0, -1, 0), moonA: 0.9,
 };
 function startTrip(hand) {
@@ -1453,7 +1961,7 @@ function startTrip(hand) {
   hookWait[0] = hookWait[1] = true;
   gaze.t = 0;
   gaze.ready = false;
-  Object.assign(trip, { on: true, back: fromMoon, t: 0, stage: 0, clouds: false, nextBeat: 9 });
+  Object.assign(trip, { on: true, back: fromMoon, t: 0, hand, clouds: false, nextBeat: 0 });
   trip.dir.copy(skyDir()).normalize();
   trip.hooks = [null, null];
   trip.hooks[hand] = { p: trip.far, t: 0 };
@@ -1463,84 +1971,79 @@ function startTrip(hand) {
   sound.liftoff();
 }
 
-// empurra o olhar de leve: dá pra mexer o mouse, mas a cena principal acontece na sua frente
-function steerLook(d, rate, dt) {
-  const wantYaw = Math.atan2(-d.x, -d.z), wantPitch = clamp(Math.atan2(d.y, Math.hypot(d.x, d.z)), -1.4, 1.25);
-  yaw += Math.atan2(Math.sin(wantYaw - yaw), Math.cos(wantYaw - yaw)) * (1 - Math.exp(-dt * rate));
-  pitch += (wantPitch - pitch) * (1 - Math.exp(-dt * rate));
-}
-
 const lookTmp = new V3();
+// a subida é um roteiro: sai do meio dos prédios, some nas nuvens e entra no espaço. De lá pra frente é física.
 function tripStep(dt) {
-  const T = trip, t = (T.t += dt), h = T.hooks[0] || T.hooks[1];
+  const T = trip, t = (T.t += dt), h = T.hooks[T.hand];
   h.t += dt;
   T.far.copy(camera.position).addScaledVector(T.dir, 3900);
-  if (t > T.nextBeat && me.where === 'trip') { T.nextBeat = t + 1.25; sound.heart(); }
   if (!T.back) {
-    if (t < 6) {
-      // sobe reto pra sair do meio dos prédios e vai curvando na direção da lua
-      const d = lookTmp.copy(UP).lerp(T.dir, sstep(0.8, 4, t)).normalize();
-      me.vel.copy(d).multiplyScalar(20 + 21 * t * t);
-      me.pos.addScaledVector(me.vel, dt);
-      fx.veil = sstep(4.8, 5.9, t);
-      T.shownSpeed = me.vel.length() * 3.6;
-      if (t > 2.4 && !T.clouds) {
-        T.clouds = true;
-        space.spawnClouds(me.pos, d, day.cur.cloudLit);
-        veilEl.style.background = '#' + day.cur.cloudLit.getHexString();
-      }
-    } else {
-      if (T.stage === 0) {
-        // sai das nuvens já olhando pro horizonte: a Terra enorme e curva embaixo, o preto em cima
-        T.stage = 1;
-        space.hideClouds();
-        space.sunBeside(T.dir);
-        setWhere('trip');
-        me.pos.set(0, 0, 0);
-        pitch = -0.42;
-      }
-      const u = clamp((t - 6) / 19, 0, 1);
-      if (t < 24) fx.veil = 1 - sstep(6, 7.3, t);
-      else { veilEl.style.background = '#8d8d94'; fx.veil = sstep(24.3, 24.95, t); }
-      fx.chill = sstep(6.5, 9.5, t) * (1 - sstep(22.5, 24.5, t));
-      T.earth.set(0, -1, 0).lerp(lookTmp.copy(T.dir).negate(), sstep(0, 0.25, u)).normalize();
-      T.earthA = 1.3 * Math.exp(-Math.pow(u, 1.25) * 5.4);
-      T.moon.copy(T.dir);
-      T.moonA = 0.032 * Math.exp(Math.pow(u, 2.8) * Math.log(1.45 / 0.032));
-      me.vel.copy(T.dir).multiplyScalar(80);
-      T.shownSpeed = 3000 + u * u * 37000;
-      // no meio do caminho a câmera vira pra você ver a Terra ficando pra trás
-      if (u > 0.2 && u < 0.54) steerLook(T.earth, 1.5, dt);
-      else if (u > 0.58) steerLook(T.dir, u > 0.88 ? 4 : 1.2, dt);
-      if (t >= 25) landOnMoon();
+    const d = lookTmp.copy(UP).lerp(T.dir, sstep(0.8, 4, t)).normalize();
+    me.vel.copy(d).multiplyScalar(20 + 21 * t * t);
+    me.pos.addScaledVector(me.vel, dt);
+    fx.veil = sstep(4.8, 5.9, t);
+    if (t > 2.4 && !T.clouds) {
+      T.clouds = true;
+      space.spawnClouds(me.pos, d, day.cur.cloudLit);
+      veilEl.style.background = '#' + day.cur.cloudLit.getHexString();
     }
+    if (t >= 6) enterSpace(EARTH, MOON);
   } else {
-    if (t < 2.2) {
-      me.vel.copy(T.dir).multiplyScalar(14 + 46 * t * t);
-      me.pos.addScaledVector(me.vel, dt);
-      fx.veil = sstep(1.7, 2.2, t);
-      T.shownSpeed = me.vel.length() * 3.6;
-    } else {
-      if (T.stage === 0) { T.stage = 1; space.sunBeside(T.dir); setWhere('trip'); me.pos.set(0, 0, 0); }
-      const u = clamp((t - 2.2) / 17.8, 0, 1);
-      if (t < 18) fx.veil = 1 - sstep(2.2, 2.9, t);
-      else { veilEl.style.background = '#e8f0ff'; fx.veil = sstep(18.7, 19.9, t); }
-      fx.chill = sstep(2.5, 4.5, t) * (1 - sstep(16.5, 18.8, t));
-      T.earth.copy(T.dir);
-      T.earthA = 0.055 * Math.exp(Math.pow(u, 2.4) * Math.log(1.4 / 0.055));
-      T.moon.set(0, -1, 0).lerp(lookTmp.copy(T.dir).negate(), sstep(0, 0.3, u)).normalize();
-      T.moonA = 0.95 * Math.exp(-u * 3.4);
-      me.vel.copy(T.dir).multiplyScalar(80);
-      T.shownSpeed = 40000 - u * 30000;
-      if (u > 0.2 && u < 0.45) steerLook(T.moon, 1.3, dt);
-      else if (u > 0.5) steerLook(T.dir, u > 0.85 ? 3.5 : 1.2, dt);
-      if (t >= 20) arriveHome();
-    }
+    me.vel.copy(T.dir).multiplyScalar(14 + 46 * t * t);
+    me.pos.addScaledVector(me.vel, dt);
+    fx.veil = sstep(1.7, 2.2, t);
+    if (t >= 2.2) enterSpace(MOON, EARTH);
   }
+  T.shownSpeed = me.vel.length() * 3.6;
+}
+
+// Terra e Lua têm lugar fixo no espaço, o céu de quem sobe não. O que muda é a visão inteira, de um jeito só, atrás do clarão.
+function enterSpace(from, to) {
+  const way = new V3().subVectors(to.c, from.c).normalize();
+  const turn = new THREE.Quaternion().setFromUnitVectors(trip.dir, way);
+  const look = new V3(0, 0, -1).applyQuaternion(camera.quaternion).applyQuaternion(turn);
+  const speed = me.vel.length();
+  space.hideClouds();
+  space.sunBeside(way);
+  setWhere('trip');
+  trip.on = false;
+  me.pos.copy(from.c).addScaledVector(way, from.r + 500);
+  me.vel.copy(way).multiplyScalar(speed);
+  me.onGround = false;
+  me.airJumps = 1;
+  yaw = Math.atan2(-look.x, -look.z);
+  pitch = clamp(Math.atan2(look.y, Math.hypot(look.x, look.z)), -1.4, 1.25);
+  space.followBelt(me.pos);
+  skyInSpace();
+  // quem segurou o botão a subida inteira continua preso na teia
+  if ((trip.hand ? mouseRight : mouseDown) && !heldItem()) attachPlanet(to, trip.hand);
+}
+function attachPlanet(b, hand) {
+  me.hooks[hand] = { p: new V3(), L: 1e9, pid: 0, id: b === MOON ? -1 : -2, t: 0, warp: null, real: null, planet: b };
+  me.airJumps = 1;
+  sound.liftoff();
+}
+// astros: direção e tamanho aparente de verdade, de onde a câmera está
+function skyInSpace() {
+  const c = camera.position;
+  for (const [b, dirOut, key] of [[EARTH, trip.earth, 'earthA'], [MOON, trip.moon, 'moonA']]) {
+    dirOut.subVectors(b.c, c);
+    const d = dirOut.length();
+    dirOut.divideScalar(d);
+    trip[key] = Math.asin(Math.min(0.997, b.r / d));
+  }
+  for (const h of me.hooks) if (h && h.planet) h.p.copy(c).addScaledVector(lookTmp.subVectors(h.planet.c, c).normalize(), 3900);
+}
+function nearestBody() {
+  let best = BODIES[0], bd = Infinity;
+  for (const b of BODIES) { const d = me.pos.distanceTo(b.c) - b.r; if (d < bd) { bd = d; best = b; } }
+  return { b: best, d: bd };
 }
 function landOnMoon() {
   trip.on = false;
   trip.landing = true;
+  me.hooks[0] = me.hooks[1] = null;
+  hookWait[0] = hookWait[1] = true;
   trip.earth.copy(space.earthSky);
   trip.earthA = 0.055;
   space.sunOnMoon();
@@ -1565,15 +2068,423 @@ function settleOnMoon(dt) {
   if (view.roll < 0.01) { view.roll = 0; trip.landing = false; }
 }
 function arriveHome() {
+  const look = new V3(0, 0, -1).applyQuaternion(camera.quaternion), down = new V3().subVectors(EARTH.c, me.pos).normalize();
   trip.on = false;
+  me.hooks[0] = me.hooks[1] = null;
+  hookWait[0] = hookWait[1] = true;
   setWhere('city');
   me.pos.set(me.home.x, 900, me.home.z);
   me.vel.set(0, -240, 0);
-  pitch = -1.1;
+  if (look.dot(down) > 0.3) pitch = -1.1;     // quem vinha olhando pra Terra continua olhando pro chão
   fx.veil = 1;
   space.spawnClouds(me.pos, new V3(0, -1, 0), day.cur.cloudLit);
   setTimeout(() => space.hideClouds(), 4000);
 }
+
+// ------------------------------------------------------------------ inventário
+
+const ITEMS = [
+  { kind: 'portal', color: 0, tint: PORTAL_COLORS[0] }, { kind: 'portal', color: 1, tint: PORTAL_COLORS[1] },
+  { kind: 'rain', what: 'carro', tint: '#ff5a3a', icon: '🚗', name: 'Chuva de carros' },
+];
+let held = -1;
+const heldItem = () => (held >= 0 ? ITEMS[held] : null);
+const hotbar = ITEMS.map((item, i) => {
+  const el = document.createElement('div');
+  el.className = 'slot';
+  el.innerHTML = `<b>${i + 1}</b>${item?.icon ? `<em>${item.icon}</em>` : item ? `<i style="color:${item.tint}"></i>` : ''}`;
+  $('#hotbar').appendChild(el);
+  return el;
+});
+function selectSlot(i) {
+  if (mine?.active) {
+    mine.select(i);
+    const s = mine.held;
+    held = s?.t === 'item' ? s.i : -1;
+    if (held >= 0 && me.hooks[1]) release(1);
+    return;
+  }
+  held = held === i || !ITEMS[i] ? -1 : i;
+  hotbar.forEach((el, k) => el.classList.toggle('on', k === held));
+  const item = heldItem();
+  $('#cross').style.borderColor = item ? item.tint : '';
+  if (item) {
+    mouseRight = false;
+    if (me.hooks[1]) release(1);          // a mão direita agora segura a arma
+  }
+}
+
+// onde o tiro bate: caixas dos prédios, chão e (nas backrooms) teto
+function portalRay(from, dir) {
+  if (me.where === 'moon') {
+    for (let t = 2; t < 900; t += 2 + t * 0.02) {
+      const x = from.x + dir.x * t, y = from.y + dir.y * t, z = from.z + dir.z * t, h = space.height(x, z);
+      if (y > h) continue;
+      const e = 2, n = new V3(space.height(x - e, z) - space.height(x + e, z), 2 * e, space.height(x, z - e) - space.height(x, z + e)).normalize();
+      return { at: new V3(x, h, z), n };
+    }
+    return null;
+  }
+  const hit = sweep(from, dir, 1400, 0);
+  let t = hit ? hit.t : Infinity, n = null;
+  if (hit) n = new V3().setComponent(hit.axis, hit.sign);
+  if (dir.y < 0 && -from.y / dir.y < t) { t = -from.y / dir.y; n = new V3(0, 1, 0); }
+  if (me.where === 'back' && dir.y > 0 && (BACK_H - from.y) / dir.y < t) { t = (BACK_H - from.y) / dir.y; n = new V3(0, -1, 0); }
+  if (!n) return null;
+  const onBox = hit && hit.t === t;
+  return { at: from.clone().addScaledVector(dir, t), n, box: onBox ? hit.box : null, axis: onBox ? hit.axis : 1 };
+}
+const fit = (v, lo, hi) => (lo > hi ? (lo + hi) / 2 : clamp(v, lo, hi));
+function firePortal(color) {
+  moment('portal');
+  const dir = new V3(0, 0, -1).applyQuaternion(camera.quaternion), hit = portalRay(camera.position, dir);
+  if (!hit) { sound.miss(); return; }
+  const { at, n, box } = hit;
+  // o oval inteiro tem que caber na parede: escorrega pra dentro dela se bater perto da borda
+  const wall = Math.abs(n.y) < 0.5;
+  if (box) {
+    const reach = wall ? PORTAL_W + 0.2 : PORTAL_H + 0.2;
+    for (const k of [0, 2]) if (k !== hit.axis) at.setComponent(k, fit(at.getComponent(k), box[k] + reach, box[k + 3] - reach));
+    if (wall) at.y = fit(at.y, box[1] + PORTAL_H + 0.15, box[4] - PORTAL_H - 0.15);
+  }
+  const up = wall ? new V3(0, 1, 0) : dir.clone().addScaledVector(n, -dir.dot(n));
+  if (up.lengthSq() < 0.01) up.set(0, 0, -1).applyQuaternion(camera.quaternion);
+  up.addScaledVector(n, -up.dot(n)).normalize();
+  at.addScaledVector(n, 0.12);
+  const r2 = v => Math.round(v * 1000) / 1000, data = { c: at.toArray().map(r2), n: n.toArray().map(r2), u: up.toArray().map(r2), where: me.where };
+  portals.set(myId ?? 0, color, data);
+  net.send({ t: 'pt', c: color, p: data.c, n: data.n, u: data.u, wd: me.where });
+  sound.portal(color);
+}
+
+// ------------------------------------------------------------------ poderes
+
+const POWERS = [
+  { id: 'eat', icon: '🍔', name: 'Comilão', desc: 'come gente, carro e prédio, e cresce' },
+  { id: 'magnet', icon: '🧲', name: 'Ímã de comida', desc: 'com o Comilão, a comida vem até você' },
+  { id: 'fly', icon: '🦸', name: 'Voo de herói', desc: 'W vai pra onde olha · Espaço sobe · Shift acelera' },
+  { id: 'ghost', icon: '👻', name: 'Fantasma', desc: 'atravessa prédio' },
+  { id: 'slam', icon: '💥', name: 'Pouso bomba', desc: 'cair forte joga tudo pra longe' },
+];
+const powers = {};
+for (const p of POWERS) powers[p.id] = !!prefs.powers?.[p.id];
+const powerUi = $('#power-pick');
+for (const p of POWERS) {
+  const b = document.createElement('button');
+  b.dataset.v = p.id;
+  b.innerHTML = `${p.icon} ${p.name}<small>${p.desc}</small>`;
+  b.classList.toggle('on', powers[p.id]);
+  powerUi.appendChild(b);
+}
+function setPower(id, on) {
+  powers[id] = on;
+  prefs.powers = { ...powers };
+  savePrefs();
+  powerUi.querySelector(`[data-v="${id}"]`).classList.toggle('on', on);
+  if (id === 'eat') { me.mass = 0; me.eaten = 0; flyers.emptyBelly(); $('#eat-hud').classList.toggle('hidden', !on); }
+}
+powerUi.onclick = e => { const b = e.target.closest('button'); if (b) setPower(b.dataset.v, !powers[b.dataset.v]); };
+$('#eat-hud').classList.toggle('hidden', !powers.eat);
+$('#item-legend').innerHTML = ITEMS.map((it, i) => (it.icon ? `<b>${i + 1}</b> ${it.icon} ${it.name}` : `<b>${i + 1}</b> Portal ${it.color ? 'laranja' : 'azul'}`)).join(' · ')
+  + '<br><b>X</b> segurado = câmera lenta · <b>Z</b> segurado = rebobinar · <b>H</b> grava um clone seu · <b>J</b> apaga os clones · <b>N</b> para o mundo · <b>B</b> troca a arte';
+
+// tamanho: o controle do menu vai de 1/16 a 16 vezes; o que você come multiplica por cima
+const sizeUi = { amt: $('#size-amt'), label: $('#size-label') };
+function setBase(v) {
+  prefs.size = v;
+  savePrefs();
+  me.base = Math.pow(2, v / 25);
+  sizeUi.amt.value = v;
+  sizeUi.label.textContent = `${me.base.toLocaleString('pt-BR', { maximumFractionDigits: 2 })}×`;
+}
+sizeUi.amt.oninput = () => setBase(Number(sizeUi.amt.value));
+setBase(Number.isFinite(prefs.size) ? clamp(prefs.size, -100, 100) : 0);
+
+function growBody(dt) {
+  const want = me.base * Math.cbrt(1 + me.mass);
+  if (Math.abs(want - me.size) < 1e-3) return;
+  me.size += (want - me.size) * Math.min(1, dt * 5);
+  R = R0 * me.size;
+  me.mesh.userData.slime.setSize(me.size);
+}
+
+// comida: gente, carro e prédio
+const flyers = new Flyers(scene, traffic.geos[0], (x, y, z) => floorAt(x, y, z));
+const belly = new V3();
+let eatLevel = 0;
+function floorAt(x, y, z) {
+  if (me.where !== 'city') return -1e9;
+  const L = lot(Math.floor(x / CELL), Math.floor(z / CELL));
+  return !L.park && Math.abs(x - L.cx) < L.w / 2 && Math.abs(z - L.cz) < L.d / 2 && y > L.h - 6 ? L.h + (L.cinema || L.court ? 0 : 0.8) : sandY(z);
+}
+function gobble(key, x, y, z, color, scale, mass) {
+  me.mass += mass;
+  me.eaten++;
+  flyers.add(key, x, y, z, { mode: 'seek', to: me.pos, near: R * 1.2, life: 2.5, color, scale: scale || 1, then: 'belly', afterLife: 16 });
+  sound.gulp(clamp(mass / CAR_MASS, 0.2, 1));
+  $('#eat-hud').textContent = `🍔 ${me.eaten} comidos · ${me.size.toLocaleString('pt-BR', { maximumFractionDigits: 1 })}×`;
+  const lv = me.size >= EAT_LOT ? 2 : me.size >= EAT_CAR ? 1 : 0;
+  if (lv > eatLevel) { eatLevel = lv; showToast(lv > 1 ? '🏢 Você já é grande o bastante pra comer prédio!' : '🚗 Agora dá pra comer carro!'); }
+}
+function dropChunkOf(i, j) {
+  const key = chunkOf(i) + ',' + chunkOf(j), c = chunks.get(key);
+  if (!c) return;
+  city.remove(c.group);
+  c.group.traverse(o => { if ((o.isMesh || o.isPoints) && !o.geometry.userData.shared) o.geometry.dispose(); if (o.isInstancedMesh) o.dispose(); });
+  chunks.delete(key);
+  skyline.dirty = true;
+}
+function eatLot(i, j, send) {
+  const key = i + ',' + j;
+  if (eatenLots.has(key)) return;
+  eatenLots.add(key);
+  lots.delete(key);
+  dropChunkOf(i, j);
+  if (send) net.send({ t: 'e3', k: 'lot', i, j });
+}
+function refreshLots() {
+  for (const key of eatenLots) { const [i, j] = key.split(',').map(Number); lots.delete(key); dropChunkOf(i, j); }
+}
+function eatStep(now) {
+  if (!powers.eat || me.where !== 'city') return;
+  const p = me.pos, body = R * 1.9 + 0.5, grab = powers.magnet ? body + 26 * big() : body, tall = p.y - R * 1.4 < 3;
+  if (tall || powers.magnet) crowd.people.forEach((q, k) => {
+    if (!q.shown || q.gone) return;
+    if (Math.hypot(q.x - p.x, q.z - p.z) < grab) { q.gone = now + GONE_MS; gobble('gente', q.x, 0.2, q.z, crowd.shirts[k], q.size, 1); }
+  });
+  if (me.size >= EAT_CAR && (tall || powers.magnet)) for (let k = 0; k < traffic.count; k++) {
+    const c = traffic.cars[k];
+    if (c.gone > now || Math.hypot(c.x - p.x, c.z - p.z) > grab + 1.6) continue;
+    c.gone = now + GONE_MS;
+    gobble('carro', c.x, 0.3, c.z, c.color, 1, CAR_MASS);
+  }
+  for (const it of flyers.items) if (it.mode === 'rain' && !it.delay && it.y < p.y + body && Math.hypot(it.x - p.x, it.y - p.y, it.z - p.z) < grab) { it.mode = 'gone'; it.life = 0; gobble(it.key, it.x, it.y, it.z, it.color, 1, it.key === 'vaca' ? 4 : CAR_MASS); }
+  if (me.size >= EAT_LOT) for (const L of lotsAround(p.x, p.z, R * 1.3 + 30)) {
+    if (L.park || L.cinema || L.court || L.h > me.size * 7 || (L.cx === lot(0, 0).cx && L.cz === lot(0, 0).cz)) continue;
+    const qx = clamp(p.x, L.cx - L.w / 2, L.cx + L.w / 2), qz = clamp(p.z, L.cz - L.d / 2, L.cz + L.d / 2);
+    if (Math.hypot(qx - p.x, qz - p.z) > R * 1.5 || p.y - R > L.h) continue;
+    me.mass += L.w * L.d * L.h / 500;
+    me.eaten++;
+    biteLot(L);
+    eatLot(Math.floor(L.cx / CELL), Math.floor(L.cz / CELL), true);
+    sound.boom(0.6);
+    view.shake = 1.2 * big();
+    art.ripple(L.cx, L.cz, 1);
+  }
+}
+// o prédio desaba no lugar: uma caixa da cor dele afunda no chão
+const bites = [];
+function biteLot(L) {
+  const m = new THREE.Mesh(new THREE.BoxGeometry(L.w, L.h, L.d), new THREE.MeshLambertMaterial({ color: L.tint || '#b0a898' }));
+  m.position.set(L.cx, L.h / 2, L.cz);
+  scene.add(m);
+  bites.push({ m, t: 0, h: L.h });
+}
+
+// pancada: no chão ela vira onda na geleia; com o Pouso bomba (ou bem grande) joga tudo que estiver em volta pro alto
+function landed(v) {
+  const k = clamp(v / 90, 0.2, 1.6) * big();
+  art.ripple(me.pos.x, me.pos.z, k);
+  if (me.where !== 'city' || (!powers.slam && me.size < 4)) return;
+  blast(me.pos, clamp(v * 0.9, 25, 130) * big(), true);
+}
+function blast(p, r, send) {
+  const now = performance.now(), x = p.x, z = p.z, near = Math.hypot(me.pos.x - x, me.pos.z - z);
+  const fling = (key, qx, qz, color, y) => {
+    const d = Math.hypot(qx - x, qz - z) || 1, f = (1.15 - d / r) * 62;
+    flyers.add(key, qx, y, qz, { vx: (qx - x) / d * f, vy: 16 + f * (0.6 + Math.random() * 0.5), vz: (qz - z) / d * f, color, life: 5 });
+  };
+  crowd.people.forEach((q, k) => { if (q.shown && !q.gone && Math.hypot(q.x - x, q.z - z) < r) { q.gone = now + GONE_MS; fling('gente', q.x, q.z, crowd.shirts[k], 0.2); } });
+  for (let k = 0; k < traffic.count; k++) {
+    const c = traffic.cars[k];
+    if (c.gone > now || Math.hypot(c.x - x, c.z - z) > r) continue;
+    c.gone = now + GONE_MS;
+    fling('carro', c.x, c.z, c.color, 0.3);
+  }
+  art.ripple(x, z, 1.4);
+  sound.boom(clamp(1 - near / 500, 0.15, 1));
+  view.shake = Math.max(view.shake, clamp(2.4 - near / 80, 0, 2.4));
+  if (send) net.send({ t: 'e3', k: 'blast', p: [x, p.y, z], r });
+}
+
+// o que acontece pra todo mundo: buraco negro, chuva, meteoro, pancada, cidade comida
+function useItem(item) {
+  if (item.kind === 'portal') { firePortal(item.color); return; }
+  const now = performance.now();
+  if (now < itemWait) return;
+  itemWait = now + 700;
+  moment('item ' + (item.what || item.kind));
+  const dir = new V3(0, 0, -1).applyQuaternion(camera.quaternion), hit = me.where === 'trip' ? null : portalRay(camera.position, dir);
+  const at = hit ? hit.at : camera.position.clone().addScaledVector(dir, 160);
+  const m = { t: 'e3', k: item.kind, p: at.toArray().map(v => Math.round(v * 10) / 10), what: item.what, seed: Math.floor(Math.random() * 1e6), wd: me.where };
+  godEvent(m);
+  net.send(m);
+}
+let itemWait = 0;
+function godEvent(m) {
+  if (m.k === 'vox') { mine.set(m.x, m.y, m.z, m.b, true); return; }
+  if (m.k === 'lot') { eatLot(m.i, m.j, false); return; }
+  if (m.k === 'city') { const was = [...eatenLots]; eatenLots.clear(); for (const key of was) { const [i, j] = key.split(',').map(Number); lots.delete(key); dropChunkOf(i, j); } return; }
+  if (m.wd && m.wd !== me.where) return;
+  if (m.k === 'blast' && me.where === 'city') blast(new V3(m.p[0], m.p[1], m.p[2]), m.r, false);
+  else if (m.k === 'rain') rainOn(m);
+}
+function rainOn(m) {
+  let s = m.seed || 1;
+  const r = () => { s = (s * 16807) % 2147483647; return (s - 1) / 2147483646; };
+  const n = m.what === 'carro' ? 36 : 64, base = me.where === 'moon' ? 80 : 240;
+  for (let i = 0; i < n; i++) {
+    const a = r() * 6.283, d = 12 + r() * 150, color = m.what === 'carro' ? ['#d8402c', '#2f6fc0', '#e8b030', '#3c9a5c', '#f0f0e8'][Math.floor(r() * 5)] : '#ffffff';
+    flyers.add(m.what === 'carro' ? 'carro' : 'vaca', m.p[0] + Math.cos(a) * d, base + r() * 200, m.p[2] + Math.sin(a) * d, { mode: 'rain', delay: r() * 4, vy: -30, vx: (r() - 0.5) * 6, vz: (r() - 0.5) * 6, color, life: 13, scale: 1 + r() * 0.3 });
+  }
+}
+function updateGod(dt) {
+  for (let i = bites.length - 1; i >= 0; i--) {
+    const b = bites[i];
+    b.t += dt * 2.2;
+    if (b.t >= 1) { scene.remove(b.m); b.m.geometry.dispose(); b.m.material.dispose(); bites.splice(i, 1); continue; }
+    const k = 1 - b.t;
+    b.m.scale.y = Math.max(0.01, k);
+    b.m.position.y = b.h * k / 2;
+  }
+}
+
+// o painel de Deus chega pelo servidor, igual pra todos
+function applyGod(g) {
+  Object.assign(GOD, g);
+  for (const [k, id, fmt] of GOD_UI) {
+    const el = $('#god-' + id);
+    if (document.activeElement !== el) el.value = k === 'grav' || k === 'pace' ? GOD[k] * 100 : GOD[k];
+    $('#god-' + id + '-l').textContent = fmt(GOD[k]);
+  }
+  art.setBend(me.where === 'city' ? GOD.bend * 1.5e-5 : 0);
+  ground.geometry = art.style.jelly || GOD.bend ? denseGround() : flatGround;
+}
+// Velocidade de cada jogador. "Antes" é o ajuste anterior a esta atualização, pra comparar e escolher.
+const SPEED_OLD = { top: 360, gain: 140, drag: 0 }, SPEED_NEW = { top: 470, gain: 100, drag: 100 };
+const speedCfg = { ...SPEED_NEW, ...prefs.speed };
+const SPEED_UI = [['top', v => `${v} km/h`], ['gain', v => `${v}%`], ['drag', v => `${v}%`]];
+function setSpeed(patch) {
+  Object.assign(speedCfg, patch);
+  prefs.speed = { ...speedCfg };
+  savePrefs();
+  for (const [k, fmt] of SPEED_UI) {
+    $('#spd-' + k).value = speedCfg[k];
+    $(`#spd-${k}-l`).textContent = fmt(speedCfg[k]);
+    $(`#spd-${k}-m`).textContent = `antes: ${fmt(SPEED_OLD[k])} · novo: ${fmt(SPEED_NEW[k])}`;
+  }
+  const same = o => SPEED_UI.every(([k]) => speedCfg[k] === o[k]);
+  $('#spd-old').classList.toggle('on', same(SPEED_OLD));
+  $('#spd-new').classList.toggle('on', same(SPEED_NEW));
+}
+for (const [k] of SPEED_UI) $('#spd-' + k).oninput = e => setSpeed({ [k]: Number(e.target.value) });
+$('#spd-old').onclick = () => setSpeed(SPEED_OLD);
+$('#spd-new').onclick = () => setSpeed(SPEED_NEW);
+setSpeed({});
+
+const GOD_UI = [
+  ['grav', 'grav', v => `${Math.round(v * 100)}%`], ['sea', 'sea', v => (v ? `${v} m` : 'seco')],
+  ['bend', 'bend', v => (v > 0 ? 'planetinha' : v < 0 ? 'A Origem' : 'plano')], ['pace', 'pace', v => `${Math.round(v * 100)}%`],
+];
+function sendGod(patchGod) {
+  const g = { ...GOD, ...patchGod };
+  if (net.connected) net.send({ t: 'party', god: g });
+  else applyGod(g);
+}
+for (const [k, id] of GOD_UI) $('#god-' + id).oninput = e => sendGod({ [k]: Number(e.target.value) / (k === 'grav' || k === 'pace' ? 100 : 1) });
+$('#god-reset').onclick = () => sendGod({ grav: 1, sea: 0, bend: 0, pace: 1 });
+$('#god-city').onclick = () => { const m = { t: 'e3', k: 'city' }; godEvent(m); net.send(m); };
+
+// Passado: tudo fica guardado pra rebobinar (Z), sem limite: são 5 MB por hora de jogo, em blocos de números.
+// O mesmo passeio vira clone (H).
+const PAST_N = 11, PAST_BLOCK = 3600, WORLDS = ['city', 'trip', 'moon', 'back'];
+const past = { blocks: [], n: 0 };
+let pastT = 0, recording = null, backT = 0;
+const echoes = [];
+function remember(dt) {
+  pastT += dt;
+  if (pastT < 1 / 30) return;
+  pastT = 0;
+  if (trip.on || me.seat || keys.KeyZ) return;
+  const at = past.n % PAST_BLOCK, b = Math.floor(past.n / PAST_BLOCK);
+  if (!past.blocks[b]) past.blocks[b] = new Float32Array(PAST_BLOCK * PAST_N);
+  const q = me.mesh.quaternion;
+  past.blocks[b].set([me.pos.x, me.pos.y, me.pos.z, me.vel.x, me.vel.y, me.vel.z, q.x, q.y, q.z, q.w, WORLDS.indexOf(me.where)], at * PAST_N);
+  past.n++;
+  if (recording) {
+    recording.push({ p: me.pos.clone(), v: me.vel.clone(), q: q.clone(), g: me.onGround, f: me.flipT > 0 ? 1 - me.flipT / 0.5 : 0, fa: me.flipAxis.clone(), h: me.hooks.map(h => (h ? h.p.clone() : null)) });
+    if (recording.length > 30 * 25) toggleRecord();
+  }
+}
+// segurando Z volta cada vez mais rápido: dois quadros por vez no começo, até um minuto por segundo depois de um tempo
+function rewind(dt) {
+  me.hooks[0] = me.hooks[1] = null;
+  me.sling = null;
+  me.onGround = false;
+  backT += dt;
+  const steps = Math.min(30, Math.ceil(2 * Math.pow(1.7, backT)));
+  for (let i = 0; i < steps && past.n > 0; i++) {
+    past.n--;
+    const b = past.blocks[Math.floor(past.n / PAST_BLOCK)], o = (past.n % PAST_BLOCK) * PAST_N;
+    if (i < steps - 1 && past.n > 0) continue;
+    const w = WORLDS[b[o + 10]];
+    if (w !== me.where) { setWhere(w); if (w === 'trip') space.followBelt(me.pos); }
+    me.pos.set(b[o], b[o + 1], b[o + 2]);
+    me.vel.set(b[o + 3], b[o + 4], b[o + 5]);
+    me.mesh.quaternion.set(b[o + 6], b[o + 7], b[o + 8], b[o + 9]);
+  }
+  if (past.n % 300 < 30) showToast(`⏪ Voltando · ${Math.round(past.n / 30)} s de história`);
+}
+class Echo {
+  constructor(frames) {
+    this.frames = frames;
+    this.where = me.where;
+    this.t = 0;
+    this.mesh = makeBody(SKIN3, COLOR, SLIME);
+    this.ropes = [makeRope(SKIN3, COLOR), makeRope(SKIN3, COLOR)];
+    this.pos = new V3();
+    this.vel = new V3();
+    this.quat = new THREE.Quaternion();
+    this.hooks = [null, null];
+    this.mesh.userData.glow.visible = false;
+    scene.add(this.mesh);
+  }
+  update(dt) {
+    const F = this.frames, n = F.length;
+    this.t = (this.t + dt * 30) % (n - 1);
+    const i = Math.floor(this.t), k = this.t - i, a = F[i], b = F[i + 1];
+    this.pos.lerpVectors(a.p, b.p, k);
+    this.vel.lerpVectors(a.v, b.v, k);
+    this.quat.copy(a.q).slerp(b.q, k);
+    a.h.forEach((p, m) => { this.hooks[m] = p ? { p, t: 1 } : null; });
+    const show = this.where === me.where, body = this.mesh.userData.slime;
+    body.update(dt, { pos: this.pos, vel: this.vel, quat: this.quat, hooks: this.hooks, onGround: a.g, flip: a.f, flipAxis: a.fa, sit: false, wet: false, sling: 0, braced: false, hold: false, aim: null, floor: a.g ? this.pos.y - R0 : undefined, visible: show });
+    placeRopes(this.ropes, show ? this.hooks : [null, null], body);
+  }
+  dispose() {
+    scene.remove(this.mesh, ...this.ropes);
+    this.mesh.userData.slime.dispose();
+  }
+}
+function toggleRecord() {
+  if (!recording) { recording = []; showToast('🎬 Gravando seu clone: faça o que quiser · H de novo termina'); return; }
+  const frames = recording;
+  recording = null;
+  if (frames.length < 30) { showToast('Curto demais pra virar clone'); return; }
+  if (echoes.length >= 6) echoes.shift().dispose();
+  echoes.push(new Echo(frames));
+  showToast(`👯 Clone pronto · ${echoes.length} agora · J apaga`);
+}
+function clearEchoes() {
+  while (echoes.length) echoes.pop().dispose();
+  showToast('Clones apagados');
+}
+
+const roundHead = crowd.head.geometry, squareHead = new THREE.BoxGeometry(0.3, 0.3, 0.3);
+const mine = new Mine({
+  scene, me, lot, cell: CELL, sound, flyers, items: ITEMS, toast: t => showToast(t), send: o => net.send(o),
+  onDie: () => { start(); me.vel.set(0, 0, 0); },
+});
 
 // ------------------------------------------------------------------ o que o F faz aqui
 
@@ -1591,11 +2502,25 @@ function leaveAct() {
   act.exit();
   act = null;
 }
+function boardRide(kind) {
+  standUp();
+  me.hook = null;
+  me.sling = null;
+  me.ride = { kind, k: fun.nearestCabin(me.pos) };
+  sound.jump();
+}
+function leaveRide() {
+  me.ride = null;
+  me.airJumps = 1;
+  me.onGround = false;
+  me.vel.y += 8;
+}
 function nearbyAction() {
   const p = me.pos, Rf = CINE.roof;
   const d = q => Math.hypot(p.x - q.x, p.z - q.z);
   if (me.seat) return { hint: 'F = levantar', run: standUp };
   if (me.where === 'back') return back.exitNear(p.x, p.z) ? { hint: 'F = sair daqui', run: leaveBack } : null;
+  if (me.ride) return { hint: 'F ou Espaço = pular fora', run: leaveRide };
   if (me.where !== 'city') return null;
   if (me.carry) return { hint: `F = arremessar ${remotes.get(me.carry)?.info.name || 'amigo'}`, run: throwFriend };
   const friend = me.carried ? null : nearFriend();
@@ -1610,6 +2535,8 @@ function nearbyAction() {
     if (Math.abs(p.x - b.x) < b.w / 2 + 1 && Math.abs(p.z - b.z) < 4.5) return { hint: 'F = desenhar no quadro', run: () => enterAct(board) };
     if (d(Rf.liftTop) < 2.3) return { hint: 'F = descer de elevador', run: () => { me.pos.set(CINE.lift.x, R + 0.05, CINE.lift.z); me.vel.set(0, 0, 0); } };
   }
+  const gate = fun.gateNear(p);
+  if (gate) return { hint: gate.hint, run: () => boardRide(gate.kind) };
   if (Math.abs(p.y - R - CINE.backDoor.y) < 1.2 && d(CINE.backDoor) < 2.8) return { hint: 'F = abrir a porta', run: enterBack };
   if (p.y < 4 && d(CINE.lift) < 2.8) return { hint: 'F = subir pra laje', run: () => { me.pos.copy(Rf.liftTop); me.vel.set(0, 0, 0); } };
   const s = nearestSeat();
@@ -1649,6 +2576,12 @@ addEventListener('keydown', e => {
   if (!locked) return;
   if (e.ctrlKey) e.preventDefault();    // CTRL é do jogo: sem isso CTRL+S, CTRL+D e cia abrem coisas do navegador
   if (e.code === 'Escape' && freeMouse) { unlockMouse(); return; }
+  if (e.code === 'KeyB' && !e.repeat) nextArt();
+  if (e.code === 'KeyG' && !e.repeat) setFirstPerson(!firstPerson);
+  if (e.code === 'KeyE' && !e.repeat && mine.active && !me.hook) { unlockMouse(); openTab('mochila'); }
+  if (e.code === 'KeyH' && !e.repeat) toggleRecord();
+  if (e.code === 'KeyJ' && !e.repeat) clearEchoes();
+  if (e.code === 'KeyN' && !e.repeat) { worldStopped = !worldStopped; showToast(worldStopped ? '⏸️ O mundo parou' : '▶️ O mundo voltou'); }
   if (e.code === 'KeyP' && !e.repeat) { perf.show = !perf.show; $('#perf3').classList.toggle('hidden', !perf.show); }
   if (e.code === 'KeyV' && !e.repeat && voice.on) showToast(voice.toggleMute() ? '🔇 microfone mutado' : '🎙️ microfone ligado');
   if (act) {
@@ -1657,8 +2590,10 @@ addEventListener('keydown', e => {
     return;
   }
   keys[e.code] = true;
+  const slot = (mine.active ? /^Digit([1-9])$/ : /^Digit([1-6])$/).exec(e.code);
+  if (slot && !e.repeat) selectSlot(Number(slot[1]) - 1);
   if (e.code === 'Space') { if (!e.repeat) jumpPressed = true; e.preventDefault(); }
-  if (e.code === 'KeyQ' && !e.repeat && !me.onGround && me.flipT <= 0) { me.flipT = 0.5; me.vel.multiplyScalar(1.04); }
+  if (e.code === 'KeyQ' && !e.repeat && !me.onGround && me.flipT <= 0) startFlip();
   if (e.code === 'KeyR' && !trip.on) { trip.landing = false; view.roll = 0; start(); }
   if (e.code === 'KeyT') {
     const r = [...remotes.values()].find(x => x.pos && !x.stale);
@@ -1668,6 +2603,7 @@ addEventListener('keydown', e => {
   if (e.code === 'KeyY' && !e.repeat) {
     // solta o mouse pra poder colar o link
     unlockMouse();
+    openTab('som');
     setTimeout(() => cineUi.url.focus(), 60);
   }
 });
@@ -1678,8 +2614,13 @@ addEventListener('beforeunload', e => { if (keys.ControlLeft || keys.ControlRigh
 canvas.addEventListener('mousedown', e => {
   if (locked && act) act.down(e.button);
   else if (locked && e.button === 0 && basket.mine) basket.startCharge();
-  else if (locked && e.button === 0) mouseDown = true;
-  else if (locked && e.button === 2) mouseRight = true;
+  else if (locked && e.button === 0) { mouseDown = true; hitPress = true; }
+  else if (locked && e.button === 2) {
+    const item = heldItem();
+    if (mine.active && voxels() && mine.useRight()) return;
+    if (item && !trip.on) useItem(item);
+    else if (!item) mouseRight = true;
+  }
   if (cineState.status === 'paused') cinema.resume();   // autoplay bloqueado: o clique libera
   if (radioShown.status === 'paused' && radioYt.playing) radioYt.resume();
 });
@@ -1702,6 +2643,7 @@ addEventListener('wheel', e => {
   if (locked && e.ctrlKey) e.preventDefault();      // senão CTRL + rodinha dá zoom na página
   if (locked && act) act.wheel(e.deltaY);
   else if (locked && me.hook) wheel += Math.sign(e.deltaY) * 2.5;
+  else if (locked && mine.active) selectSlot((mine.slot + Math.sign(e.deltaY) + 9) % 9);
 }, { passive: false });
 
 // Onde o navegador não prende o mouse (o painel do app, por exemplo) o jogo roda com o cursor solto:
@@ -1758,6 +2700,10 @@ resize();
 function rayBoxes(from, to) {
   let tmin = 1;
   const d = new V3().subVectors(to, from);
+  if (voxels()) {
+    const len = d.length(), h = mine.ray(from, lookTmp.copy(d).divideScalar(len), len);
+    return h ? Math.max(0, (h.t - 0.2) / len) : 1;
+  }
   for (const L of lotsNear(from.x, from.z, 20)) for (const bx of L.boxes) {
     if (bx.soft) continue;                 // móveis, muretas e alambrado não empurram a câmera
     const mn = [bx[0] - 0.1, bx[1] > 0 ? bx[1] - 0.1 : -1, bx[2] - 0.1], mx = [bx[3] + 0.1, bx[4] + 0.5, bx[5] + 0.1];
@@ -1775,8 +2721,20 @@ function rayBoxes(from, to) {
   return tmin;
 }
 
-let fov = 72;
-const view = { zoom: 1, roll: 0 };
+let fov = 72, speedK = 0, speedWind = 0;
+const speedDir = new V3(0, 0, -1), speedFlow = new V3(0, 0, -1), speedTmp = new V3(), viewBack = new THREE.Quaternion();
+const flipView = new THREE.Quaternion(), straightView = new THREE.Quaternion();
+const view = { zoom: 1, roll: 0, shake: 0, fp: 0, dist: 0, t: 1 };
+let firstPerson = !!prefs.fp;
+function setFirstPerson(on) {
+  firstPerson = on;
+  prefs.fp = on;
+  savePrefs();
+  $('#opt-fp').textContent = on ? '👁️ Primeira pessoa' : '🎥 Terceira pessoa';
+  $('#opt-fp').classList.toggle('on', on);
+}
+$('#opt-fp').onclick = () => setFirstPerson(!firstPerson);
+setFirstPerson(firstPerson);
 function updateCamera(dt) {
   if (act) {
     act.camera(camera);
@@ -1787,33 +2745,48 @@ function updateCamera(dt) {
   const speed = me.vel.length();
   camera.rotation.set(pitch, yaw, view.roll);
   const dir = new V3(0, 0, -1).applyEuler(camera.rotation);
-  const pivot = me.pos.clone().add(new V3(0, 1.3, 0));
-  if (me.seat) {
-    // sentado no cinema: visão em primeira pessoa
-    camera.position.copy(me.pos).add(new V3(0, 0.95, 0));
-    me.mesh.visible = false;
-  } else {
-    const inside = me.where === 'back';
-    const dist = (inside ? 2.7 : trip.on && me.where === 'trip' ? 5.5 : 7 + Math.min(6, speed * 0.05) + (me.sling ? me.sling.x * 0.2 : 0)) * view.zoom;
-    if (inside) pivot.y = me.pos.y + 0.95;
-    const want = pivot.clone().addScaledVector(dir, -dist);
-    // olhando pra cima a câmera não afunda no telhado/chão: desliza por cima dele
-    if (me.where === 'moon') want.y = Math.max(want.y, space.height(want.x, want.z) + 0.8);
-    else if (!trip.on) want.y = Math.max(want.y, me.pos.y + 0.3);
-    // olhando pra trás na viagem, a câmera sai de cima da linha da teia
-    if (trip.on && me.where === 'trip') want.addScaledVector(new V3(1, 0, 0).applyEuler(camera.rotation), 3.2 * sstep(0.25, -0.5, dir.dot(trip.dir)));
-    if (inside) want.y = Math.min(want.y, BACK_H - 0.25);
-    const t = rayBoxes(pivot, want);
-    camera.position.copy(pivot).lerp(want, Math.max(0.12, t - 0.04));
-    me.mesh.visible = camera.position.distanceTo(pivot) > 1.6;
-    if (me.sling) {
-      // a teia tremendo no limite
-      const k = me.sling.x / SLING_MAX * 0.05;
-      camera.position.x += (Math.random() - 0.5) * k;
-      camera.position.y += (Math.random() - 0.5) * k;
-    }
+  const pivot = me.pos.clone().add(new V3(0, 1.3 * me.size, 0));
+  // primeira pessoa (e sentado no cinema): a câmera desliza até o olho em vez de pular
+  const fpWant = firstPerson || me.seat ? 1 : 0;
+  view.fp += (fpWant - view.fp) * (1 - Math.exp(-dt * 18));
+  if (Math.abs(fpWant - view.fp) < 0.004) view.fp = fpWant;
+  const inside = me.where === 'back';
+  const eye = me.pos.clone();
+  eye.y += me.seat ? 0.95 : 0.75 * me.size;
+  if (inside) eye.y = Math.min(eye.y, BACK_H - 0.3);
+  const dist = (inside ? 2.7 : (7 + Math.min(6, speed * 0.05 / big()) + speedK * 5 + (me.sling ? me.sling.x * 0.2 : 0)) * Math.pow(me.size, 0.92)) * view.zoom;
+  view.dist = view.dist ? view.dist + (dist - view.dist) * (1 - Math.exp(-dt * 10)) : dist;
+  if (inside) pivot.y = me.pos.y + 0.95;
+  const want = pivot.clone().addScaledVector(dir, -view.dist);
+  // olhando pra cima a câmera não afunda no telhado/chão: desliza por cima dele
+  if (me.where === 'moon') want.y = Math.max(want.y, space.height(want.x, want.z) + 0.8);
+  else if (!trip.on && !inSpace()) want.y = Math.max(want.y, me.pos.y + 0.3);
+  if (inside) want.y = Math.min(want.y, BACK_H - 0.25);
+  // parede na frente: a câmera entra na hora pra não atravessar, mas volta devagar
+  const t = view.fp < 1 ? rayBoxes(pivot, want) : 1;
+  view.t = t < view.t ? t : view.t + (t - view.t) * (1 - Math.exp(-dt * 9));
+  camera.position.copy(pivot).lerp(want, Math.max(0.12, view.t - 0.04)).lerp(eye, view.fp * view.fp * (3 - 2 * view.fp));
+  me.mesh.visible = view.fp < 0.6 && camera.position.distanceTo(pivot) > 1.6 * Math.min(1, me.size);
+  const third = 1 - view.fp;
+  // perto do limite a câmera treme com o vento
+  const rattle = speedK * speedK * speedK * 0.16;
+  if (rattle > 0.002) {
+    camera.position.x += (Math.random() - 0.5) * rattle;
+    camera.position.y += (Math.random() - 0.5) * rattle;
   }
-  fov += (72 + Math.min(26, speed * 0.3) + (me.boosting ? 8 : 0) - fov) * (1 - Math.exp(-dt * 3));
+  if (view.shake > 0.01) {
+    camera.position.x += (Math.random() - 0.5) * view.shake * third;
+    camera.position.y += (Math.random() - 0.5) * view.shake * third;
+    view.shake *= Math.exp(-dt * 6);
+  }
+  if (me.sling) {
+    // a teia tremendo no limite
+    const k = me.sling.x / SLING_MAX * 0.05 * third;
+    camera.position.x += (Math.random() - 0.5) * k;
+    camera.position.y += (Math.random() - 0.5) * k;
+  }
+  const fovWant = 72 + 6 * sstep(15, 75, speed / big()) + (me.boosting ? 3 : 0) + speedK * (34 + 7 * view.fp);
+  fov += (fovWant - fov) * (1 - Math.exp(-dt * (fovWant > fov ? 2.5 : 8)));
   camera.fov = fov;
   camera.updateProjectionMatrix();
   day.follow(camera);
@@ -1865,8 +2838,10 @@ function updateHud(now) {
   const onRoof = high && Math.hypot(me.pos.x - CINE.cx, me.pos.z - CINE.cz) < 24;
   hud.biome.textContent = me.where === 'moon' ? 'LUA' : me.where === 'trip' ? 'ESPAÇO' : me.where === 'back' ? '???' : inside ? 'CINEMA · TELÃO' : onCourt ? 'QUADRA' : onRoof ? 'LAJE' : 'CIDADE · 3D (TESTE)';
   renderTime();
-  hud.d.textContent = Math.round(me.where === 'trip' ? 384400000 * (trip.back ? 1 - clamp((trip.t - 2.2) / 17.8, 0, 1) : clamp((trip.t - 6) / 19, 0, 1)) : Math.hypot(me.pos.x - L.cx, me.pos.z - L.cz)).toLocaleString('pt-BR');
-  hud.s.textContent = Math.round(trip.on && me.where === 'trip' ? trip.shownSpeed : me.vel.length() * 3.6).toLocaleString('pt-BR');
+  const nearAstro = inSpace() ? nearestBody() : null;
+  if (nearAstro) hud.biome.textContent = `ESPAÇO · ${nearAstro.b.name.toUpperCase()}`;
+  hud.d.textContent = Math.round(nearAstro ? nearAstro.d : Math.hypot(me.pos.x - L.cx, me.pos.z - L.cz)).toLocaleString('pt-BR');
+  hud.s.textContent = Math.round(me.vel.length() * 3.6).toLocaleString('pt-BR');
   const n = [...remotes.values()].filter(r => !r.stale).length;
   setHtml(hud.net, net.connected ? `<span class="dot"></span>online · ${n + 1} no 3D` : '<span class="dot"></span>sem conexão com o host');
   hud.net.classList.toggle('off', !net.connected);
@@ -1880,6 +2855,7 @@ function updateHud(now) {
   const action = act || trip.on ? null : nearbyAction();
   if (toast && now < toast.until) h = toast.text;
   else if (trip.on) h = '';
+  else if (inSpace()) h = me.hook ? (now - (fx.spaceAt || (fx.spaceAt = now)) < 16000 ? 'Solte o clique pra ficar solto no espaço · dá pra se pendurar nos asteroides' : '') : 'Mire numa pedra e segure o clique · mire na Lua ou na Terra pra ser levado · W/S = jato · Shift = turbo · Espaço = impulso';
   else if (act) h = act.hint();
   else if (action) h = action.hint + (inside ? ' · Y = vídeo no telão' : '');
   else if (me.wet) h = 'Espaço pula pra fora da piscina';
@@ -1892,11 +2868,6 @@ function updateHud(now) {
 }
 
 // ------------------------------------------------------------------ laço
-
-const trail = new THREE.Line(new THREE.BufferGeometry().setFromPoints(Array.from({ length: 30 }, () => new V3())), new THREE.LineBasicMaterial({ color: COLOR, transparent: true, opacity: 0.6 }));
-trail.frustumCulled = false;
-scene.add(trail);
-const trailPts = [];
 
 const ring = new THREE.Mesh(new THREE.TorusGeometry(1.6, 0.12, 8, 32), new THREE.MeshBasicMaterial({ color: 0xffffff, depthTest: false }));
 ring.renderOrder = 9;
@@ -1911,24 +2882,37 @@ function frame(now) {
   requestAnimationFrame(frame);
 }
 
+// o boneco e a rua andam até 90 e 60 vezes por segundo: em monitor de 164 Hz o resto do quadro fica livre pra física e o desenho
+const BODY_STEP = 1 / 90, STREET_STEP = 1 / 60;
+let bodyT = 0, streetT = 0;
 let lastDt = 1 / 60;
 function simulate(now, dt) {
+  // X = câmera lenta: o boneco, a física e a rua passam devagar, o relógio do dia continua
+  timeK += ((locked && keys.KeyX ? 0.22 : 1) - timeK) * Math.min(1, dt * 9);
+  dt *= timeK;
   lastDt = dt;
   updateCamera(dt);
   target = trip.on ? null : findTarget(dt);
   if (locked) {
     if (freeMouse && !act) { yaw -= edgeX * EDGE_TURN * dt; pitch = clamp(pitch - edgeY * EDGE_TURN * 0.5 * dt, -1.4, 1.25); }
     const held = [mouseDown, mouseRight];
+    // de perto, o esquerdo é pra quebrar bloco e bater em zumbi; a teia só sai pra longe
+    if (voxels() && !act && !me.seat) {
+      const breaking = mine.mineStep(dt, mouseDown && !heldItem(), camera, me.mesh.userData.slime.block || {});
+      if (mine.mobs(dt, day, hitPress) || (breaking && !me.hooks[0])) held[0] = false;
+    }
+    hitPress = false;
+    tryLand(now, held);
     for (let i = 0; i < 2; i++) {
-      if (!held[i]) hookWait[i] = false;
+      if (!(i ? mouseRight : mouseDown)) hookWait[i] = false;     // o botão de verdade: quebrando bloco, held[0] mente
       if (held[i] && !hookWait[i] && !me.hooks[i] && target && !act && !me.carried) {
         if (target.sky) startTrip(i);
+        else if (target.planet) attachPlanet(target.planet, i);
         else { standUp(); attach(target, i); if (firstHook < 0) firstHook = now; }
       }
-      if (!held[i] && me.hooks[i]) release(i);
+      if (!held[i] && me.hooks[i] && !me.land) release(i);     // o pouso vai até o fim, mesmo num clique rápido
     }
     if (me.sling && !pulling()) launch();
-    else if (!me.sling && pulling() && me.hooks.some(h => h && !h.pid)) startSling();
   }
   me.hooks.forEach((h, i) => {
     if (!h) return;
@@ -1937,17 +2921,23 @@ function simulate(now, dt) {
     const r = remotes.get(h.pid);
     if (!r || !r.pos || r.stale) { me.hooks[i] = null; return; }
     h.p.copy(r.pos).add(new V3(0, 0.4, 0));
-    if (!pulling()) return;
-    // CTRL na teia presa num amigo: ele que vem até você
-    h.L = Math.max(4, h.L - PULL_RATE * dt);
-    if (now - lastTug > 50) {
+    // de pé fincado, se a teia esticou é porque você andou pra trás: o amigo vem arrastado
+    if (me.braced && me.pos.distanceTo(h.p) > h.L + 0.3 && now - lastTug > 50) {
       lastTug = now;
       net.send({ t: 'p3', to: h.pid, k: 'tug', p: [me.pos.x, me.pos.y, me.pos.z], L: h.L });
     }
   });
   me.boosting = false;
   if (me.seat && jumpPressed) { jumpPressed = false; standUp(); }
-  if (trip.on) tripStep(dt);
+  if (!keys.KeyZ) backT = 0;
+  growBody(dt);
+  if (locked && keys.KeyZ && !trip.on && !me.seat && !act) rewind(dt);
+  else if (trip.on) tripStep(dt);
+  else if (me.ride) {
+    fun.ride(me.ride, me.pos, me.vel, dt);
+    if (jumpPressed) leaveRide();
+    jumpPressed = false;
+  }
   else if (me.carried) {
     const r = remotes.get(me.carried);
     if (!r || !r.pos || r.stale) me.carried = 0;
@@ -1964,27 +2954,49 @@ function simulate(now, dt) {
       jumpPressed = false;
     }
   } else if (!me.seat && !act) {
-    avoid(dt);
+    if (inSpace()) { space.followBelt(me.pos); if (!me.hook) bodyAssist(dt); skyInSpace(); }
+    else if (!me.land && !portalAssist(dt) && !me.hooks.some(h => h && h.warp)) avoid(dt);
     // rápido demais, os passos da física encurtam: nunca anda mais que meio metro de uma vez
     const n = clamp(Math.ceil(Math.max(dt * 240, me.vel.length() * dt / 0.5)), 1, 64);
     for (let i = 0; i < n; i++) step(dt / n);
   }
   if (me.flipT > 0) me.flipT -= dt;
+  remember(dt);
+  eatStep(now);
+  updateGod(dt);
+  if (artAuto && (artClock += dt) > 25) { artClock = 0; nextArt(true); }
 
-  if (me.where === 'city') updateChunks(me.pos.x, me.pos.z);
-  const shown = trip.on ? trip.hooks : me.hooks;
+  if (voxels()) { mine.stream(me.pos.x, me.pos.z); mine.live(dt, me.vel.length()); }
+  else if (me.where === 'city') updateChunks(me.pos.x, me.pos.z);
+  // teia que cruza um portal: pro corpo ela vai até a boca dele; o resto sai do outro lado
+  const shown = trip.on ? trip.hooks : me.hooks.map(h => {
+    if (!h || !h.warp) return h;
+    const { a, b } = h.warp, da = (me.pos.x - a.c.x) * a.n.x + (me.pos.y - a.c.y) * a.n.y + (me.pos.z - a.c.z) * a.n.z;
+    const db = (h.p.x - a.c.x) * a.n.x + (h.p.y - a.c.y) * a.n.y + (h.p.z - a.c.z) * a.n.z;
+    const x = me.pos.clone().lerp(h.p, clamp(da / (da - db || 1), 0, 1));
+    h.exit = x.clone().applyMatrix4(portals.matrix(a, b));
+    return { p: x, t: h.t };
+  });
   if (trip.landing) settleOnMoon(dt);
-  if (!me.seat && !(trip.landing && !me.onGround)) orient(me.mesh, me.pos, me.vel, hookCenter(shown), me.onGround, dt);
+  // pousando, a teia fica abaixo do boneco: ele voa como solto e, perto do ponto, já desce de pé
+  const footing = me.onGround || (!!me.land && me.pos.distanceTo(me.land.p) < 12 * Math.max(1, big()));
+  if (!me.seat && !(trip.landing && !me.onGround)) orient(me.mesh, me.pos, me.vel, me.land ? null : hookCenter(shown), footing, dt, me.braced);
   me.mesh.position.copy(me.pos);
   updateCamera(0);
-  const body = me.mesh.userData.slime;
-  body.update(dt, { pos: me.pos, vel: me.vel, quat: me.mesh.quaternion, hooks: shown, onGround: me.onGround, flip: me.flipT > 0 ? 1 - me.flipT / 0.5 : 0, sit: !!me.seat, wet: me.wet, floor: me.where === 'trip' ? undefined : me.onGround ? me.pos.y - R : floorUnder(me.pos), sling: me.sling ? me.sling.x / (SLING_MAX + SLING_TUG) * 1.6 : 0, hold: !!me.carry, visible: me.mesh.visible });
+  const body = me.mesh.userData.slime, aimDir = new V3(0, 0, -1).applyQuaternion(camera.quaternion);
+  roofSway.lerp(art.style.jelly && me.onGround ? art.bent(me.pos, ropeTip).sub(me.pos) : ZERO3, 1 - Math.exp(-dt * 7));
+  bodyT += dt;
+  if (bodyT < BODY_STEP && !slimes.blocky) body.follow(me.pos, roofSway);
+  else body.update(bodyT, { shift: roofSway, pos: me.pos, vel: me.vel, quat: me.mesh.quaternion, hooks: shown, onGround: me.onGround, flip: me.flipT > 0 ? 1 - me.flipT / 0.5 : 0, flipAxis: me.flipAxis, sit: !!me.seat || !!me.ride, wet: me.wet, floor: me.where === 'trip' ? undefined : me.onGround ? me.pos.y - R : floorUnder(me.pos), sling: me.sling ? me.sling.x / (SLING_MAX + SLING_TUG) * 1.6 : 0, braced: me.braced, hold: !!me.carry, aim: heldItem() ? aimDir : null, visible: me.mesh.visible });
+  if (bodyT >= BODY_STEP || slimes.blocky) bodyT = 0;
+  body.group.visible = !slimes.blocky && me.mesh.visible;
   placeRopes(me.ropes, shown, body);
-
-  trailPts.push(me.pos.clone());
-  if (trailPts.length > 30) trailPts.shift();
-  trail.geometry.setFromPoints(trailPts.length > 1 ? trailPts : [me.pos, me.pos]);
-  trail.visible = me.where !== 'trip' && (me.vel.length() > 20 || me.boosting);
+  me.ropes2.forEach((rope, i) => {
+    const h = me.hooks[i];
+    if (h && h.warp && !trip.on) placeRope(rope, h.exit, h.real);
+    else rope.visible = false;
+  });
+  holdGun(me.gun, heldItem(), body.hands[1], aimDir, (me.mesh.visible || firstPerson) && !me.hooks[1]);
 
   ring.visible = !!target && !target.sky && !(me.hooks[0] && me.hooks[1]);
   if (ring.visible) { ring.position.copy(target.p); ring.lookAt(camera.position); }
@@ -1997,22 +3009,38 @@ function simulate(now, dt) {
 
   // luz do dia e vida na rua: o relógio é o mesmo pra todo mundo
   const T = ((Date.now() + clockOffset) / 1000) % 86400;
+  worldT = worldT === null ? T : worldT + (worldStopped ? 0 : dt * GOD.pace);
   day.update(hourNow(), T, me.pos);
   if (me.where !== 'city') { scene.fog.density = 0; day.light.intensity = me.where === 'back' ? 0.4 : 2.2; }
+  if (inSpace()) {
+    skyInSpace();
+    const near = nearestBody();
+    // a pancada do pouso vem por um clarão, igual nas viagens de antes
+    if (!trip.on) {
+      fx.veilAt = sstep(Math.max(500, me.vel.length() * 0.75), Math.max(160, me.vel.length() * 0.12), near.d);
+      if (fx.veilAt > 0.01) veilEl.style.background = near.b === MOON ? '#8d8d94' : '#e8f0ff';
+    }
+    if (me.hooks.some(h => h && h.planet) && (trip.nextBeat -= dt) <= 0) { trip.nextBeat = 1.25; sound.heart(); }
+  } else fx.veilAt = 0;
   if (me.where === 'trip' || me.where === 'moon') space.update(dt, camera.position, trip.earth, trip.earthA, trip.moon, trip.moonA);
   if (me.where === 'moon') { space.followFloor(me.pos.x, me.pos.z); space.setGlow(day.uniforms.moonGlow.value); }
   if (me.where === 'back') back.update(dt, camera.position, new V3(0, 0, -1).applyQuaternion(camera.quaternion), d => !sweep(me.pos, new V3(0, 0, -1).applyQuaternion(camera.quaternion).setY(0).normalize(), d, 0));
-  fx.veil = trip.on ? fx.veil : Math.max(0, fx.veil - dt * 1.1);
-  fx.chill = trip.on ? fx.chill : Math.max(0, fx.chill - dt);
+  fx.veil = trip.on ? fx.veil : Math.max(fx.veilAt || 0, fx.veil - dt * 1.1);
+  fx.chill += ((inSpace() ? 1 : 0) - fx.chill) * Math.min(1, dt * 1.6);
   if (fx.veil !== fx.veilOn) veilEl.style.opacity = fx.veilOn = fx.veil;
   if (fx.chill !== fx.chillOn) chillEl.style.opacity = fx.chillOn = fx.chill;
   slimes.update(dt, camera);
   if (stage && !locked) stage.frame(dt);
   if (me.where === 'city') {
     lightCity(mats, day);
-    crowd.update(T, me.pos.x, me.pos.z, lot);
-    traffic.update(T, me.pos.x, me.pos.z, day.night);
-    skyline.update(me.pos.x, me.pos.z, isLoaded, day);
+    streetT += dt;
+    if (streetT >= STREET_STEP) {
+      streetT = 0;
+      crowd.update(worldT, me.pos.x, me.pos.z, lot);
+      traffic.update(worldT, me.pos.x, me.pos.z, day.night);
+    }
+    if (voxels()) { mine.update(dt, day); skyline.update(me.pos.x, me.pos.z, nearVox, day); }
+    else skyline.update(me.pos.x, me.pos.z, isLoaded, day);
     const nearTop = Math.hypot(me.pos.x - CINE.cx, me.pos.z - CINE.cz) < Q.far;
     roofFx.group.visible = courtFx.group.visible = nearTop;
     roofFx.update(T, dt, day, !!radioNow);
@@ -2023,6 +3051,16 @@ function simulate(now, dt) {
   pong.update(dt);
   basket.update(dt, me, new V3(0, 0, -1).applyQuaternion(camera.quaternion));
   updateSplash(dt);
+  sea.update(GOD.sea, me.where === 'city', camera, T, day);
+  if (me.where === 'city') {
+    coast.update(WATER_Y, camera.position.z > WATER_Z - 2400, camera, T, day);
+    beach.update(camera);
+    fun.update(dt, Math.hypot(camera.position.x + 286, camera.position.z + 52) < 1500);
+  }
+  flyers.update(dt, belly.set(me.pos.x, me.pos.y + 0.2 * me.size, me.pos.z), R * 1.05);
+  for (const e of echoes) e.update(dt);
+  const under = me.where === 'city' && (camera.position.y < GOD.sea || (camera.position.z > WATER_Z + 8 && camera.position.y < WATER_Y)) ? 0.5 : 0;
+  if (under !== fx.under) underEl.style.opacity = fx.under = under;
 
   if (net.connected && now - lastSend > 50) {
     lastSend = now;
@@ -2031,8 +3069,8 @@ function simulate(now, dt) {
     const q = me.mesh.quaternion;
     net.send({
       t: 's3', p: [r2(me.pos.x), r2(me.pos.y), r2(me.pos.z)], v: [r2(me.vel.x), r2(me.vel.y), r2(me.vel.z)],
-      q: [r2(q.x), r2(q.y), r2(q.z), r2(q.w)], h: wire(me.hooks[0]), hk: me.hooks[0] ? me.hooks[0].pid : 0, h2: wire(me.hooks[1]), hk2: me.hooks[1] ? me.hooks[1].pid : 0,
-      sl: me.sling ? r2(me.sling.x / (SLING_MAX + SLING_TUG) * 1.6) : 0, c: me.carry, fl: me.flipT > 0 ? r2(1 - me.flipT / 0.5) : 0, st: me.seat ? 1 : 0, g: me.onGround ? 1 : 0, w: me.wet ? 1 : 0, wd: me.where,
+      q: [r2(q.x), r2(q.y), r2(q.z), r2(q.w)], h: wire(shown[0]), hk: me.hooks[0] ? me.hooks[0].pid : 0, h2: wire(shown[1]), hk2: me.hooks[1] ? me.hooks[1].pid : 0,
+      sl: me.sling ? r2(me.sling.x / (SLING_MAX + SLING_TUG) * 1.6) : 0, br: me.braced ? 1 : 0, c: me.carry, it: held + 1, fl: me.flipT > 0 ? r2(1 - me.flipT / 0.5) : 0, fa: me.flipT > 0 ? me.flipAxis.toArray().map(r2) : 0, st: me.seat || me.ride ? 1 : 0, g: me.onGround ? 1 : 0, w: me.wet ? 1 : 0, wd: me.where, sz: r2(me.size),
     });
   }
   cinemaVolume();
@@ -2040,28 +3078,201 @@ function simulate(now, dt) {
   radioVolume();
   radioYt.tick();
   updateHud(now);
+  // em primeira pessoa a visão gira com o rolamento; só no desenho, pra mira e o tiro continuarem pra onde você olha
+  const flipping = me.flipT > 0 && view.fp > 0.01;
+  if (flipping) {
+    const t = 1 - me.flipT / 0.5;
+    straightView.copy(camera.quaternion);
+    camera.quaternion.premultiply(flipView.setFromAxisAngle(me.flipAxis, t * t * (3 - 2 * t) * Math.PI * 2 * view.fp));
+    camera.updateMatrixWorld();
+  }
+  // o desenho da visão dos portais vem antes do quadro: cada um é a cidade inteira de novo, então só nas qualidades de cima
+  if (portals.list.length) {
+    camera.updateMatrixWorld();
+    portals.update(dt, me.where);
+    if (art.on) art.fit();
+    portals.render(camera, me.where, Q.pr >= 1 ? 2 : Q.pr >= 0.85 ? 1 : 0, art.on ? art.size : null);
+  }
   renderer.shadowMap.needsUpdate = Q.shadow > 0 && perf.drew++ % Q.every === 0;
-  renderer.render(scene, camera);
+  art.update(dt, camera, slimes.u.uSun.value, me.where === 'city' ? day.night : 0);
+  art.render(scene, camera);
+  if (flipping) { camera.quaternion.copy(straightView); camera.updateMatrixWorld(); }
+  // começa quase invisível em 170 km/h e chega ao exagero em 460; indo de costas é mais fraco, porque o mundo vai embora em vez de vir
+  const kmh = me.vel.length() / big() * 3.6, rush = Math.pow(clamp((kmh - 170) / 290, 0, 1), 1.8);
+  // a média fica sem normalizar: virando 180° ela passa pelo zero em vez de ficar presa no rumo antigo
+  if (me.vel.lengthSq() > 4) speedFlow.lerp(speedTmp.copy(me.vel).normalize().applyQuaternion(viewBack.copy(camera.quaternion).invert()), 1 - Math.exp(-dt * 14));
+  if (speedFlow.lengthSq() > 1e-3) speedDir.copy(speedFlow).normalize();
+  const facing = 0.55 + 0.45 * sstep(1, -1, speedDir.z), speedWant = act || me.seat || me.ride || trip.on ? 0 : rush * facing * (inSpace() ? 0.6 : 1) * 0.85;
+  // sobe devagar, pra um ganho repentino não dar tranco na tela; desce rápido, pro topo do balanço parecer lento
+  speedK += (speedWant - speedK) * (1 - Math.exp(-dt * (speedWant > speedK ? 1.5 : 9)));
+  speedWind += dt * (1 + 2 * speedK);
+  speedFx.draw(speedK, view.fp, speedWind, speedDir, camera.fov);
   // o telão só existe por perto do cinema: de longe a camada CSS 3D nem precisa ser desenhada
   const nearScreen = me.where === 'city' && me.pos.y < CINEMA.hall + 20 && Math.hypot(me.pos.x - CINE.cx, me.pos.z - CINE.cz) < 60;
   if (nearScreen !== cssOn) { cssOn = nearScreen; cssRenderer.domElement.style.visibility = nearScreen ? 'visible' : 'hidden'; }
   if (nearScreen) cssRenderer.render(cssScene, camera);
 }
 
-net.connect();
-requestAnimationFrame(frame);
+// ------------------------------------------------------------------ carregamento
 
-// para depuração no console
-window.__v3 = {
-  me, remotes, keys, camera, lotsAround, lot, cinema, CINEMA, nearestSeat, sitDown, standUp, setCinema, inCinema,
-  quality: () => ({ pref: prefs.quality ?? 'auto', level: qLevel, name: Q.name, software: SOFTWARE, fps: Math.round(perf.fps) }), setQuality, skyline, buildChunk,
-  day, setTime, hourNow, board, sinuca, pong, basket, voice, renderer, enterAct, leaveAct, nearbyAction, chunks, crowd, traffic, net,
-  setRadio, radioYt, radioSp, inPool, COURT, sweep,
-  get act() { return act; },
-  get timeState() { return timeState; },
-  get cineState() { return cineState; },
-  setLook: (y, p) => { yaw = y; pitch = p; },
-  lookAt: p => { const d = new V3().subVectors(p, camera.position); yaw = Math.atan2(-d.x, -d.z); pitch = Math.atan2(d.y, Math.hypot(d.x, d.z)); },
-  space, back, trip, fx, gaze, startTrip, setWhere, enterBack, leaveBack, nearbyAction, setMouse: v => { mouseDown = v; }, setRight: v => { mouseRight = v; }, lock: v => { locked = v; }, slimes, view, launch, nearWall, get target() { return target; },
-  tick(dt = 1 / 60) { last += dt * 1000; simulate(last, dt); },
-};
+// Tudo que daria engasgo na primeira vez fica pronto aqui, com uma barra na tela: a cidade em volta, as texturas, os shaders
+// de todos os mundos e estilos, e uma passada do jogo inteiro sem ninguém ver.
+async function preload() {
+  const bar = $('#load-bar'), text = $('#load-text');
+  let lastPaint = 0;
+  const say = async (pct, msg) => {
+    if (msg) text.textContent = msg;
+    bar.style.width = pct + '%';
+    if (performance.now() - lastPaint < 40 && !msg) return;
+    // com a aba escondida o navegador não desenha e segura os relógios em um por segundo: um recado pra si mesmo não para o carregamento
+    if (document.hidden) await new Promise(r => { const c = new MessageChannel(); c.port1.onmessage = r; c.port2.postMessage(0); });
+    else await new Promise(r => { const clock = setTimeout(r, 200); requestAnimationFrame(() => { clearTimeout(clock); setTimeout(r); }); });
+    lastPaint = performance.now();
+  };
+  await say(3, 'Esperando as letras...');
+  await Promise.race([document.fonts?.ready, new Promise(r => setTimeout(r, 2500))]);
+
+  // a cidade em volta de onde você nasce, com uma folga além do que dá pra ver
+  const size = CELL * CHUNK, view = Q.view + 1, ci = Math.floor(me.pos.x / size), cj = Math.floor(me.pos.z / size), list = [];
+  for (let a = -view; a <= view; a++) for (let b = -view; b <= view; b++) list.push([ci + a, cj + b, a * a + b * b]);
+  list.sort((p, q) => p[2] - q[2]);
+  await say(5, 'Erguendo a cidade...');
+  for (let k = 0; k < list.length; k++) {
+    const [x, z] = list[k], key = x + ',' + z;
+    if (!chunks.has(key)) chunks.set(key, buildChunk(x, z));
+    await say(5 + 40 * (k + 1) / list.length);
+  }
+  await say(46, 'Desenhando o horizonte...');
+  skyline.rebuild(me.pos.x, me.pos.z, isLoaded);
+
+  await say(50, 'Montando a Lua, os asteroides e as backrooms...');
+  if (!space.floor) space.buildFloor();
+  if (!space.belt) space.buildBelt();
+  space.followBelt(new V3(0, 0, -30000));
+  space.followFloor(0, 0);
+  const warmChunks = mine.warm(me.pos.x, me.pos.z);
+
+  // o que só aparece mais tarde também passa por aqui: portal e boneco quadrado
+  const extras = new THREE.Group(), block = new BlockBody(extras, 'spider', COLOR);
+  extras.add(new THREE.Mesh(portals.geo, portals.base));
+  extras.visible = false;
+  scene.add(extras);
+
+  await say(55, 'Preparando as texturas...');
+  const textures = new Set();
+  scene.traverse(o => {
+    for (const m of [].concat(o.material || [])) {
+      for (const v of Object.values(m)) if (v?.isTexture) textures.add(v);
+      for (const u of Object.values(m.uniforms || {})) if (u.value?.isTexture) textures.add(u.value);
+    }
+  });
+  let done = 0;
+  for (const t of textures) {
+    renderer.initTexture(t);
+    await say(55 + 5 * ++done / textures.size);
+  }
+
+  // Shaders: uma vez como vão pra tela, outra como vão pros estilos de arte, com todos os mundos à vista.
+  // Mudar a quantidade de luzes acesas recompila todos os materiais, e isso acontece ao se afastar da laje, ao sair da
+  // cidade ou quando a qualidade automática desliga a sombra. Por isso cada combinação é compilada aqui, de uma vez.
+  const shown = [city, space.sky, space.moon, space.floor, space.beltGroup, back.group, mine.group, day.sky, day.stars, extras, sea.mesh, coast.mesh, fun.group, beach.group];
+  const was = shown.map(o => o.visible);
+  shown.forEach(o => { o.visible = true; });
+  const rt = new THREE.WebGLRenderTarget(8, 8, { type: THREE.HalfFloatType }), combos = [[true, true], [true, false], [false, true], [false, false]];
+  // Depois de compilar, um desenho de verdade por combinação, com uma câmera que vê a cidade inteira e sem descartar nada:
+  // joga cada malha na placa de vídeo e cobre o que compilar não cobre, como a sombra, que tem shader próprio por quantidade de luzes.
+  const wide = new THREE.OrthographicCamera(-4000, 4000, 4000, -4000, -6000, 6000), culled = [];
+  wide.position.set(me.pos.x, 500, me.pos.z);
+  wide.lookAt(me.pos.x, 0, me.pos.z);
+  wide.updateMatrixWorld();
+  scene.traverse(o => { if (o.frustumCulled) { o.frustumCulled = false; culled.push(o); } });
+  const draw = target => { renderer.setRenderTarget(target); renderer.shadowMap.needsUpdate = true; renderer.render(scene, wide); };
+  for (let k = 0; k < combos.length; k++) {
+    const [shadow, lamps] = combos[k];
+    day.light.castShadow = shadow;
+    roofFx.setLamps(lamps);
+    courtFx.setLamps(lamps);
+    await say(60 + 5 * k, 'Compilando os shaders (na primeira vez é o que mais demora)...');
+    await compileAll(renderer, scene, camera);
+    renderer.setRenderTarget(rt);
+    await compileAll(renderer, scene, camera);
+    draw(rt);
+    draw(null);
+  }
+  culled.forEach(o => { o.frustumCulled = true; });
+  day.light.castShadow = Q.shadow > 0;
+  roofFx.setLamps(Q.lamps);
+  courtFx.setLamps(Q.lamps);
+  await say(80, 'Compilando os estilos de arte...');
+  await art.warmUp();
+  rt.dispose();
+  shown.forEach((o, k) => { o.visible = was[k]; });
+  warmChunks.forEach(c => mine.drop(c));
+  scene.remove(extras);
+  for (const body of [block]) body.dispose();
+
+  // Ensaio: cada estilo desenha um quadro de verdade, com um par de portais olhando pra câmera.
+  // As imagens de cada estilo e a visão pelos portais já ficam criadas na placa, no tamanho da sua tela.
+  await say(86, 'Ensaiando os estilos e os portais...');
+  last = performance.now();
+  simulate(last, 1 / 60);
+  const ahead = new V3(0, 0, -1).applyQuaternion(camera.quaternion), side = new V3(1, 0, 0).applyQuaternion(camera.quaternion), top = new V3(0, 1, 0).applyQuaternion(camera.quaternion);
+  [-6, 6].forEach((s, color) => portals.set('ensaio', color, { c: camera.position.clone().addScaledVector(ahead, 24).addScaledVector(side, s).toArray(), n: ahead.clone().negate().toArray(), u: top.toArray(), where: me.where }));
+  for (const S of ART_STYLES) {
+    art.set(S.id);
+    ground.geometry = S.jelly ? denseGround() : flatGround;
+    last = performance.now();
+    simulate(last, 1 / 60);
+    await say(87);
+  }
+  portals.clear('ensaio');
+  speedFx.draw(1, 0, 0, speedDir, 72);
+
+  // o Minecraft também: liga, joga uns quadros (o boneco quadrado, a tela de vida e fome) e devolve você onde estava
+  const wanted = prefs.art || 'normal', spot = me.pos.clone();
+  setArt('blocos', true);
+  for (let k = 0; k < 20; k++) {
+    last = performance.now();
+    simulate(last, 1 / 60);
+    await say(88);
+  }
+  me.pos.copy(spot);
+  me.vel.set(0, 0, 0);
+
+  await say(90, 'Aquecendo o jogo...');
+  setArt(wanted, true);
+  toast = null;
+  if (mine.active) { mine.stream(me.pos.x, me.pos.z); while (mine.queue.length) { mine.stream(me.pos.x, me.pos.z); await say(92); } }
+  // alguns quadros de verdade atrás da tela: o navegador otimiza o código antes de você entrar
+  for (let k = 0; k < 90; k++) {
+    last = performance.now();
+    simulate(last, 1 / 60);
+    await say(90 + 10 * k / 90);
+  }
+  await say(100, 'Pronto!');
+}
+
+function enter() {
+  $('#loading').style.display = 'none';
+  perf.hold = performance.now() + 6000;
+  perf.sum = perf.n = perf.worst = 0;
+  last = performance.now();
+  requestAnimationFrame(frame);
+  // para depuração no console
+    window.__v3 = {
+    me, remotes, keys, camera, lotsAround, lot, cinema, CINEMA, nearestSeat, sitDown, standUp, setCinema, inCinema,
+    quality: () => ({ pref: prefs.quality ?? 'auto', level: qLevel, name: Q.name, software: SOFTWARE, fps: Math.round(perf.fps) }), setQuality, skyline, buildChunk,
+    day, setTime, hourNow, board, sinuca, pong, basket, voice, renderer, enterAct, leaveAct, nearbyAction, chunks, crowd, traffic, net,
+    setRadio, radioYt, radioSp, inPool, COURT, sweep,
+    get act() { return act; },
+    get timeState() { return timeState; },
+    get cineState() { return cineState; },
+    setLook: (y, p) => { yaw = y; pitch = p; },
+    lookAt: p => { const d = new V3().subVectors(p, camera.position); yaw = Math.atan2(-d.x, -d.z); pitch = Math.atan2(d.y, Math.hypot(d.x, d.z)); },
+    fun, beach, coast, FUN_GATE, BEACH_SPOT, teleport, boardRide, leaveRide, past, rewind, mine, art, setArt, powers, setPower, GOD, sendGod, flyers, godEvent, setBase, setFirstPerson, view, speedFx, speedCfg, setSpeed, get speedK() { return speedK; }, echoes, toggleRecord, eatenLots, eatLot, useItem, ITEMS, sea, blast, space, back, trip, fx, gaze, startTrip, setWhere, enterBack, leaveBack, nearbyAction, setMouse: v => { mouseDown = v; }, setRight: v => { mouseRight = v; }, lock: v => { locked = v; }, slimes, view, launch, nearWall, grabFriend, portals, firePortal, selectSlot, portalRay, get held() { return held; }, get target() { return target; },
+    tick(dt = 1 / 60) { last += dt * 1000; simulate(last, dt); },
+  };
+}
+
+net.connect();
+preload().catch(e => { console.error('carregamento', e); $('#load-text').textContent = 'Algo falhou no carregamento: entrando assim mesmo'; }).finally(enter);

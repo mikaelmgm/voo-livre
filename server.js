@@ -14,6 +14,16 @@ const { loadCert } = require('./cert.js');
 
 const PORT = Number(process.argv[2] || process.env.PORT || 3000);
 const PUBLIC = path.join(__dirname, 'public');
+// "Última atualização" do menu: dá pra servir o jogo guardado em versoes/anterior no lugar do atual, pra todo mundo.
+const OLD = path.join(__dirname, 'versoes', 'anterior');
+const OLD_PUBLIC = path.join(OLD, 'public');
+const ACTIVE_FILE = path.join(__dirname, 'versoes', 'ativa.txt');
+let version = 'nova';
+try { if (fs.readFileSync(ACTIVE_FILE, 'utf8').trim() === 'anterior' && fs.existsSync(OLD_PUBLIC)) version = 'anterior'; } catch { /* ainda não existe */ }
+const webRoot = () => (version === 'anterior' ? OLD_PUBLIC : PUBLIC);
+function oldDate() {
+  try { return fs.readFileSync(path.join(OLD, 'quando.txt'), 'utf8').trim(); } catch { return null; }
+}
 const WS_GUID = '258EAFA5-E914-47DA-95CA-C5AB0DC85B11';
 const MIME = {
   '.html': 'text/html; charset=utf-8',
@@ -32,7 +42,12 @@ const SKINS3 = ['spider', 'miles', 'simb', 'gummy', 'scarf'];
 
 // Configurações da party, iguais pra todo mundo: PVP, mapa, música do YouTube, vídeo do telão do cinema (3D),
 // rádio da laje (YouTube ou Spotify) e o horário do dia (3D).
-const party = { pvp: false, mode: 'course', music: null, cinema: null, radio: null, time: { locked: false, hour: 15, at: Date.now() } };
+const party = { pvp: false, mode: 'course', music: null, cinema: null, radio: null, time: { locked: false, hour: 15, at: Date.now() }, god: { grav: 1, sea: 0, bend: 0, pace: 1 } };
+// prédios comidos ou destruídos no 3D, pra quem chegar depois ver a cidade do mesmo jeito
+const eaten = new Set();
+// blocos quebrados e colocados no modo Minecraft
+const voxels = new Map();
+const VOX_MAX = 40000;
 // Estado dos jogos da laje (sinuca, ping pong, basquete), pra quem chegar depois ver a mesa como está.
 const shared = {};
 const GAMES = ['sinuca', 'pong', 'pad', 'bola', 'cesta'];
@@ -89,15 +104,44 @@ function serve(req, res) {
     res.end(JSON.stringify({ port: PORT, ips: lanAddresses(), https: true, players: [...clients.values()].filter(c => c.joined).length }));
     return;
   }
+  if (url.pathname === '/api/versao') {
+    if (req.method === 'POST') { pickVersion(req, res); return; }
+    sendVersion(res);
+    return;
+  }
   let rel;
   try { rel = decodeURIComponent(url.pathname); } catch { rel = '/'; }
   if (rel === '/' || rel === '') rel = '/index.html';
-  const file = path.normalize(path.join(PUBLIC, rel));
-  if (!file.startsWith(PUBLIC)) { res.writeHead(403); res.end(); return; }
+  // o painel de versão é sempre o mais novo, porque é ele que traz a versão antiga de volta
+  const root = rel === '/versao.js' ? PUBLIC : webRoot();
+  const file = path.normalize(path.join(root, rel));
+  if (!file.startsWith(root)) { res.writeHead(403); res.end(); return; }
   fs.readFile(file, (err, data) => {
     if (err) { res.writeHead(404); res.end('não encontrado'); return; }
+    // quem foi guardado antes do painel existir recebe ele aqui
+    if (path.extname(file) === '.html' && !data.includes('versao.js')) data = String(data).replace('</body>', '<script src="/versao.js"></script></body>');
     res.writeHead(200, { 'Content-Type': MIME[path.extname(file)] || 'application/octet-stream', 'Cache-Control': 'no-cache' });
     res.end(data);
+  });
+}
+
+function sendVersion(res) {
+  res.writeHead(200, { 'Content-Type': MIME['.json'], 'Cache-Control': 'no-store' });
+  res.end(JSON.stringify({ ativa: version, temAnterior: fs.existsSync(OLD_PUBLIC), anteriorDe: oldDate() }));
+}
+
+function pickVersion(req, res) {
+  let body = '';
+  req.on('data', d => { if (body.length < 200) body += d; });
+  req.on('end', () => {
+    let v = null;
+    try { v = JSON.parse(body).v; } catch { /* corpo inválido */ }
+    if ((v === 'nova' || (v === 'anterior' && fs.existsSync(OLD_PUBLIC))) && v !== version) {
+      version = v;
+      try { fs.writeFileSync(ACTIVE_FILE, v); } catch { /* vale até desligar o servidor */ }
+      console.log(`  * versão do jogo: ${v}`);
+    }
+    sendVersion(res);
   });
 }
 
@@ -132,6 +176,7 @@ class Client {
     this.skin = 'scarf';
     this.skin3 = 'spider';
     this.slime = 60;
+    this.portals = [null, null];
     this.voice = false;
     this.muted = false;
     socket.setNoDelay(true);
@@ -140,7 +185,7 @@ class Client {
     socket.on('error', () => this.onClose());
     clients.set(this.id, this);
     this.send({
-      t: 'welcome', id: this.id, seed: SEED, party, shared, now: Date.now(),
+      t: 'welcome', id: this.id, seed: SEED, party, shared, now: Date.now(), eaten: [...eaten], vox: [...voxels.values()],
       players: [...clients.values()].filter(c => c.joined && c !== this).map(c => c.info()),
     });
   }
@@ -206,6 +251,7 @@ class Client {
         const first = !this.joined;
         this.joined = true;
         broadcast({ t: 'join', ...this.info() }, this);
+        if (first) for (const c of clients.values()) for (const p of c.portals) if (p) this.send(p);
         if (first) console.log(`  + ${this.name} entrou (${[...clients.values()].filter(c => c.joined).length} jogando)`);
         break;
       }
@@ -255,9 +301,35 @@ class Client {
         if (to && this.voice) to.send({ t: 'rtc', from: this.id, d: m.d });
         break;
       }
+      case 'e3': { // acontecimentos do 3D: buraco negro, chuva, meteoro, prédio comido
+        if (!this.joined) break;
+        if (m.k === 'lot' && Number.isInteger(m.i) && Number.isInteger(m.j)) eaten.add(m.i + ',' + m.j);
+        if (m.k === 'city') { eaten.clear(); voxels.clear(); }
+        if (m.k === 'vox' && [m.x, m.y, m.z, m.b].every(Number.isInteger)) {
+          const key = m.x + ',' + m.y + ',' + m.z;
+          voxels.delete(key);
+          voxels.set(key, [m.x, m.y, m.z, m.b]);
+          if (voxels.size > VOX_MAX) voxels.delete(voxels.keys().next().value);
+        }
+        broadcast({ ...m, id: this.id }, this);
+        break;
+      }
+      case 'perf': { // números de verdade de quem está jogando, num arquivo pra olhar depois
+        if (!this.joined) break;
+        const line = [new Date().toISOString(), this.name, `${m.fps} fps`, `pior ${m.worst} ms`, m.q, m.art, m.where, `${m.w}x${m.h}`, `tela ${m.hz} Hz`, m.gpu, `${m.prog} shaders`, m.spikes ? `engasgos: ${m.spikes}` : ''].map(v => String(v).replace(/[\r\n]/g, ' ').slice(0, 240)).join(' | ');
+        fs.appendFile(path.join(__dirname, 'desempenho.log'), line + '\n', () => {});
+        break;
+      }
       case 'p3': { // toques entre jogadores no 3D (puxar, pegar, jogar): vai só pra quem foi tocado
         const to = clients.get(m.to);
         if (to && this.joined) to.send({ ...m, from: this.id });
+        break;
+      }
+      case 'pt': { // portal: fica guardado pra quem entrar depois
+        if (!this.joined || (m.c !== 0 && m.c !== 1)) break;
+        m.id = this.id;
+        this.portals[m.c] = m;
+        broadcast(m, this);
         break;
       }
       case 'who':
@@ -270,6 +342,11 @@ class Client {
         if ('music' in m) { party.music = ytState(m.music, this.name); changed.push('music'); }
         if ('cinema' in m) { party.cinema = ytState(m.cinema, this.name); changed.push('cinema'); }
         if ('radio' in m) { party.radio = radioState(m.radio, this.name); changed.push('radio'); }
+        if (m.god && typeof m.god === 'object') {
+          const num = (v, lo, hi, d) => (Number.isFinite(v) ? Math.max(lo, Math.min(hi, v)) : d);
+          party.god = { grav: num(m.god.grav, -1, 3, 1), sea: num(m.god.sea, 0, 220, 0), bend: num(m.god.bend, -100, 100, 0), pace: num(m.god.pace, 0, 4, 1) };
+          changed.push('god');
+        }
         if (m.time && typeof m.time === 'object' && Number.isFinite(m.time.hour)) {
           party.time = { locked: !!m.time.locked, hour: ((m.time.hour % 24) + 24) % 24, at: Date.now() };
           changed.push('time');

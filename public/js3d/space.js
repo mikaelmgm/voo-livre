@@ -1,13 +1,20 @@
 // O que existe além da cidade: a Terra vista de fora, a Lua que dá pra pisar e as nuvens da viagem.
 // O espaço não tem escala real: Terra e Lua ficam a uma distância fixa da câmera e só mudam de tamanho aparente.
 import * as THREE from 'three';
-import { clamp, softDot } from './lib3d.js';
+import { clamp, rnd, softDot } from './lib3d.js';
 
 const FAR = 3000;                  // distância em que os astros são desenhados
 const TILE = 1600;                 // o chão da Lua se repete a cada TILE metros
 const BEND = 3200;                 // curvatura do horizonte: é uma lua bem pequena
 
 export const SUN = new THREE.Vector3();
+// O espaço de verdade: a Terra na origem e a Lua numa linha reta. g é a gravidade na superfície, bem maior que a real.
+export const EARTH = { c: new THREE.Vector3(0, 0, 0), r: 4000, g: 125, name: 'Terra' };
+export const MOON = { c: new THREE.Vector3(0, 0, -60000), r: 1500, g: 90, name: 'Lua' };
+export const BODIES = [EARTH, MOON];
+
+const BELT_CELL = 240, BELT_SPAN = 6;      // pedaços de espaço com pedra; quantos ficam em volta de quem está lá
+const BELT_MAX = 1400;
 const MOON_SUN = new THREE.Vector3(-0.35, 0.55, 0.76).normalize();      // na Lua: sol baixo, sombra comprida e a Terra acesa no céu
 
 const NOISE = `float hash(vec3 p){ p = fract(p * 0.3183099 + 0.1); p *= 17.0; return fract(p.x * p.y * p.z * (p.x + p.y + p.z)); }
@@ -16,8 +23,9 @@ const NOISE = `float hash(vec3 p){ p = fract(p * 0.3183099 + 0.1); p *= 17.0; re
       mix(mix(hash(i + vec3(0, 0, 1)), hash(i + vec3(1, 0, 1)), f.x), mix(hash(i + vec3(0, 1, 1)), hash(i + vec3(1, 1, 1)), f.x), f.y), f.z); }
   float fbm(vec3 p){ float a = 0.5, v = 0.0; for (int i = 0; i < 5; i++) { v += a * noise(p); p = p * 2.03 + 7.1; a *= 0.5; } return v; }`;
 
-const BALL_VERT = `varying vec3 vP, vN, vV;
-  void main(){ vec4 w = modelMatrix * vec4(position, 1.0); vP = position; vN = normalize(mat3(modelMatrix) * normal); vV = normalize(cameraPosition - w.xyz); gl_Position = projectionMatrix * viewMatrix * w; }`;
+// os astros são pintados longe, com profundidade fixa: ficam sempre atrás das pedras e na frente do sol e das estrelas
+const BALL_VERT = `varying vec3 vP, vN, vV; uniform float uZ;
+  void main(){ vec4 w = modelMatrix * vec4(position, 1.0); vP = position; vN = normalize(mat3(modelMatrix) * normal); vV = normalize(cameraPosition - w.xyz); gl_Position = projectionMatrix * viewMatrix * w; gl_Position.z = uZ * gl_Position.w; }`;
 
 const EARTH_FRAG = `uniform vec3 uSun; uniform float uTime; varying vec3 vP, vN, vV; ${NOISE}
   void main(){
@@ -34,7 +42,9 @@ const EARTH_FRAG = `uniform vec3 uSun; uniform float uTime; varying vec3 vP, vN,
     c = mix(c * light, vec3(1.0) * (light + 0.015), cloud * 0.86);
     // o lado da noite: as cidades acesas
     float night = 1.0 - smoothstep(-0.08, 0.16, day);
-    float lights = land * smoothstep(0.56, 0.72, fbm(p * 24.0)) * (0.4 + 0.6 * noise(p * 90.0));
+    // detalhe menor que um pixel cintila: some conforme a Terra fica pequena na tela
+    float fine = 1.0 - smoothstep(0.012, 0.05, length(fwidth(p)));
+    float lights = land * smoothstep(0.56, 0.72, fbm(p * 24.0)) * (0.4 + 0.6 * noise(p * 90.0)) * fine;
     c += vec3(1.0, 0.72, 0.36) * lights * night * 1.3 * (1.0 - cloud);
     float rim = pow(1.0 - max(dot(N, normalize(vV)), 0.0), 3.0);
     c += vec3(0.25, 0.5, 1.0) * rim * (clamp(day * 1.4 + 0.25, 0.0, 1.0) + 0.04);
@@ -60,7 +70,8 @@ const MOON_BALL_FRAG = `uniform vec3 uSun; varying vec3 vP, vN, vV; ${NOISE}
   void main(){
     vec3 N = normalize(vN), p = normalize(vP);
     float maria = smoothstep(0.42, 0.6, fbm(p * 1.7 + 4.0));
-    float rock = fbm(p * 7.0) + 0.18 * fbm(p * 44.0) + 0.1 * fbm(p * 150.0);
+    float fine = 1.0 - smoothstep(0.012, 0.05, length(fwidth(p)));
+    float rock = fbm(p * 7.0) + (0.18 * fbm(p * 44.0) + 0.1 * fbm(p * 150.0)) * fine + 0.14 * (1.0 - fine);
     float c = 0.62 - 0.3 * maria + (rock - 0.55) * 0.5 + 0.13 * craters(p, 5.0) + 0.1 * craters(p + 3.0, 13.0) + 0.06 * craters(p + 7.0, 33.0);
     float light = smoothstep(-0.06, 0.32, dot(N, uSun));
     gl_FragColor = vec4(vec3(c) * vec3(0.97, 0.96, 1.0) * (light + 0.012), 1.0);
@@ -104,6 +115,8 @@ const DOTS_VERT = `uniform float uBend, uScale;
     gl_PointSize = uScale / max(-mv.z, 1.0);
     gl_Position = projectionMatrix * mv;
   }`;
+const ROCK_DOT_VERT = `uniform float uScale;
+  void main(){ vec4 mv = viewMatrix * modelMatrix * vec4(position, 1.0); gl_PointSize = max(5.0, uScale / max(-mv.z, 1.0)); gl_Position = projectionMatrix * mv; }`;
 const DOTS_FRAG = `void main(){
     float d = length(gl_PointCoord - 0.5) * 2.0;
     gl_FragColor = vec4(vec3(0.75, 0.97, 1.0), (1.0 - smoothstep(0.0, 1.0, d)) * 0.9);
@@ -144,9 +157,9 @@ export class Space {
     this.sun = new THREE.Sprite(new THREE.SpriteMaterial({ map: softDot(), color: 0xfff2d8, transparent: true, depthWrite: false, fog: false, blending: THREE.AdditiveBlending, toneMapped: false }));
     this.sun.scale.setScalar(760);
 
-    this.earth = new THREE.Mesh(new THREE.SphereGeometry(1, 96, 64), new THREE.ShaderMaterial({ vertexShader: BALL_VERT, fragmentShader: EARTH_FRAG, uniforms: { uSun: sun, uTime: this.uTime }, toneMapped: false }));
-    this.air = new THREE.Mesh(new THREE.SphereGeometry(1.052, 64, 40), new THREE.ShaderMaterial({ vertexShader: BALL_VERT, fragmentShader: AIR_FRAG, uniforms: { uSun: sun }, side: THREE.BackSide, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, toneMapped: false }));
-    this.moon = new THREE.Mesh(new THREE.SphereGeometry(1, 96, 64), new THREE.ShaderMaterial({ vertexShader: BALL_VERT, fragmentShader: MOON_BALL_FRAG, uniforms: { uSun: sun }, toneMapped: false }));
+    this.earth = new THREE.Mesh(new THREE.SphereGeometry(1, 96, 64), new THREE.ShaderMaterial({ vertexShader: BALL_VERT, fragmentShader: EARTH_FRAG, uniforms: { uSun: sun, uTime: this.uTime, uZ: { value: 0.9999444 } }, toneMapped: false }));
+    this.air = new THREE.Mesh(new THREE.SphereGeometry(1.052, 64, 40), new THREE.ShaderMaterial({ vertexShader: BALL_VERT, fragmentShader: AIR_FRAG, uniforms: { uSun: sun, uZ: { value: 0.99995 } }, side: THREE.BackSide, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, toneMapped: false }));
+    this.moon = new THREE.Mesh(new THREE.SphereGeometry(1, 96, 64), new THREE.ShaderMaterial({ vertexShader: BALL_VERT, fragmentShader: MOON_BALL_FRAG, uniforms: { uSun: sun, uZ: { value: 0.9999675 } }, toneMapped: false }));
     this.earth.frustumCulled = this.air.frustumCulled = this.moon.frustumCulled = false;
     this.earth.rotation.set(1.1, 0, 0.35);     // eixo inclinado: de cima não se vê só o polo
     SUN.copy(MOON_SUN);
@@ -154,6 +167,7 @@ export class Space {
     this.sky.add(this.stars, this.sun, this.earth, this.air, this.moon, this.glow);
     scene.add(this.sky);
 
+    this.belt = null;                  // as pedras do espaço também só na primeira viagem
     this.floor = null;                 // o chão só é montado na primeira visita
     this.craters = [];
     const r2 = seeded(90210);
@@ -214,6 +228,63 @@ export class Space {
     this.tile = null;
   }
 
+  // Pedras soltas no espaço. Saem de um sorteio fixo por pedaço, então todo jogador vê as mesmas.
+  rockIn(i, j, k) {
+    const id = Math.imul(i, 1009) ^ Math.imul(j, 2003) ^ Math.imul(k, 4001);
+    if (rnd(id, 5, 1) > 0.42) return null;
+    const x = (i + 0.2 + rnd(id, 5, 2) * 0.6) * BELT_CELL, y = (j + 0.2 + rnd(id, 5, 3) * 0.6) * BELT_CELL, z = (k + 0.2 + rnd(id, 5, 4) * 0.6) * BELT_CELL;
+    for (const b of BODIES) if (Math.hypot(x - b.c.x, y - b.c.y, z - b.c.z) < b.r * 1.35) return null;
+    const v = rnd(id, 5, 5), r = 8 + v * v * v * 62;
+    return { x, y, z, r, id: 800000 + (Math.abs(id) % 90000000), rx: rnd(id, 5, 6) * 6.28, ry: rnd(id, 5, 7) * 6.28, sy: 0.72 + rnd(id, 5, 8) * 0.34 };
+  }
+
+  buildBelt() {
+    const geo = new THREE.IcosahedronGeometry(1, 2), p = geo.attributes.position;
+    // amassa a bola; a posição decide o amassado pra costura dos triângulos não abrir
+    for (let i = 0; i < p.count; i++) {
+      const x = p.getX(i), y = p.getY(i), z = p.getZ(i), k = 1 + 0.26 * Math.sin(x * 4.1 + y * 2.3) * Math.cos(z * 3.7 + 1) + 0.14 * Math.sin(y * 7.3 - z * 5.1);
+      p.setXYZ(i, x * k, y * k, z * k);
+    }
+    geo.computeVertexNormals();
+    const mat = new THREE.ShaderMaterial({ vertexShader: GROUND_VERT, fragmentShader: GROUND_FRAG, uniforms: { uBend: { value: 1e9 }, uSun: { value: SUN }, uFlat: { value: 1 } }, toneMapped: false });
+    this.belt = new THREE.InstancedMesh(geo, mat, BELT_MAX);
+    this.belt.frustumCulled = false;
+    this.belt.count = 0;
+    this.beltGeo = new THREE.BufferGeometry();
+    this.beltGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(BELT_MAX * 3), 3));
+    this.beltDots = new THREE.Points(this.beltGeo, new THREE.ShaderMaterial({ vertexShader: ROCK_DOT_VERT, fragmentShader: DOTS_FRAG, uniforms: { uScale: { value: 900 } }, transparent: true, depthWrite: false, depthTest: false, blending: THREE.AdditiveBlending, toneMapped: false }));
+    this.beltDots.frustumCulled = false;
+    this.beltGroup = new THREE.Group();
+    this.beltGroup.add(this.belt, this.beltDots);
+    this.scene.add(this.beltGroup);
+    this.beltKey = '';
+    this.rocksHere = [];
+  }
+
+  followBelt(p) {
+    const ci = Math.floor(p.x / BELT_CELL), cj = Math.floor(p.y / BELT_CELL), ck = Math.floor(p.z / BELT_CELL), key = ci + ',' + cj + ',' + ck;
+    if (key === this.beltKey) return;
+    this.beltKey = key;
+    const list = [], m = new THREE.Matrix4(), q = new THREE.Quaternion(), e = new THREE.Euler(), s = new THREE.Vector3(), v = new THREE.Vector3(), dots = this.beltGeo.attributes.position;
+    for (let a = -BELT_SPAN; a <= BELT_SPAN; a++) for (let b = -BELT_SPAN; b <= BELT_SPAN; b++) for (let c = -BELT_SPAN; c <= BELT_SPAN; c++) {
+      const r = this.rockIn(ci + a, cj + b, ck + c);
+      if (r) list.push(r);
+    }
+    list.sort((u, w) => Math.hypot(u.x - p.x, u.y - p.y, u.z - p.z) - Math.hypot(w.x - p.x, w.y - p.y, w.z - p.z));
+    list.length = Math.min(list.length, BELT_MAX);
+    list.forEach((r, n) => {
+      q.setFromEuler(e.set(r.rx, r.ry, 0));
+      m.compose(v.set(r.x, r.y, r.z), q, s.set(r.r, r.r * r.sy, r.r));
+      this.belt.setMatrixAt(n, m);
+      dots.setXYZ(n, r.x, r.y, r.z);
+    });
+    this.belt.count = list.length;
+    this.beltGeo.setDrawRange(0, list.length);
+    this.belt.instanceMatrix.needsUpdate = true;
+    dots.needsUpdate = true;
+    this.rocksHere = list;
+  }
+
   // o chão se repete: mantém as 9 peças em volta de quem está na Lua
   followFloor(x, z) {
     const ti = Math.round(x / TILE), tj = Math.round(z / TILE), key = ti + ',' + tj;
@@ -259,6 +330,8 @@ export class Space {
   show(mode) {
     this.sky.visible = mode !== 'off';
     this.moon.visible = mode === 'trip';
+    if (mode === 'trip' && !this.belt) this.buildBelt();
+    if (this.belt) this.beltGroup.visible = mode === 'trip';
     if (mode === 'moon' && !this.floor) this.buildFloor();
     if (this.floor) this.floor.visible = mode === 'moon';
   }

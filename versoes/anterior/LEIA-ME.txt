@@ -1,0 +1,142 @@
+VOO LIVRE — gancho, momentum e céu aberto (2 jogadores online)
+=================================================================
+
+COMO JOGAR COM SEU AMIGO (Radmin VPN)
+1. Vocês dois entram na mesma rede do Radmin VPN.
+2. Quem for o HOST dá dois cliques em JOGAR.bat
+   (precisa do Node.js instalado: https://nodejs.org).
+   Uma janela preta abre mostrando os endereços, e o jogo abre no navegador.
+3. Se o Windows perguntar sobre o firewall, marque "Redes privadas" E "Redes públicas"
+   e clique em Permitir (o Radmin às vezes aparece como rede pública).
+4. Mande pro seu amigo o endereço com sslip.io que aparece na janela preta, por exemplo:
+       https://26-123-45-67.sslip.io:3000
+   Esse nome aponta pro seu próprio IP. Use ele: por IP puro o YouTube bloqueia a maioria dos vídeos.
+   Quem abrir o endereço antigo por IP é levado pra esse sozinho.
+   Ele só abre esse endereço no navegador (Chrome/Edge/Firefox). Não precisa instalar nada.
+   O endereço também aparece na tela inicial do jogo, com um botão "copiar".
+   O navegador vai avisar que a conexão não é particular: clique em Avançado > Continuar.
+   É normal, o certificado é feito pelo próprio jogo. Só precisa fazer uma vez.
+   Por http o jogo também abre, mas aí o amigo só ouve a call: sem https o navegador não libera o microfone.
+5. Deixe a janela preta aberta enquanto jogam.
+
+Se o amigo não conseguir abrir: clique com o botão direito em LIBERAR-FIREWALL.bat >
+"Executar como administrador" (libera a porta 3000 no Firewall do Windows).
+Porta ocupada? Rode no terminal:  node server.js 3001  e use :3001 no endereço.
+
+CONTROLES
+  Segure o CLIQUE perto de um ponto brilhante,
+  de um drone ou do seu amigo ................... prende o gancho (mira assistida)
+  Solte o clique ................................ se lança com todo o embalo
+  Espaço no ar .................................. pulo duplo (1 por voo, recarrega ao prender o gancho)
+  A / D ......................................... andar / impulso no balanço / controle no ar
+  W / S (pendurado) ............................. W encurta, S alonga a corda
+  S no ar ....................................... mergulho (ganha velocidade)
+  W ou Espaço ................................... pular (na casinha)
+  Botão direito ................................. atira laser (PVP ligado, recarga de 0,6 s)
+  T ............................................. ir até o amigo
+  R ............................................. voltar à casinha
+  C ............................................. troca a câmera
+  M ............................................. liga/desliga o som
+  V ............................................. muta/desmuta o microfone na call
+  F ............................................. mostra fps
+  Esc ........................................... menu (câmera, mapa, PVP, roupa, música...)
+
+MENU (Esc)
+  Câmera ........ Centralizada em você / Dinâmica / Sempre ver o amigo (enquanto estiverem no mesmo cenário)
+  Mapa .......... Percurso (cenários em sequência) ou Céu de Drones (quase infinito, drones longe uns
+                  dos outros em várias alturas; caiu, pegue um mais embaixo). Vale pra party toda.
+  PVP ........... liga/desliga pra party toda. 10 tiros de laser eliminam.
+  Roupa ......... Cachecol, Aranha Clássico ou Aranha Miles (as de aranha usam corda de teia).
+  Visão do amigo  mini tela no canto direito mostrando o que o seu amigo está vendo.
+  Música ........ cole um link do YouTube e toca pra todo mundo, sincronizado (precisa de internet).
+  Voz ........... entre na call, escolha o microfone e a saída de áudio. Vale no 2D e no 3D.
+                  A escolha de saída funciona no Chrome e no Edge.
+
+O PERCURSO
+  Casinha no penhasco (pôr do sol) -> pule -> atravesse as nuvens ->
+  Praia Tropical (pixel art) -> Grand Canyon -> Cidade (pixel art) -> Picos Nevados -> Pôr do Sol -> ...
+  No fim de cada cenário um paredão de vento te joga numa queda livre pelas nuvens;
+  ao sair delas tudo fica em câmera lenta e aparece o primeiro ponto brilhante.
+  Caiu? Você reaparece perto do seu amigo.
+
+VERSÃO 3D (TESTE)
+  Na tela inicial, clique em "Testar a versão 3D (beta)" (ou abra http://IP:3000/3d.html).
+  Mesma mecânica numa cidade 3D infinita: segure o clique mirando num ponto brilhante, solte pra voar.
+  Mouse olha · W A S D anda/impulso (diagonais) · Espaço pulo/pulo duplo · Q cambalhota
+  Shift PRESO NA CORDA = BOOST (prende, boosta rapidinho, solta e acumula velocidade)
+  Shift solto no ar = mergulho (no chão corre) · E ou rodinha = corda · T ir até o amigo · R voltar ao início
+  A teia é elástica e encurta sozinha perto do chão. Segure S preso na teia pra descer de propósito.
+  PERSONAGEM: no Esc escolha a skin e o quanto ele é mole (0 = borracha, 100 = derretendo). Todo mundo vê.
+    Aranha, Aranha preto e Simbionte usam teia. Bala de goma e Cachecol esticam o próprio braço.
+  DUAS TEIAS: botão esquerdo numa mão, botão direito na outra.
+  CTRL (ou C) no chão, com a teia presa: você finca o pé e ela não te leva. No ar, não faz nada.
+    Ande pra trás pra puxar. O amigo vem arrastado (E ou a rodinha recolhem a teia).
+    Num prédio a teia estica, cada vez mais pesada: solte o CTRL ou as mãos e saia voando.
+    Com as duas teias vai mais forte. Com um amigo te puxando, estica o dobro.
+    Cuidado: CTRL+W fecha a aba. O jogo pede confirmação, mas se preferir use a tecla C.
+  AMIGO: perto dele, F pega e F de novo arremessa. Se você estiver rápido, soma a sua velocidade. Espaço solta.
+  PAREDE: Espaço perto de uma parede pula nela, e recarrega o pulo duplo.
+  ITENS: as teclas 1 a 6 pegam o item na mão, e a mesma tecla de novo guarda. Botão direito usa
+    (e deixa de ser teia enquanto segura o item).
+    1 = portal azul, 2 = portal laranja, 3 = chuva de carros. G = primeira pessoa.
+
+    Quem entra num portal sai no outro com a mesma velocidade, e voando em direção a ele a rota ajuda um pouco.
+    Dá pra ver o outro lado e jogar a teia num ponto brilhante através do portal: ela te leva junto.
+  VELOCIDADE: não tem limite, mas acima de 360 km/h ela cai bem rápido.
+  ESTILOS DE ARTE (aba Arte): tudo muda na hora e as mecânicas são as mesmas. B troca jogando.
+    Pixel Art, Game Boy, Minecraft, Geleia, Gibi, Simpsons, Bob Esponja, Neon, Vaporwave, ASCII, Noir e Sonho.
+    "Surpresa" troca sozinho a cada 25 s. Só você vê o seu estilo. Na Geleia, os pousos fortes viram ondas pela rua.
+  MINECRAFT (estilo de arte): a cidade vira blocos. Perto, segure o clique pra quebrar (a picareta é mais rápida na pedra).
+    Longe, a teia pega em qualquer bloco. Botão direito põe bloco ou come. 1 a 9 ou a rodinha trocam o item, E abre a mochila.
+    Queda forte tira vida, a fome baixa com o tempo, e à noite aparecem zumbis (três pancadas derrubam).
+    Dá pra cavar até a rocha-mãe, com carvão, ferro, ouro e diamante no caminho. Os blocos valem pra todo mundo no mesmo estilo.
+  LUGARES: lojas pequenas têm porta e interior (lanchonete, mercado, fliperama, bar, academia, sorveteria).
+    PARQUE: F na entrada da roda-gigante, da montanha-russa ou do carrossel. Espaço salta fora, com a velocidade que estiver.
+    PRAIA: bem pro sul da cidade. Tem mar pra nadar. Os botões "Ir pro parque" e "Ir pra praia" estão no menu.
+  PODERES (aba Poderes): clique pra ligar e desligar.
+    Comilão ........ encoste em gente pra comer. Maior, come carro; bem maior, come prédio. Desligar volta ao normal.
+    Ímã de comida .. com o Comilão, a comida vem até você.
+    Voo de herói ... W vai pra onde a câmera olha, Espaço sobe, Shift acelera.
+    Fantasma ....... atravessa prédio.
+    Pouso bomba .... cair forte joga gente e carro pra longe. Bem grande, faz isso sem o poder.
+    Tamanho ........ de 1/16 a 16 vezes, e todo mundo vê.
+    Sempre ligados: X (segure) câmera lenta · Z (segure) rebobinar sem limite, cada vez mais rápido · H grava um clone seu, H de novo termina
+    · J apaga os clones · N para o mundo.
+  MUNDO (aba Mundo): vale pra todo mundo. Gravidade (até invertida), nível do mar (Shift mergulha),
+    mundo enrolado (planetinha ou A Origem) e velocidade de carros e pessoas. "Refazer a cidade" traz os prédios de volta.
+  ESPAÇO: olhe 2 s pra Lua à noite e segure o clique. Segurando, a teia te leva até lá em menos de 30 s.
+    Soltando, você fica livre: mire numa pedra e segure o clique (o alcance é bem maior), balance, solte.
+    Mire na Lua ou na Terra pra ser levado de novo. W/S = jato · Shift = turbo · Espaço = impulso.
+    Perto de um astro a gravidade puxa forte e a rota curva sozinha: é fácil acertar.
+  ÚLTIMA ATUALIZAÇÃO (aba do menu): não gostou ou quebrou? O botão volta o jogo pra versão anterior, pra todo mundo.
+    Dá pra voltar pra nova do mesmo jeito. Se o jogo não abrir, a aba funciona do mesmo jeito.
+  Em alta velocidade o voo desvia sozinho dos prédios e puxa pro meio do vão entre eles.
+  P mostra o FPS na tela
+  CINEMA: o prédio gigante na frente do início. Entre pelas portas laterais (perto do chão).
+    F perto de uma cadeira = senta / levanta · Y = cola um link do YouTube e passa no telão pra todo mundo
+    (também dá pelo Esc, na caixa "Telão do cinema"). O som fica cheio dentro da sala e some longe do prédio.
+  Precisa de internet (a biblioteca 3D vem da internet). Quem está no 3D vê só quem também está no 3D.
+
+  F usa o que estiver perto: sentar, rádio, quadro, sinuca, ping pong, bola, elevador.
+
+  LAJE (em cima do cinema): suba pelo elevador na calçada, ao lado do cinema, pelos pontos brilhantes
+    ou pelo botão "Ir pra laje" no Esc.
+    Piscina ....... é só entrar; Espaço pula pra fora.
+    Rádio ......... F perto do rádio (ou Esc) e cole um link do YouTube ou do Spotify: música ou playlist.
+                    No Spotify o player fica no canto da tela, e cada um pode precisar dar o play nele
+                    (Esc solta o mouse). Sem estar logado no Spotify no navegador, só toca 30 s de prévia.
+                    Em playlist todo mundo começa junto, mas o Spotify não deixa escolher a faixa de cada um.
+                    O volume só muda no YouTube (some conforme você se afasta); o Spotify não deixa mexer nele.
+    Quadro ........ esquerdo desenha, direito apaga, 1 a 8 troca a cor, E apagador, rodinha muda o tamanho,
+                    X duas vezes limpa pra todo mundo, F sai.
+    Sinuca ........ mouse mira, segure e solte o clique pra tacar, G arruma a mesa, F sai.
+    Ping pong ..... mouse mexe a raquete, clique saca, F sai. Sozinho, a mesa devolve a bola.
+  QUADRA: atravesse a passarela da laje (ou "Ir pra quadra" no Esc). F pega a bola, segure e solte o clique
+    pra arremessar mirando com a câmera, F solta. De longe vale 3.
+
+  HORÁRIO (Esc): Manhã, Dia, Tarde, Noite ou a barra de hora. "Travar neste horário" para o relógio.
+    Vale pra todo mundo no 3D. Solto, o dia inteiro dura 24 minutos.
+  CARREGAMENTO: o jogo prepara tudo antes de entrar, pra não travar lá dentro. A primeira vez depois de uma atualização
+    demora mais; as seguintes são rápidas. O arquivo desempenho.log, na pasta do jogo, guarda o FPS real de cada jogador e os engasgos, com o que tinha acabado de acontecer.
+  QUALIDADE (Esc): no modo Automática o jogo baixa sozinho se o FPS cair. Também dá pra fixar em Mínima, Baixa,
+    Média ou Alta. P mostra o FPS, o pior quadro e a qualidade atual na tela.

@@ -66,6 +66,36 @@ export class Boxes {
       this.idx.push(top, top + 1, top + 2);
     }
   }
+  tri(a, b, c, n) {
+    const base = this.pos.length / 3;
+    for (const v of [a, b, c]) { this.pos.push(...v); this.nor.push(...n); this.uv.push(0.01, 0.01); this.col.push(...this.c); }
+    this.idx.push(base, base + 1, base + 2);
+  }
+  // telhado de duas águas, com a cumeeira no lado mais comprido
+  gable(x0, z0, x1, z1, y, h) {
+    const dx = x1 - x0, dz = z1 - z0;
+    if (dx >= dz) {
+      const m = (z0 + z1) / 2;
+      this.panel([x0, y, z1], [dx, 0, 0], [0, h, m - z1], [0, 0.7, 0.7], 0.01, 0.01, 0.01, 0.01);
+      this.panel([x1, y, z0], [-dx, 0, 0], [0, h, m - z0], [0, 0.7, -0.7], 0.01, 0.01, 0.01, 0.01);
+      this.tri([x0, y, z0], [x0, y, z1], [x0, y + h, m], [-1, 0, 0]);
+      this.tri([x1, y, z1], [x1, y, z0], [x1, y + h, m], [1, 0, 0]);
+    } else {
+      const m = (x0 + x1) / 2;
+      this.panel([x1, y, z1], [0, 0, -dz], [m - x1, h, 0], [0.7, 0.7, 0], 0.01, 0.01, 0.01, 0.01);
+      this.panel([x0, y, z0], [0, 0, dz], [m - x0, h, 0], [-0.7, 0.7, 0], 0.01, 0.01, 0.01, 0.01);
+      this.tri([x0, y, z1], [x1, y, z1], [m, y + h, z1], [0, 0, 1]);
+      this.tri([x1, y, z0], [x0, y, z0], [m, y + h, z0], [0, 0, -1]);
+    }
+  }
+  // torre redonda com janelas
+  tower(cx, cz, r, y0, y1, n) {
+    for (let k = 0; k < n; k++) {
+      const a0 = k / n * Math.PI * 2, a1 = (k + 1) / n * Math.PI * 2, am = (a0 + a1) / 2;
+      const o = [cx + Math.sin(a0) * r, y0, cz + Math.cos(a0) * r];
+      this.quad(o, [(Math.sin(a1) - Math.sin(a0)) * r, 0, (Math.cos(a1) - Math.cos(a0)) * r], [0, y1 - y0, 0], [Math.sin(am), 0, Math.cos(am)], true);
+    }
+  }
   get empty() { return !this.idx.length; }
   build() {
     const g = new THREE.BufferGeometry();

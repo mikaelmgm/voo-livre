@@ -2,6 +2,7 @@
 // numa peça só), um esqueleto elástico faz as poses e cada vértice tem mola própria, então o corpo atrasa, estica e treme.
 // Duas camadas, como bala de goma: um miolo leitoso com o traje e uma casca clara que refrata o que está atrás.
 import * as THREE from 'three';
+import { ART_UNIFORMS, ART_VERT } from './art.js';
 import { clamp, softDot } from './lib3d.js';
 
 const lerp = (a, b, t) => a + (b - a) * t;
@@ -27,19 +28,20 @@ const J = {
 const side = (p, s) => [p[0] * s, p[1], p[2]];
 const SIDES = [-1, 1];
 
-function limbRest(from, to, pole) {
+// fix: quanto do começo do osso não estica (o ombro fica no lugar enquanto o braço vai embora)
+function limbRest(from, to, pole, fix = 0) {
   const d = [to[0] - from[0], to[1] - from[1], to[2] - from[2]], len = Math.hypot(...d);
   const a = d.map(v => v / len), k = pole[0] * a[0] + pole[1] * a[1] + pole[2] * a[2];
   const b = [pole[0] - a[0] * k, pole[1] - a[1] * k, pole[2] - a[2] * k], bl = Math.hypot(...b);
   b[0] /= bl; b[1] /= bl; b[2] /= bl;
-  return { j: from, a, b, c: [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]], len };
+  return { j: from, a, b, c: [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]], len, fix };
 }
 const REST = [];
 REST[PELVIS] = { j: J.pelvis };
 REST[TORSO] = { j: J.waist };
 REST[HEAD] = { j: J.neck };
 SIDES.forEach((s, i) => {
-  REST[ARM + 2 * i] = limbRest(side(J.shoulder, s), side(J.elbow, s), [0, 0, 1]);
+  REST[ARM + 2 * i] = limbRest(side(J.shoulder, s), side(J.elbow, s), [0, 0, 1], 0.16);
   REST[ARM + 2 * i + 1] = limbRest(side(J.elbow, s), side(J.wrist, s), [0, 0, 1]);
   REST[PALM + i] = limbRest(side(J.wrist, s), side(J.hand, s), [0, 0, 1]);
   REST[LEG + 2 * i] = limbRest(side(J.hip, s), side(J.knee, s), [0, 0, -1]);
@@ -182,16 +184,24 @@ function bodyTemplate() {
   // pesos: cada vértice segue os 3 ossos mais perto; o mole/grosso vem do osso dominante
   const SOFT = [0.3, 0.72, 0.95, 0.7, 1, 0.7, 1, 0.45, 0.55, 0.45, 0.55, 1, 1];
   const THICK = [0.3, 0.38, 0.52, 0.12, 0.11, 0.12, 0.11, 0.15, 0.13, 0.15, 0.13, 0.14, 0.14];
-  const bi = new Uint8Array(n * 3), bw = new Float32Array(n * 3), soft = new Float32Array(n), thick = new Float32Array(n), mix = new Float32Array(n);
-  const dist = new Float64Array(BONES);
+  const bi = new Uint8Array(n * 3), bw = new Float32Array(n * 3), bo = new Float32Array(n * 3), soft = new Float32Array(n), thick = new Float32Array(n), mix = new Float32Array(n);
+  const dist = new Float64Array(BONES), armOf = new Int8Array(n).fill(-1);
   for (let i = 0; i < n; i++) {
     const x = pos[i * 3], y = pos[i * 3 + 1], z = pos[i * 3 + 2];
     dist.fill(1e9);
     for (const p of prims) dist[p.bone] = Math.min(dist[p.bone], primDist(p, x, y, z));
     const order = [...dist.keys()].sort((a, b) => dist[a] - dist[b]).slice(0, 3);
+    const top = order[0];
+    if (top >= ARM && top < LEG) armOf[i] = (top - ARM) >> 1;
+    else if (top >= PALM) armOf[i] = top - PALM;
     const w = order.map(b => Math.exp(-(dist[b] - dist[order[0]]) / 0.045)), sum = w[0] + w[1] + w[2];
     order.forEach((b, k) => {
       bi[i * 3 + k] = b; bw[i * 3 + k] = w[k] / sum;
+      const r = REST[b];
+      if (r.a) {
+        const u = (x - r.j[0]) * r.a[0] + (y - r.j[1]) * r.a[1] + (z - r.j[2]) * r.a[2];
+        bo[i * 3 + k] = u < r.fix ? u : u > r.len ? u - r.len + r.fix : r.fix;
+      }
       soft[i] += SOFT[b] * w[k] / sum;
       thick[i] += THICK[b] * w[k] / sum;
       if (b >= ARM) mix[i] += w[k] / sum;
@@ -218,7 +228,7 @@ function bodyTemplate() {
   });
   const index = new THREE.BufferAttribute(n > 65000 ? tris : new Uint16Array(tris), 1);
   template = {
-    n, rest: pos, tris, bi, bw, soft, nbrStart, nbr: new Int32Array(nbr), handV, index,
+    n, rest: pos, tris, bi, bw, bo, soft, nbrStart, nbr: new Int32Array(nbr), handV, index, armOf,
     aRest: new THREE.BufferAttribute(pos, 3), aMix: new THREE.BufferAttribute(mix, 1), aThick: new THREE.BufferAttribute(thick, 1),
   };
   return template;
@@ -228,10 +238,14 @@ function bodyTemplate() {
 
 const VERT = `attribute vec3 aRest; attribute float aMix, aThick;
   uniform float uInset;
+  #define ART_RIGID
+  ${ART_VERT}
   varying vec3 vN, vV, vNV, vRest; varying float vMix, vThick, vDist;
   void main(){
     vec3 p = position - normal * uInset * min(aThick, 0.34);
-    vec4 wp = modelMatrix * vec4(p, 1.0), mv = viewMatrix * wp;
+    vec4 wp = modelMatrix * vec4(p, 1.0);
+    if (uArtOn > 0.5) wp.xyz = artWorld(wp.xyz);
+    vec4 mv = viewMatrix * wp;
     vN = normal; vNV = normalMatrix * normal; vV = cameraPosition - wp.xyz;
     vRest = aRest; vMix = aMix; vThick = aThick; vDist = -mv.z;
     gl_Position = projectionMatrix * mv;
@@ -243,7 +257,7 @@ const LIGHTS = `uniform vec3 uSun, uSunCol, uSky, uGnd, uHor, uTop, uFog; unifor
 
 // o miolo: aqui mora o traje, desenhado a partir da posição de repouso, então ele estica junto com o corpo
 const SUIT_FRAG = `${LIGHTS}
-  uniform vec3 uA, uB, uLine; uniform float uKind, uEye;
+  uniform vec3 uA, uB, uLine; uniform float uKind, uEye, uMark;
   float stroke(float d, float w, float aa){ return 1.0 - smoothstep(w - aa, w + aa, abs(d)); }
   float seg(vec2 p, vec2 a, vec2 b){ vec2 pa = p - a, ba = b - a; return length(pa - ba * clamp(dot(pa, ba) / dot(ba, ba), 0.0, 1.0)); }
   float web(vec2 q, float n, float dr, float w){
@@ -337,7 +351,7 @@ const SUIT_FRAG = `${LIGHTS}
     float ndl = dot(N, uSun), wrap = clamp(ndl * 0.55 + 0.45, 0.0, 1.0);
     vec3 amb = mix(uGnd, uSky, 0.5 + 0.5 * N.y) * uHemi;
     vec3 lit = amb * 0.62 + uSunCol * uSunI * wrap * 0.34 + vec3(0.1 + uNight * 0.16);
-    gl_FragColor = vec4(fogged(c * lit + c * glow * (0.2 + uNight * 0.5)), 1.0);
+    gl_FragColor = vec4(fogged(c * lit + c * glow * (0.2 + uNight * 0.5)), uMark);
     #include <tonemapping_fragment>
     #include <colorspace_fragment>
   }`;
@@ -403,6 +417,9 @@ export class SlimeWorld {
     this.renderer = renderer;
     this.day = day;
     this.refract = !!day;
+    this.solid = false;            // LEGO e blocos: sem a casca de gelatina
+    this.step = 0;                 // poses por segundo (0 = todas), como animação feita à mão
+    this.artOn = false;
     this.grabbed = -1;
     this.override = null;
     this.size = new THREE.Vector2();
@@ -411,7 +428,8 @@ export class SlimeWorld {
       uSun: { value: new THREE.Vector3(0.4, 0.8, 0.45).normalize() }, uSunCol: { value: new THREE.Color('#fff5e6') }, uSunI: { value: 2.6 },
       uSky: { value: new THREE.Color('#d0e6ff') }, uGnd: { value: new THREE.Color('#6c6658') }, uHor: { value: new THREE.Color('#d2e8fa') }, uTop: { value: new THREE.Color('#2c66c2') },
       uHemi: { value: 1.2 }, uNight: { value: 0 }, uFog: { value: new THREE.Color('#ffffff') }, uFogD: { value: 0 }, uBox: { value: 1 },
-      uScene: { value: null }, uRes: { value: new THREE.Vector2(1, 1) }, uProj: { value: 1 }, uHasScene: { value: 0 },
+      uScene: { value: null }, uRes: { value: new THREE.Vector2(1, 1) }, uProj: { value: 1 }, uHasScene: { value: 0 }, uMark: { value: 1 },
+      ...ART_UNIFORMS,
     };
     this.drops = new Drops(scene);
     this.shadowTex = softDot();
@@ -440,7 +458,7 @@ export class SlimeWorld {
       u.uBox.value = lerp(1, 0.4, d.night);
     }
     if (camera) u.uProj.value = camera.projectionMatrix.elements[5] * 0.5;
-    u.uHasScene.value = this.refract && this.renderer.capabilities.isWebGL2 ? 1 : 0;
+    u.uHasScene.value = this.refract && !this.artOn && this.renderer.capabilities.isWebGL2 ? 1 : 0;   // com arte, a imagem ainda não está na tela pra ser copiada
     this.drops.update(dt);
   }
 
@@ -468,6 +486,7 @@ class Drops {
     this.mesh = new THREE.InstancedMesh(new THREE.SphereGeometry(1, 10, 8), new THREE.MeshStandardMaterial({ roughness: 0.08, metalness: 0, transparent: true, opacity: 0.8 }), this.max);
     this.mesh.frustumCulled = false;
     this.mesh.count = 0;
+    this.mesh.setColorAt(0, new THREE.Color());    // a cor por gota já existe na compilação: senão a primeira gota pedia outro shader
     this.mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     this.list = [];
     this.m = new THREE.Matrix4();
@@ -529,7 +548,7 @@ export class Slime {
     this.look = { uA: { value: new THREE.Color() }, uB: { value: new THREE.Color() }, uLine: { value: new THREE.Color() }, uKind: { value: 0 }, uEye: { value: 1 } };
     this.tint = { uTintA: { value: new THREE.Color() }, uTintB: { value: new THREE.Color() } };
     this.coreMat = new THREE.ShaderMaterial({ vertexShader: VERT, fragmentShader: SUIT_FRAG, uniforms: { ...u, ...this.look, uInset: { value: 0.3 } } });
-    this.shellMat = new THREE.ShaderMaterial({ vertexShader: VERT, fragmentShader: SHELL_FRAG, uniforms: { ...u, ...this.tint, uInset: { value: 0 } }, transparent: true, toneMapped: false });
+    this.shellMat = new THREE.ShaderMaterial({ vertexShader: VERT, fragmentShader: SHELL_FRAG, uniforms: { ...u, ...this.tint, uInset: { value: 0 } }, transparent: true, toneMapped: false, blending: THREE.CustomBlending, blendSrc: THREE.SrcAlphaFactor, blendDst: THREE.OneMinusSrcAlphaFactor, blendSrcAlpha: THREE.ZeroFactor, blendDstAlpha: THREE.OneFactor });
     this.core = new THREE.Mesh(this.geo, this.coreMat);
     this.shell = new THREE.Mesh(this.geo, this.shellMat);
     this.core.frustumCulled = this.shell.frustumCulled = false;
@@ -551,6 +570,8 @@ export class Slime {
     this.lap = new Float32Array(n * 3);
     this.M = new Float64Array(BONES * 12);
     this.W = new Float64Array(BONES * 12);
+    this.grow = new Float64Array(BONES * 3);       // eixo do osso vezes o quanto ele esticou
+    this.growW = new Float64Array(BONES * 3);
     this.x = new Float64Array(CH);
     this.v = new Float64Array(CH);
     this.tg = new Float64Array(CH);
@@ -578,6 +599,9 @@ export class Slime {
     this.hands = [new THREE.Vector3(), new THREE.Vector3()];
     this.reachTo = [null, null];
     this.Li = new Float64Array(9);
+    this.size = 1;
+    this.scaledH = [null, null];
+    this.scaledV = new THREE.Vector3();
     this.skip = false;
     this.tmpM = new Float64Array(9);
     this.setAmount(amount);
@@ -586,6 +610,7 @@ export class Slime {
   }
 
   setSkin(skin, color) {
+    if (this.block) { this.block.dispose(); this.block = null; }
     const s = SLIME_SKINS[skin] || SLIME_SKINS.spider;
     this.skin = skin;
     this.color = color;
@@ -626,6 +651,7 @@ export class Slime {
   }
 
   dispose() {
+    if (this.block) this.block.dispose();
     this.world.scene.remove(this.group);
     this.geo.dispose();
     this.coreMat.dispose();
@@ -671,33 +697,21 @@ export class Slime {
         toBody(i, k * 0.15, 0.1 + n * 0.25, -0.5 + c * 0.3);
         foot(i, k * 0.22, -0.5 + n * 0.12, 0.3 + c * 0.2);
       }
-    } else if (hooks[0] || hooks[1]) {
+    } else if ((hooks[0] || hooks[1]) && !s.braced) {
       // o braço vira elástico até a teia, o resto vai atrás do embalo
-      const lag = clamp(sp / 50, 0, 1), ro = this.Ro;
+      const lag = clamp(sp / 50, 0, 1);
       const wave = Math.sin(T * 9) * 0.25 * (1 - lag * 0.6);
-      for (let i = 0; i < 2; i++) {
-        const k = SIDES[i], h = hooks[i];
-        if (!h) { toBody(i, k * 0.55 - b[0] * 0.012, -0.05 + wave - b[1] * 0.012, 0.2 - b[2] * 0.012); continue; }
-        const dx = h.p.x - s.pos.x, dy = h.p.y - s.pos.y, dz = h.p.z - s.pos.z, L = Math.hypot(dx, dy, dz) + 1e-5;
-        const bx = (ro[0] * dx + ro[3] * dy + ro[6] * dz) / L, by = (ro[1] * dx + ro[4] * dy + ro[7] * dz) / L, bz = (ro[2] * dx + ro[5] * dy + ro[8] * dz) / L;
-        const reach = Math.min(L * 0.55, 1 + this.reach * (0.3 + 0.7 * this.tension + 0.5 * clamp(sp / 60, 0, 1)));
-        tg[HAND + i * 3] = S[i][0] + bx * reach; tg[HAND + i * 3 + 1] = S[i][1] + by * reach; tg[HAND + i * 3 + 2] = S[i][2] + bz * reach;
-      }
+      for (let i = 0; i < 2; i++) if (!hooks[i]) toBody(i, SIDES[i] * 0.55 - b[0] * 0.012, -0.05 + wave - b[1] * 0.012, 0.2 - b[2] * 0.012);
+      this.reachHooks(s, hooks, sp);
       for (let i = 0; i < 2; i++) {
         const k = SIDES[i], kick = Math.sin(T * 6 + i * Math.PI) * 0.16 * (1 - lag);
         foot(i, k * 0.17 - b[0] * 0.012, -0.72 - lag * 0.2 - b[1] * 0.01 + kick * 0.5, 0.05 - b[2] * 0.014 + kick);
       }
       tg[LEAN] = clamp(-b[2] * 0.012, -0.5, 0.5);
       tg[NOD] = 0.25;
-      if (s.sling) {
-        // estilingue: corpo jogado pra trás e os pés fincados, fazendo força
-        tg[LEAN] = -0.55 * s.sling;
-        tg[NOD] = -0.2 * s.sling;
-        for (let i = 0; i < 2; i++) foot(i, SIDES[i] * 0.26, -0.62, -0.42 - i * 0.12 * s.sling);
-      }
     } else if (s.onGround) {
       const amt = smooth(0.6, 7, hs), sprint = smooth(11, 17, hs), sk = smooth(21, 30, hs);
-      this.phase += dt * 6.2832 * Math.min(hs / 2.3, 5.4);
+      this.phase += dt * 6.2832 * Math.min(hs / 2.3, 5.4) * (b[2] > 0.5 ? -1 : 1);     // de ré, as pernas giram ao contrário
       const ph = this.phase, big = 0.8 + 0.45 * A;
       const stride = amt * (0.36 + 0.3 * sprint) * big, lift = amt * (0.3 + 0.3 * sprint) * big;
       const bounce = Math.cos(ph * 2), still = 1 - amt, sag = A * A * still;
@@ -718,6 +732,13 @@ export class Slime {
         const f = c * amt * (0.85 + 0.35 * sprint);
         const hx = lerp(k * 0.18, k * (0.11 - 0.19 * c), amt), hy = lerp(-0.55 + 0.012 * idle, -0.12 + 0.3 * c, amt), hz = lerp(0.03, 0, amt) - 0.46 * f * (1 + 0.4 * A);
         toBody(i, hx, hy, hz);
+      }
+      if (s.braced) {
+        // pé fincado: mãos na teia e o corpo jogado pra trás, fazendo força
+        this.reachHooks(s, hooks, sp);
+        tg[LEAN] = -0.1 - 0.5 * (s.sling || 0);
+        tg[NOD] = -0.15 * (s.sling || 0);
+        tg[TWIST] *= 0.4;
       }
       if (sk > 0) {
         // chegou embalado: vai freando de calcanhar, jogado pra trás e abanando os braços
@@ -745,6 +766,27 @@ export class Slime {
     }
     // com alguém no colo, as mãos livres seguram lá em cima da cabeça
     if (s.hold) for (let i = 0; i < 2; i++) if (!hooks[i]) toBody(i, -SIDES[i] * 0.16, 1.02, -0.05);
+    // item na mão direita, apontando pra onde a pessoa olha
+    if (s.aim && !hooks[1]) {
+      const ro = this.Ro, a = s.aim;
+      tg[HAND + 3] = S[1][0] + (ro[0] * a.x + ro[3] * a.y + ro[6] * a.z) * 0.78;
+      tg[HAND + 4] = S[1][1] + (ro[1] * a.x + ro[4] * a.y + ro[7] * a.z) * 0.78;
+      tg[HAND + 5] = S[1][2] + (ro[2] * a.x + ro[5] * a.y + ro[8] * a.z) * 0.78;
+    }
+  }
+
+  // cada mão presa estica na direção da sua teia
+  reachHooks(s, hooks, sp) {
+    const tg = this.tg, S = this.S, ro = this.Ro;
+    for (let i = 0; i < 2; i++) {
+      // uma teia só: a outra mão segura junto, um pouco mais embaixo, até disparar a teia dela (a arma ocupa a mão direita)
+      const spare = !hooks[i], h = hooks[i] || hooks[1 - i];
+      if (!h || (spare && s.aim)) continue;
+      const dx = h.p.x - s.pos.x, dy = h.p.y - s.pos.y, dz = h.p.z - s.pos.z, L = Math.hypot(dx, dy, dz) + 1e-5;
+      const bx = (ro[0] * dx + ro[3] * dy + ro[6] * dz) / L, by = (ro[1] * dx + ro[4] * dy + ro[7] * dz) / L, bz = (ro[2] * dx + ro[5] * dy + ro[8] * dz) / L;
+      const reach = Math.min(L * 0.55, 1 + this.reach * (0.3 + 0.7 * this.tension + 0.5 * clamp(sp / 60, 0, 1))) * (spare ? 0.72 : 1);
+      tg[HAND + i * 3] = S[i][0] + bx * reach; tg[HAND + i * 3 + 1] = S[i][1] + by * reach; tg[HAND + i * 3 + 2] = S[i][2] + bz * reach;
+    }
   }
 
   // uma passada das molas (h fixo pra não depender do FPS)
@@ -770,12 +812,18 @@ export class Slime {
     let ux = bx - ax, uy = by - ay, uz = bz - az;
     const len = Math.hypot(ux, uy, uz) + 1e-6;
     ux /= len; uy /= len; uz /= len;
-    const k = px * ux + py * uy + pz * uz;
+    let k = px * ux + py * uy + pz * uz;
     let vx = px - ux * k, vy = py - uy * k, vz = pz - uz * k;
+    if (vx * vx + vy * vy + vz * vz < 0.06) {
+      const ax = Math.abs(uy) < 0.8 ? 0 : 1, ay = 1 - ax;
+      k = ax * ux + ay * uy;
+      vx = ax - ux * k; vy = ay - uy * k; vz = -uz * k;
+    }
     const vl = Math.hypot(vx, vy, vz) + 1e-6;
     vx /= vl; vy /= vl; vz /= vl;
     const wx = uy * vz - uz * vy, wy = uz * vx - ux * vz, wz = ux * vy - uy * vx;
-    const s = len / R.len, t = clamp(1 / Math.sqrt(s), 0.4, 1.12);
+    const s = (len - R.fix) / (R.len - R.fix), t = clamp(1 / Math.sqrt(s), 0.5, 1.12);
+    this.grow[i * 3] = ux * (s - 1); this.grow[i * 3 + 1] = uy * (s - 1); this.grow[i * 3 + 2] = uz * (s - 1);
     const [a0, a1, a2] = R.a, [b0, b1, b2] = R.b, [c0, c1, c2] = R.c, [j0, j1, j2] = R.j;
     m[o] = s * ux * a0 + t * (vx * b0 + wx * c0); m[o + 1] = s * ux * a1 + t * (vx * b1 + wx * c1); m[o + 2] = s * ux * a2 + t * (vx * b2 + wx * c2);
     m[o + 4] = s * uy * a0 + t * (vy * b0 + wy * c0); m[o + 5] = s * uy * a1 + t * (vy * b1 + wy * c1); m[o + 6] = s * uy * a2 + t * (vy * b2 + wy * c2);
@@ -802,7 +850,7 @@ export class Slime {
     const top = full * stretchTop;
     if (len > top) { const k = top / len; tx = ax + dx * k; ty = ay + dy * k; tz = az + dz * k; dx *= k; dy *= k; dz *= k; len = top; }
     if (len < 0.08) { const k = 0.08 / len; dx *= k; dy *= k; dz *= k; len = 0.08; tx = ax + dx; ty = ay + dy; tz = az + dz; }
-    const grow = Math.max(1, len / (full * 0.97)), a1 = l1 * grow, a2 = l2 * grow;
+    const grow = Math.max(1, (len + Math.min(0.03 * full, 0.04)) / full), a1 = l1 * grow, a2 = l2 * grow;
     const ux = dx / len, uy = dy / len, uz = dz / len;
     const along = (a1 * a1 - a2 * a2 + len * len) / (2 * len), h = Math.sqrt(Math.max(0, a1 * a1 - along * along));
     const k = px * ux + py * uy + pz * uz;
@@ -840,14 +888,54 @@ export class Slime {
     }
   }
 
-  // s: pos, vel, quat, hooks ([{p, t} ou null] por mão), onGround, flip, sit, wet, floor (altura do chão embaixo), sling, hold, visible
+  // s: pos, vel, quat, hooks ([{p, t} ou null] por mão), onGround, flip, sit, wet, floor (altura do chão embaixo), sling, braced, hold, aim, visible
+  // quadro sem simulação: o corpo só acompanha a posição, sem refazer a gelatina
+  follow(pos, shift) {
+    const g = this.group.position, dx = pos.x + (shift ? shift.x : 0) - g.x, dy = pos.y + (shift ? shift.y : 0) - g.y, dz = pos.z + (shift ? shift.z : 0) - g.z;
+    g.x += dx; g.y += dy; g.z += dz;
+    for (const h of this.hands) { h.x += dx; h.y += dy; h.z += dz; }
+  }
+
+  // quando muda de tamanho, o boneco continua vivendo em escala 1: é o mundo que é traduzido pra ele
+  setSize(k) {
+    this.size = k;
+    this.group.scale.setScalar(k);
+  }
+  scaled(s, z) {
+    const o = Object.assign({}, s), a = this.scaledH, v = this.scaledV;
+    v.copy(s.vel).divideScalar(z < 1 ? Math.pow(z, 0.8) : Math.sqrt(z));
+    o.vel = v;
+    (s.hooks || NO_HOOKS).forEach((h, i) => {
+      if (!h) { a[i] = null; return; }
+      a[i] = a[i] || { p: new THREE.Vector3(), t: 0 };
+      a[i].p.subVectors(h.p, s.pos).divideScalar(z).add(s.pos);
+      a[i].t = h.t;
+    });
+    o.hooks = a;
+    if (s.floor !== undefined) o.floor = s.pos.y - (s.pos.y - s.floor) / z;
+    return o;
+  }
+
   update(dt, s) {
+    if (this.world.blocky) {
+      this.group.visible = false;
+      if (!this.block) this.block = this.world.blocky(this.skin, this.color);
+      this.block.size = this.size;
+      this.block.update(dt, s);
+      this.hands[0].copy(this.block.hands[0]);
+      this.hands[1].copy(this.block.hands[1]);
+      return;
+    }
+    if (this.block) { this.block.dispose(); this.block = null; }
+    if (this.size !== 1) s = this.scaled(s, this.size);
     this.group.visible = !!s.visible;
+    this.shell.visible = !this.world.solid;
     dt = Math.min(dt, 0.05);
     if (dt <= 0) return;
     const A = this.a, vel = s.vel, pos = s.pos;
     this.time += dt;
-    if (this.seen && this.pp.distanceToSquared(pos) > 2500) this.reset();    // teleporte
+    const leap = Math.max(50, vel.length() * dt * 3);
+    if (this.seen && this.pp.distanceToSquared(pos) > leap * leap) this.reset();    // teleporte
 
     let dvx = vel.x - this.vp.x, dvy = vel.y - this.vp.y, dvz = vel.z - this.vp.z;
     if (!this.seen || this.skip) dvx = dvy = dvz = 0;
@@ -859,7 +947,9 @@ export class Slime {
 
     quatMat(s.quat, this.Ro);
     const ro = this.Ro, Rf = this.Rf;
-    euler(-(s.flip || 0) * Math.PI * 2, 0, 0, Rf);
+    const flip = s.flip || 0, spin = flip * flip * (3 - 2 * flip) * Math.PI * 2, fa = s.flipAxis;
+    if (fa) spinAround(ro[0] * fa.x + ro[3] * fa.y + ro[6] * fa.z, ro[1] * fa.x + ro[4] * fa.y + ro[7] * fa.z, ro[2] * fa.x + ro[5] * fa.y + ro[8] * fa.z, spin, Rf);
+    else euler(-spin, 0, 0, Rf);
 
     // aceleração e velocidade no espaço do boneco
     const k = 1 / dt, ax = clamp(dvx * k, -130, 130), ay = clamp(dvy * k, -130, 130), az = clamp(dvz * k, -130, 130);
@@ -950,10 +1040,15 @@ export class Slime {
         W[o + r * 4 + 3] = a0 * M[o + 3] + a1 * M[o + 7] + a2 * M[o + 11];
       }
       W[o + 3] += tx; W[o + 7] += ty; W[o + 11] += tz;
+      const g = this.grow, gw = this.growW, i3 = i * 3;
+      gw[i3] = L[0] * g[i3] + L[1] * g[i3 + 1] + L[2] * g[i3 + 2];
+      gw[i3 + 1] = L[3] * g[i3] + L[4] * g[i3 + 1] + L[5] * g[i3 + 2];
+      gw[i3 + 2] = L[6] * g[i3] + L[7] * g[i3 + 1] + L[8] * g[i3 + 2];
     }
 
     this.deform(dt, dvx, dvy, dvz, s);
     this.group.position.copy(pos);
+    if (s.shift) this.group.position.add(s.shift);
     this.placeShadow(s, stretch);
     this.pp.copy(pos);
     this.seen = true;
@@ -961,8 +1056,9 @@ export class Slime {
 
   // alvo de cada vértice + o deslocamento mole por cima dele
   deform(dt, dvx, dvy, dvz, s) {
-    const { T, W, t, tv, d, e, lap, kBase, damp, dMax } = this;
-    const { n, rest, bi, bw, soft, nbrStart, nbr } = T;
+    const { T, W, t, tv, d, e, lap, kBase, damp, dMax, growW } = this;
+    const { n, rest, bi, bw, bo, soft, nbrStart, nbr, armOf } = T;
+    const reach = this.reachTo;
     const P = this.pos.array;
     const first = !this.seen, kick = this.kick;
     const lim = 9;
@@ -972,12 +1068,18 @@ export class Slime {
       const x = rest[i3], y = rest[i3 + 1], z = rest[i3 + 2];
       let ox = 0, oy = 0, oz = 0;
       for (let q = 0; q < 3; q++) {
-        const o = bi[i3 + q] * 12, w = bw[i3 + q];
-        ox += w * (W[o] * x + W[o + 1] * y + W[o + 2] * z + W[o + 3]);
-        oy += w * (W[o + 4] * x + W[o + 5] * y + W[o + 6] * z + W[o + 7]);
-        oz += w * (W[o + 8] * x + W[o + 9] * y + W[o + 10] * z + W[o + 11]);
+        const o = bi[i3 + q] * 12, g = bi[i3 + q] * 3, w = bw[i3 + q], u = bo[i3 + q];
+        ox += w * (W[o] * x + W[o + 1] * y + W[o + 2] * z + W[o + 3] - growW[g] * u);
+        oy += w * (W[o + 4] * x + W[o + 5] * y + W[o + 6] * z + W[o + 7] - growW[g + 1] * u);
+        oz += w * (W[o + 8] * x + W[o + 9] * y + W[o + 10] * z + W[o + 11] - growW[g + 2] * u);
       }
       if (first) { t[i3] = ox; t[i3 + 1] = oy; t[i3 + 2] = oz; }
+      if (armOf[i] >= 0 && reach[armOf[i]]) {
+        d[i3] *= 0.7; d[i3 + 1] *= 0.7; d[i3 + 2] *= 0.7;
+        e[i3] = e[i3 + 1] = e[i3 + 2] = tv[i3] = tv[i3 + 1] = tv[i3 + 2] = 0;
+        t[i3] = ox; t[i3 + 1] = oy; t[i3 + 2] = oz;
+        continue;
+      }
       // quem está mais longe do centro leva o tranco; o movimento dos próprios ossos entra só um pouco, senão o braço não sai do lugar
       const vx = (ox - t[i3]) * rate, vy = (oy - t[i3 + 1]) * rate, vz = (oz - t[i3 + 2]) * rate, f = soft[i];
       e[i3] -= rx * f + clamp(vx - tv[i3], -lim, lim) * follow * f;
@@ -1012,11 +1114,16 @@ export class Slime {
       P[i3 + 1] = y < fl ? fl : y;
       P[i3 + 2] = t[i3 + 2] + d[i3 + 2];
     }
-    this.pos.needsUpdate = true;
-    this.normals();
+    // a simulação segue a cada quadro; o que vai pra tela é que pode andar em poses, como pixel art feita à mão
+    this.poseT = (this.poseT || 0) + dt;
+    if (!this.world.step || this.poseT >= 1 / this.world.step) {
+      this.poseT = 0;
+      this.pos.needsUpdate = true;
+      this.normals();
+    }
     for (let i = 0; i < 2; i++) {
       const hv = T.handV[i] * 3;
-      this.hands[i].set(s.pos.x + P[hv], s.pos.y + P[hv + 1], s.pos.z + P[hv + 2]);
+      this.hands[i].set(s.pos.x + P[hv] * this.size, s.pos.y + P[hv + 1] * this.size, s.pos.z + P[hv + 2] * this.size);
     }
   }
 
@@ -1059,11 +1166,13 @@ export class SlimeStage {
   constructor(canvas, skin, color, amount) {
     const r = this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
     r.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
-    r.setSize(canvas.clientWidth, canvas.clientHeight, false);
+    // a aba do personagem pode estar fechada agora, e aí o canvas mede zero
+    const cw = canvas.clientWidth || 168, ch = canvas.clientHeight || 190;
+    r.setSize(cw, ch, false);
     r.toneMapping = THREE.ACESFilmicToneMapping;
     this.scene = new THREE.Scene();
     this.scene.add(new THREE.HemisphereLight(0xffffff, 0x556070, 2.2));
-    this.camera = new THREE.PerspectiveCamera(28, canvas.clientWidth / canvas.clientHeight, 0.1, 40);
+    this.camera = new THREE.PerspectiveCamera(28, cw / ch, 0.1, 40);
     this.camera.position.set(0, 0.62, 6.6);
     this.camera.lookAt(0, 0.56, 0);
     this.world = new SlimeWorld(this.scene, r, null);
@@ -1111,6 +1220,14 @@ export class SlimeStage {
 }
 
 // ------------------------------------------------------------------ contas 3x3 (por linha)
+
+// giro em volta de um eixo unitário, na mesma ordem das outras matrizes daqui
+function spinAround(x, y, z, a, o) {
+  const c = Math.cos(a), s = Math.sin(a), t = 1 - c;
+  o[0] = t * x * x + c; o[1] = t * x * y - s * z; o[2] = t * x * z + s * y;
+  o[3] = t * x * y + s * z; o[4] = t * y * y + c; o[5] = t * y * z - s * x;
+  o[6] = t * x * z - s * y; o[7] = t * y * z + s * x; o[8] = t * z * z + c;
+}
 
 function euler(x, y, z, o) {
   const a = Math.cos(x), b = Math.sin(x), c = Math.cos(y), d = Math.sin(y), e = Math.cos(z), f = Math.sin(z);
