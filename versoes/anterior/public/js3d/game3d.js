@@ -20,7 +20,8 @@ import { Portals, PORTAL_W, PORTAL_H, PORTAL_COLORS } from './portals.js';
 import { Art, ART_STYLES, compileAll } from './art.js';
 import { Flyers, Sea } from './god.js';
 import { SpeedFx } from './speedfx.js';
-import { Mine, BlockBody, REACH } from './mine.js';
+import { Mine, BlockBody, REACH, B as VB } from './mine.js';
+import { Nether, End, Dragon, MoonFrame, NETHER_LIGHT, END_LIGHT } from './dims.js';
 import { FunPark, Beach, funLot, inFun, sandY, WATER_Y, BEACH_SPOT, FUN_GATE, ISLE, ISLE_SHAPE, SEA_IN, onLand, inSea } from './places.js';
 import { Sinuca, Pong, Basket } from './games.js';
 
@@ -191,10 +192,14 @@ function inCinema(p) {
 
 // o que tem de sólido por perto no mundo em que você está
 function lotsNear(x, z, r) {
-  if (voxels()) return [{ boxes: mine.around(x, me.pos.y, z, 1 + R) }];
+  const V = vox();
+  if (V) return [{ boxes: V.around(x, me.pos.y, z, 1 + R) }];
+  if (me.where === 'moon') return moonFrame.placed ? [{ boxes: moonFrame.boxes }] : [];
   return me.where === 'city' ? lotsAround(x, z, r) : me.where === 'back' ? back.near(x, z) : [];
 }
 const voxels = () => mine?.active && me.where === 'city';
+// o mundo de blocos em que você está: a cidade no modo Minecraft, o inferno ou o fim
+const vox = () => (voxels() ? mine : me.where === 'nether' ? nether : me.where === 'end' ? theEnd : null);
 
 function lotsAround(x, z, r) {
   const out = [];
@@ -682,8 +687,8 @@ function findTarget(dt) {
   const dir = new V3(0, 0, -1).applyQuaternion(camera.quaternion);
   watchSky(dir);
   if (gaze.ready && dir.dot(skyDir()) > 0.994) return { p: me.pos.clone(), sky: true };
-  if (voxels()) {
-    const top = reach(), h = mine.ray(camera.position, dir, top + 12);
+  if (vox()) {
+    const top = reach(), h = vox().ray(camera.position, dir, top + 12);
     if (!h || h.t < REACH + camera.position.distanceTo(me.pos)) return null;
     const p = camera.position.clone().addScaledVector(dir, h.t);
     return p.distanceTo(me.pos) > top ? null : { p, id: 500000000 + (h.x * 73 + h.y * 179 + h.z * 283) };
@@ -725,7 +730,7 @@ function release(hand) {
 // quem está mais baixo que o telhado não enxerga o topo, então mirar a beirada vale como mirar o telhado.
 function surfaceOn(from, dir, top) {
   const solid = -Math.max(0, R - R0), hit = me.where === 'moon' ? null : sweep(from, dir, top, solid);     // a mira vê o prédio de verdade, sem a folga do corpo
-  if (!voxels() && dir.y < -0.01) {
+  if (!vox() && dir.y < -0.01) {
     let g = groundAt(from.x, from.z), t = 0;
     for (let k = 0; k < 4; k++) { t = (from.y - g) / -dir.y; g = groundAt(from.x + dir.x * t, from.z + dir.z * t); }
     if (t > 0 && t < (hit ? hit.t : top)) return new V3(from.x + dir.x * t, g, from.z + dir.z * t);
@@ -904,9 +909,9 @@ function touched(m) {
 // colisão esfera x caixas (prédios) + chão
 function collide() {
   me.onGround = false;
-  if (me.where === 'moon') { moonCollide(); return; }
-  if (inSpace()) { spaceCollide(); return; }
-  const land = voxels() ? -1e9 : me.where === 'city' ? sandY(me.pos.x, me.pos.z) : 0;
+  if (me.where === 'moon') moonCollide();
+  else if (inSpace()) { spaceCollide(); return; }
+  const land = vox() || me.where === 'moon' ? -1e9 : me.where === 'city' ? sandY(me.pos.x, me.pos.z) : 0;
   if (me.pos.y < R + land) { me.pos.y = R + land; if (me.vel.y < 0) me.vel.y = 0; me.onGround = true; }
   if (me.where === 'back' && me.pos.y > BACK_H - 1.15) { me.pos.y = BACK_H - 1.15; if (me.vel.y > 0) me.vel.y = 0; }
   if (!powers.ghost) for (const L of lotsNear(me.pos.x, me.pos.z, CELL + R * 2)) for (const b of L.boxes) {
@@ -1299,8 +1304,8 @@ function wallJump(n) {
 
 // Reta contra as caixas dos prédios, com uma folga em volta. Devolve a distância, o eixo da face e a caixa.
 function sweep(from, dir, max, pad) {
-  if (voxels()) {
-    const h = mine.ray(from, dir, Math.min(max, 200));
+  if (vox()) {
+    const h = vox().ray(from, dir, Math.min(max, 200));
     return h ? { t: h.t, axis: h.nx ? 0 : h.ny ? 1 : 2, sign: h.nx + h.ny + h.nz, box: null } : null;
   }
   pad += Math.max(0, R - R0);
@@ -1913,8 +1918,14 @@ function setWhere(w) {
   day.sky.visible = day.stars.visible = !out;
   space.show(w === 'trip' ? 'trip' : w === 'moon' ? 'moon' : 'off');
   back.group.visible = w === 'back';
-  renderer.setClearColor(w === 'back' ? 0x5e5226 : 0x000000, out ? 1 : 0);    // nas backrooms, o fim do corredor some na neblina
-  slimes.override = w === 'back' ? BACK_LIGHT : out ? SPACE_LIGHT : null;
+  nether.group.visible = w === 'nether';
+  theEnd.group.visible = w === 'end';
+  dragon.group.visible = w === 'end' && !dragon.gone;
+  moonFrame.group.visible = w === 'moon';
+  bossEl.style.display = w === 'end' ? 'block' : 'none';
+  document.body.classList.toggle('in-end', w === 'end');
+  renderer.setClearColor(w === 'back' ? 0x5e5226 : w === 'nether' ? 0x3a0a06 : w === 'end' ? 0x0b0614 : 0x000000, out ? 1 : 0);    // nas backrooms, o fim do corredor some na neblina
+  slimes.override = w === 'back' ? BACK_LIGHT : w === 'nether' ? NETHER_LIGHT : w === 'end' ? END_LIGHT : out ? SPACE_LIGHT : null;
   sound.hum(w === 'back');
   art.setBend(w === 'city' ? GOD.bend * 1.5e-5 : 0);
   if (mine) syncMine();
@@ -2068,6 +2079,12 @@ function landOnMoon() {
   // cai perto de uma pedra com ponto de teia, senão não sobra nada pra se agarrar
   const rock = space.rocksNear(0, 0, 1200).filter(r => r.anchor).sort((p, q) => Math.hypot(p.x, p.z) - Math.hypot(q.x, q.z))[0];
   const x = rock.x - 48, z = rock.z;
+  if (!moonFrame.placed) {
+    const fx0 = x + 30, fz0 = z + 10;
+    let top = -1e9;
+    for (let a = -6; a <= 6; a += 2) for (let b = -6; b <= 6; b += 2) top = Math.max(top, space.height(fx0 + a, fz0 + b));
+    moonFrame.place(fx0, top - 0.2, fz0);
+  }
   me.pos.set(x, space.height(x, z) + 150, z);
   me.vel.set(0, -62, 0);
   yaw = -Math.PI / 2;
@@ -2413,7 +2430,7 @@ $('#god-city').onclick = () => { const m = { t: 'e3', k: 'city' }; godEvent(m); 
 
 // Passado: tudo fica guardado pra rebobinar (Z), sem limite: são 5 MB por hora de jogo, em blocos de números.
 // O mesmo passeio vira clone (H).
-const PAST_N = 11, PAST_BLOCK = 3600, WORLDS = ['city', 'trip', 'moon', 'back'];
+const PAST_N = 11, PAST_BLOCK = 3600, WORLDS = ['city', 'trip', 'moon', 'back', 'nether', 'end'];
 const past = { blocks: [], n: 0 };
 let pastT = 0, recording = null, backT = 0;
 const echoes = [];
@@ -2500,7 +2517,269 @@ const roundHead = crowd.head.geometry, squareHead = new THREE.BoxGeometry(0.3, 0
 const mine = new Mine({
   scene, me, lot, cell: CELL, sound, flyers, items: ITEMS, toast: t => showToast(t), send: o => net.send(o),
   onDie: () => { start(); me.vel.set(0, 0, 0); },
+  onTable: () => { unlockMouse(); openTab('mochila'); renderCraft(); },
 });
+
+// ------------------------------------------------------------------ outros mundos: inferno, a moldura da Lua e o fim
+// O caminho: no Minecraft a mochila tem obsidiana e isqueiro. Moldura acesa leva pro inferno, onde um baú do outro lado da
+// lava tem pérolas e varas. Na mesa de trabalho viram olhos; doze olhos abrem a moldura da Lua, que leva pro fim e pro dragão.
+const nether = new Nether(scene, mine.u.uAtlas.value);
+const theEnd = new End(scene, mine.u.uAtlas.value);
+const dragon = new Dragon(scene, sound);
+const moonFrame = new MoonFrame(scene);
+const quest = { portalT: 0, cool: 0, back: new V3(), hp: 20, arrowT: 0, credits: false };
+const frameFill = { on: false, t: 0, n: 0 };
+const arrows = [];
+const faceTo = (dx, dz) => { yaw = Math.atan2(-dx, -dz); pitch = -0.08; };
+const bossEl = document.createElement('div');
+bossEl.id = 'boss';
+bossEl.innerHTML = '<b>🐉 Dragão do Fim</b><div class="bar"><i></i></div><div class="me"></div><small>🏹 botão direito atira · a teia fica no esquerdo · desvie das bolas de fogo</small>';
+document.body.appendChild(bossEl);
+const creditsEl = document.createElement('div');
+creditsEl.id = 'credits';
+document.body.appendChild(creditsEl);
+const questCss = document.createElement('style');
+questCss.textContent = `
+  body.in-end #hotbar { display: none; }
+  #boss { display: none; position: fixed; top: 14px; left: 50%; transform: translateX(-50%); width: min(520px, 80vw); text-align: center; color: #fff; font-family: 'Press Start 2P', monospace; font-size: 11px; text-shadow: 2px 2px 0 #000; pointer-events: none; z-index: 3; }
+  #boss .bar { height: 10px; margin: 6px 0; background: #2a0a24; border: 2px solid #000; }
+  #boss .bar i { display: block; height: 100%; width: 100%; background: linear-gradient(#ff7ae0, #c02aa0); transition: width 0.3s; }
+  #boss .me { font-size: 13px; letter-spacing: 1px; }
+  #boss small { display: block; margin-top: 6px; font-size: 8px; opacity: 0.8; }
+  #credits { display: none; position: fixed; inset: 0; z-index: 20; background: #000; color: #fff; overflow: hidden; font-family: 'Press Start 2P', monospace; text-align: center; cursor: pointer; }
+  #credits .roll { position: absolute; left: 0; right: 0; top: 100%; animation: roll 34s linear forwards; line-height: 2.2; font-size: 13px; }
+  #credits h1 { font-size: 34px; margin: 0 0 40px; color: #ffcf3f; }
+  #credits h2 { font-size: 12px; margin: 50px 0 6px; color: #c8a8ff; font-weight: normal; }
+  #credits p { margin: 0; }
+  #credits .skip { position: absolute; right: 18px; bottom: 16px; font-size: 9px; opacity: 0.6; }
+  @keyframes roll { to { transform: translateY(calc(-100% - 100vh)); } }`;
+document.head.appendChild(questCss);
+
+function enterNether() {
+  if (me.where !== 'city') return;
+  const back = me.vel.clone().setY(0);
+  quest.back.copy(me.pos).addScaledVector(back.lengthSq() > 0.5 ? back.normalize() : new V3(-Math.sin(yaw), 0, -Math.cos(yaw)), -2.6);
+  sound.warp();
+  warp('#6c22c8', () => {
+    me.hooks[0] = me.hooks[1] = null;
+    me.sling = null;
+    standUp();
+    nether.build();
+    setWhere('nether');
+    me.pos.set(nether.spawn.x, nether.spawn.y + R, nether.spawn.z);
+    me.vel.set(0, 0, 0);
+    faceTo(nether.chest.x - nether.spawn.x, nether.chest.z - nether.spawn.z);
+  });
+  quest.cool = 2.5;
+  showToast(nether.opened ? '🔥 O inferno de novo' : '🔥 O inferno. Do outro lado do lago de lava tem um baú... a teia pega no teto');
+}
+function leaveNether() {
+  sound.warp();
+  warp('#6c22c8', () => {
+    me.hooks[0] = me.hooks[1] = null;
+    setWhere('city');
+    me.pos.copy(quest.back);
+    me.vel.set(0, 0, 0);
+  });
+  quest.cool = 2.5;
+}
+function openChest() {
+  nether.opened = true;
+  mine.give('perola', 12);
+  mine.give('vara', 12);
+  sound.kill();
+  showToast('📦 12 pérolas do fim e 12 varas de blaze! Numa mesa de trabalho elas viram olhos (E = mochila, no Minecraft)');
+}
+function renderCraft() {
+  const el = $('#craft-note');
+  if (!el) return;
+  const a = mine.count('perola'), b = mine.count('vara'), near = mine.active && mine.nearTable(me.pos);
+  el.textContent = `você tem ${a} pérola${a === 1 ? '' : 's'}, ${b} vara${b === 1 ? '' : 's'} e ${mine.count('olho')} olho${mine.count('olho') === 1 ? '' : 's'}` + (near ? '' : ' · fique perto de uma mesa de trabalho (ela está na mochila: ponha no chão)');
+}
+function craft(all) {
+  if (!mine.active || !mine.nearTable(me.pos)) { showToast('🪵 Precisa estar perto de uma mesa de trabalho'); renderCraft(); return; }
+  const n = Math.min(mine.count('perola'), mine.count('vara'), all ? 64 : 1);
+  if (!n) { showToast('Faltam pérola e vara de blaze'); renderCraft(); return; }
+  mine.take('perola', n);
+  mine.take('vara', n);
+  mine.give('olho', n);
+  sound.place();
+  showToast(`👁️ ${n} olho${n > 1 ? 's' : ''} do fim`);
+  renderCraft();
+}
+$('#craft-one').onclick = () => craft(false);
+$('#craft-all').onclick = () => craft(true);
+$('#tabs [data-tab="mochila"]').addEventListener('click', renderCraft);
+function useFrame() {
+  if (mine.count('olho') < 12) { showToast('🕳️ Doze encaixes vazios. Parece coisa de um mundo de blocos... lá na Terra'); return; }
+  mine.take('olho', 12);
+  frameFill.on = true;
+  frameFill.t = 0;
+  frameFill.n = 0;
+}
+function enterEnd() {
+  sound.warp();
+  warp('#000', () => {
+    me.hooks[0] = me.hooks[1] = null;
+    me.sling = null;
+    theEnd.build();
+    if (dragon.gone) { dragon.reset(); for (const m of dragon.mats) m.emissive.setRGB(0.07, 0.04, 0.12); theEnd.closeExit(); for (const c of theEnd.crystals) { c.alive = true; c.g.visible = true; } }
+    setWhere('end');
+    me.pos.set(theEnd.spawn.x, theEnd.spawn.y + R, theEnd.spawn.z);
+    me.vel.set(0, 0, 0);
+    faceTo(-theEnd.spawn.x, -theEnd.spawn.z);
+    quest.hp = 20;
+  });
+  showToast('🐉 O fim. Botão direito atira com o arco, a teia fica no esquerdo. Desvie das bolas de fogo!');
+}
+function hurtEnd(n, dir) {
+  if (quest.credits) return;
+  quest.hp -= n;
+  me.vel.addScaledVector(dir, 20);
+  me.vel.y += 9;
+  sound.hurt();
+  veilEl.style.background = '#a01030';
+  fx.veil = Math.max(fx.veil, 0.45);
+  if (quest.hp <= 0) {
+    showToast('☠️ O dragão te derrubou. De novo!');
+    me.hooks[0] = me.hooks[1] = null;
+    me.pos.set(theEnd.spawn.x, theEnd.spawn.y + R, theEnd.spawn.z);
+    me.vel.set(0, 0, 0);
+    quest.hp = 20;
+  }
+}
+// a flecha: cabo, ponta e pena, cai um pouco e fica espetada onde bate
+const arrowGeo = (() => {
+  const g = new THREE.BoxGeometry(0.07, 0.07, 1.3);
+  return g;
+})(), arrowMat = new THREE.MeshLambertMaterial({ color: '#a07040' }), tipMat = new THREE.MeshLambertMaterial({ color: '#c8c8c8' }), featherMat = new THREE.MeshLambertMaterial({ color: '#f0f0f0' });
+function shootArrow() {
+  if (quest.arrowT > 0 || quest.credits) return;
+  quest.arrowT = 0.45;
+  const dir = new V3(0, 0, -1).applyQuaternion(camera.quaternion);
+  const m = new THREE.Group();
+  m.add(new THREE.Mesh(arrowGeo, arrowMat));
+  const tip = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.16, 0.25), tipMat); tip.position.z = 0.75; m.add(tip);
+  const fe = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.02, 0.3), featherMat); fe.position.z = -0.55; m.add(fe);
+  m.position.copy(me.pos).addScaledVector(dir, 1.4).add(new V3(0, 0.5, 0));
+  scene.add(m);
+  arrows.push({ m, v: dir.multiplyScalar(100).addScaledVector(me.vel, 0.4), life: 6, stuck: false });
+  sound.twang(0.5);
+}
+function stepArrows(dt) {
+  const parts = dragon.gone ? [] : dragon.hitParts(), tmp = new V3();
+  for (let k = arrows.length - 1; k >= 0; k--) {
+    const a = arrows[k];
+    a.life -= dt;
+    if (a.life <= 0 || me.where !== 'end') { scene.remove(a.m); arrows.splice(k, 1); continue; }
+    if (a.stuck) continue;
+    const from = a.m.position.clone();
+    a.v.y -= 14 * dt;
+    a.m.position.addScaledVector(a.v, dt);
+    a.m.lookAt(tmp.copy(a.m.position).add(a.v));
+    // a reta inteira deste quadro: rápida demais pra testar só a ponta
+    const seg = a.m.position.clone().sub(from), len = seg.length();
+    let done = false;
+    for (let s = 0; s <= 4 && !done; s++) {
+      const q = from.clone().addScaledVector(seg, s / 4);
+      if (!dragon.dead && parts.some((pt, i) => pt.distanceTo(q) < (i === 1 ? 4.2 : 3))) {
+        dragon.hit();
+        sound.hitMark();
+        showToast(dragon.dead ? '💥 Último tiro!' : `💥 Acertou o dragão! Faltam ${dragon.hp}`);
+        scene.remove(a.m); arrows.splice(k, 1); done = true; break;
+      }
+      for (const c of theEnd.crystals) {
+        if (c.alive && c.g.position.distanceTo(q) < 1.8) {
+          c.alive = false; c.g.visible = false;
+          sound.boom(1);
+          for (let i = 0; i < 18; i++) flyers.add('bloco', q.x, q.y, q.z, { vx: (Math.random() - 0.5) * 30, vy: Math.random() * 20, vz: (Math.random() - 0.5) * 30, color: '#ff6ad0', life: 1.2, scale: 0.6 });
+          scene.remove(a.m); arrows.splice(k, 1); done = true; break;
+        }
+      }
+      if (!done && theEnd.at(q) && theEnd.at(q) !== VB.PORTAL) { a.stuck = true; a.life = 8; a.m.position.copy(q); done = true; }
+    }
+    void len;
+  }
+}
+function startCredits() {
+  quest.credits = true;
+  creditsEl.innerHTML = `<div class="roll">
+    <h1>VOO LIVRE</h1>
+    <p>${esc(NAME)} derrotou o Dragão do Fim</p>
+    <h2>ideia, testes e direção</h2><p>Mika</p>
+    <h2>jogando junto</h2><p>os amigos da party</p>
+    <h2>teia, cidade, gelatina, ilha e os outros mundos</h2><p>feitos à mão, linha por linha, com o Claude</p>
+    <h2>servidor</h2><p>Node, sem nenhuma biblioteca</p>
+    <h2>gráficos</h2><p>Three.js</p>
+    <h2>música</h2><p>a que vocês puseram no rádio</p>
+    <h2>agradecimento especial</h2><p>a todo mundo que caiu na lava pelo menos uma vez</p>
+    <h2>&nbsp;</h2><p>A ilha continua lá. A Lua também.</p>
+    <h2>&nbsp;</h2><h1>obrigado por jogar</h1>
+  </div><div class="skip">clique pra pular</div>`;
+  creditsEl.style.display = 'block';
+  sound.stage();
+  unlockMouse();
+  // por baixo dos créditos você já volta pra casa
+  theEnd.closeExit();
+  setWhere('city');
+  start();
+  const end = () => { if (!quest.credits) return; quest.credits = false; creditsEl.style.display = 'none'; showToast('🏝️ De volta à ilha'); };
+  creditsEl.onclick = end;
+  creditsEl.querySelector('.roll').addEventListener('animationend', end);
+}
+function questStep(dt) {
+  const t = performance.now() / 1000;
+  quest.cool = Math.max(0, quest.cool - dt);
+  quest.arrowT = Math.max(0, quest.arrowT - dt);
+  if (quest.credits) { me.vel.set(0, 0, 0); return; }
+  // no Minecraft: parado dentro do portal aceso por um instante, vai pro inferno
+  if (voxels() && quest.cool <= 0) {
+    const inside = [0, -0.4].some(dy => mine.get(Math.floor(me.pos.x), Math.floor(me.pos.y + dy), Math.floor(me.pos.z)) === VB.PORTAL);
+    quest.portalT = inside ? quest.portalT + dt : 0;
+    if (quest.portalT > 0.7) { quest.portalT = 0; enterNether(); }
+  }
+  if (me.where === 'nether') {
+    nether.update(dt, camera.position);
+    if (quest.cool <= 0 && (nether.at(me.pos) === VB.PORTAL || nether.at(me.pos, -0.4) === VB.PORTAL)) leaveNether();
+    else if (nether.inLava(me.pos) || me.pos.y < -5) {
+      sound.hurt();
+      for (let i = 0; i < 14; i++) flyers.add('bloco', me.pos.x, me.pos.y, me.pos.z, { vx: (Math.random() - 0.5) * 8, vy: 4 + Math.random() * 6, vz: (Math.random() - 0.5) * 8, color: '#ff8a20', life: 0.9, scale: 0.4 });
+      me.hooks[0] = me.hooks[1] = null;
+      me.pos.set(nether.spawn.x, nether.spawn.y + R, nether.spawn.z);
+      me.vel.set(0, 0, 0);
+      showToast('🔥 Você caiu na lava. Use a teia no teto pra atravessar');
+    }
+  }
+  if (me.where === 'moon') {
+    moonFrame.update(t);
+    if (frameFill.on && (frameFill.t -= dt) <= 0) {
+      frameFill.t = 0.18;
+      moonFrame.fill(++frameFill.n);
+      sound.place();
+      if (frameFill.n >= 12) { frameFill.on = false; sound.stage(); showToast('🌌 A moldura abriu. Pule dentro dela...'); }
+    }
+    if (moonFrame.inside(me.pos)) enterEnd();
+  }
+  if (me.where === 'end') {
+    theEnd.update(dt, camera.position, t);
+    quest.hp = Math.min(20, quest.hp + dt * 0.4);
+    const r = dragon.update(dt, me, hurtEnd, q => { const b = theEnd.at(q); return !!b && b !== VB.PORTAL; });
+    dragon.group.visible = !dragon.gone;
+    if (r === 'dead') {
+      const q = dragon.pos;
+      for (let i = 0; i < 40; i++) flyers.add('bloco', q.x, q.y, q.z, { vx: (Math.random() - 0.5) * 50, vy: (Math.random() - 0.3) * 40, vz: (Math.random() - 0.5) * 50, color: ['#ff6ad0', '#1b1724', '#5c4a78'][i % 3], life: 2.5, scale: 1.2 });
+      theEnd.openExit();
+      showToast('🏆 O dragão caiu! Entre no portal que abriu no meio da ilha');
+    }
+    stepArrows(dt);
+    if (me.pos.y < -20) hurtEnd(100, new V3());
+    if (dragon.gone && [0, -0.5].some(dy => theEnd.at(me.pos, dy) === VB.PORTAL)) startCredits();
+    bossEl.querySelector('.bar i').style.width = (dragon.gone ? 0 : dragon.hp / 5 * 100) + '%';
+    bossEl.querySelector('b').textContent = dragon.gone ? '🏆 Dragão derrotado · entre no portal do meio' : '🐉 Dragão do Fim';
+    const hearts = Math.ceil(quest.hp / 2);
+    bossEl.querySelector('.me').textContent = '❤'.repeat(hearts) + '·'.repeat(10 - hearts);
+  } else if (arrows.length) stepArrows(dt);
+}
 
 // ------------------------------------------------------------------ o que o F faz aqui
 
@@ -2537,6 +2816,8 @@ function nearbyAction() {
   if (me.seat) return { hint: 'F = levantar', run: standUp };
   if (me.where === 'back') return back.exitNear(p.x, p.z) ? { hint: 'F = sair daqui', run: leaveBack } : null;
   if (me.ride) return { hint: 'F ou Espaço = pular fora', run: leaveRide };
+  if (me.where === 'nether' && !nether.opened && p.distanceTo(nether.chest) < 3) return { hint: 'F = abrir o baú', run: openChest };
+  if (me.where === 'moon' && moonFrame.near(p, 7) && !moonFrame.open && !frameFill.on) return { hint: mine.count('olho') >= 12 ? 'F = encaixar os 12 olhos' : 'F = olhar a moldura', run: useFrame };
   if (me.where !== 'city') return null;
   if (me.carry) return { hint: `F = arremessar ${remotes.get(me.carry)?.info.name || 'amigo'}`, run: throwFriend };
   const friend = me.carried ? null : nearFriend();
@@ -2631,6 +2912,7 @@ canvas.addEventListener('mousedown', e => {
   if (locked && act) act.down(e.button);
   else if (locked && e.button === 0 && basket.mine) basket.startCharge();
   else if (locked && e.button === 0) { mouseDown = true; hitPress = true; }
+  else if (locked && e.button === 2 && me.where === 'end') shootArrow();
   else if (locked && e.button === 2) {
     const item = heldItem();
     if (mine.active && voxels() && mine.useRight()) return;
@@ -2716,8 +2998,8 @@ resize();
 function rayBoxes(from, to) {
   let tmin = 1;
   const d = new V3().subVectors(to, from);
-  if (voxels()) {
-    const len = d.length(), h = mine.ray(from, lookTmp.copy(d).divideScalar(len), len);
+  if (vox()) {
+    const len = d.length(), h = vox().ray(from, lookTmp.copy(d).divideScalar(len), len);
     return h ? Math.max(0, (h.t - 0.2) / len) : 1;
   }
   for (const L of lotsNear(from.x, from.z, 20)) for (const bx of L.boxes) {
@@ -2852,7 +3134,7 @@ function updateHud(now) {
   const high = Math.abs(me.pos.y - CINE.roof.Y) < 8;
   const onCourt = high && Math.hypot(me.pos.x - COURT_LOT.cx, me.pos.z - COURT_LOT.cz) < 24;
   const onRoof = high && Math.hypot(me.pos.x - CINE.cx, me.pos.z - CINE.cz) < 24;
-  hud.biome.textContent = me.where === 'moon' ? 'LUA' : me.where === 'trip' ? 'ESPAÇO' : me.where === 'back' ? '???' : inside ? 'CINEMA · TELÃO' : onCourt ? 'QUADRA' : onRoof ? 'LAJE' : 'CIDADE · 3D (TESTE)';
+  hud.biome.textContent = me.where === 'nether' ? 'INFERNO' : me.where === 'end' ? 'O FIM' : me.where === 'moon' ? 'LUA' : me.where === 'trip' ? 'ESPAÇO' : me.where === 'back' ? '???' : inside ? 'CINEMA · TELÃO' : onCourt ? 'QUADRA' : onRoof ? 'LAJE' : 'CIDADE · 3D (TESTE)';
   renderTime();
   const nearAstro = inSpace() ? nearestBody() : null;
   if (nearAstro) hud.biome.textContent = `ESPAÇO · ${nearAstro.b.name.toUpperCase()}`;
@@ -3040,6 +3322,7 @@ function simulate(now, dt) {
   } else fx.veilAt = 0;
   if (me.where === 'trip' || me.where === 'moon') space.update(dt, camera.position, trip.earth, trip.earthA, trip.moon, trip.moonA);
   if (me.where === 'moon') { space.followFloor(me.pos.x, me.pos.z); space.setGlow(day.uniforms.moonGlow.value); }
+  questStep(dt);
   if (me.where === 'back') back.update(dt, camera.position, new V3(0, 0, -1).applyQuaternion(camera.quaternion), d => !sweep(me.pos, new V3(0, 0, -1).applyQuaternion(camera.quaternion).setY(0).normalize(), d, 0));
   fx.veil = trip.on ? fx.veil : Math.max(fx.veilAt || 0, fx.veil - dt * 1.1);
   fx.chill += ((inSpace() ? 1 : 0) - fx.chill) * Math.min(1, dt * 1.6);
@@ -3288,7 +3571,7 @@ function enter() {
     get cineState() { return cineState; },
     setLook: (y, p) => { yaw = y; pitch = p; },
     lookAt: p => { const d = new V3().subVectors(p, camera.position); yaw = Math.atan2(-d.x, -d.z); pitch = Math.atan2(d.y, Math.hypot(d.x, d.z)); },
-    fun, beach, coast, FUN_GATE, BEACH_SPOT, teleport, boardRide, leaveRide, past, rewind, mine, art, setArt, powers, setPower, GOD, sendGod, flyers, godEvent, setBase, setFirstPerson, view, speedFx, speedCfg, setSpeed, get speedK() { return speedK; }, echoes, toggleRecord, eatenLots, eatLot, useItem, ITEMS, sea, blast, space, back, trip, fx, gaze, startTrip, setWhere, enterBack, leaveBack, nearbyAction, setMouse: v => { mouseDown = v; }, setRight: v => { mouseRight = v; }, lock: v => { locked = v; }, slimes, view, launch, nearWall, grabFriend, portals, firePortal, selectSlot, portalRay, get held() { return held; }, get target() { return target; },
+    fun, beach, coast, FUN_GATE, BEACH_SPOT, teleport, boardRide, leaveRide, past, rewind, mine, art, setArt, powers, setPower, GOD, sendGod, flyers, godEvent, setBase, setFirstPerson, view, speedFx, speedCfg, setSpeed, get speedK() { return speedK; }, echoes, toggleRecord, eatenLots, eatLot, useItem, ITEMS, nether, theEnd, dragon, moonFrame, quest, enterNether, enterEnd, landOnMoon, startTrip, shootArrow, openChest, useFrame, craft, sea, blast, space, back, trip, fx, gaze, startTrip, setWhere, enterBack, leaveBack, nearbyAction, setMouse: v => { mouseDown = v; }, setRight: v => { mouseRight = v; }, lock: v => { locked = v; }, slimes, view, launch, nearWall, grabFriend, portals, firePortal, selectSlot, portalRay, get held() { return held; }, get target() { return target; },
     tick(dt = 1 / 60) { last += dt * 1000; simulate(last, dt); },
   };
 }

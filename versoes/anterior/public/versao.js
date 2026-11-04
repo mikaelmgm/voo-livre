@@ -2,9 +2,10 @@
 // Fica fora do jogo de propósito: mesmo com o jogo quebrado, este arquivo roda e o botão aparece no menu.
 (() => {
   const NOVIDADES = [
-    '🏝️ A cidade virou uma ilha: grande, mas com fim, com praia, calçadão e coqueiros na volta toda e mar depois',
-    '🐢 Modo leve pra PC fraco: link "Versão 3D leve" na tela inicial ou botão em Ajustes',
-    '🧹 Saíram a chuva de carros e o estilo Game Boy',
+    '🌕 Segredo na Lua: uma moldura antiga com 12 encaixes vazios',
+    '🔥 No Minecraft: obsidiana, isqueiro e mesa de trabalho na mochila, e portal pro inferno com lava e um baú',
+    '👁️ Mesa de trabalho: pérola + vara de blaze viram olho do fim',
+    '🐉 O fim: pilares de obsidiana, cristais e o dragão. Arco no botão direito, 5 flechas, e créditos no final',
   ];
   const css = `
     .ver-box { display: flex; flex-direction: column; gap: 8px; }
