@@ -3,7 +3,7 @@
 import * as THREE from 'three';
 import { Boxes, rnd, solid, softDot } from './lib3d.js';
 import { TINTS, makeFacades, makeShops, grassTexture } from './textures.js';
-import { storeLayout, dressStore, storeSigns, inFun, BEACH_J } from './places.js';
+import { storeLayout, dressStore, storeSigns, inFun, onLand } from './places.js';
 
 export const CELL = 52;       // lote + rua
 const WALK_MIN = 15.6;        // calçada por onde a gente anda (distância do centro do lote)
@@ -672,7 +672,7 @@ export class Traffic {
   }
 
   update(t, px, pz, night) {
-    const { d } = this, n = this.count, now = performance.now(), shoreZ = BEACH_J * CELL - 27;
+    const { d } = this, n = this.count, now = performance.now();
     this.lightMat.opacity = Math.max(0.15, night);
     for (let k = 0; k < n; k++) {
       const c = this.cars[k], body = this.bodies[c.kind];
@@ -684,7 +684,8 @@ export class Traffic {
       if (c.axis) d.position.set(lane - c.dir * 2.7, 0, a);   // mão direita
       else d.position.set(a, 0, lane + c.dir * 2.7);
       // nem areia nem parque têm rua
-      if (d.position.z > shoreZ || inFun(Math.floor(d.position.x / CELL), Math.floor(d.position.z / CELL))) { c.gone = now + 800; body.setMatrixAt(c.slot, this.zero); this.lights.setMatrixAt(k, this.zero); continue; }
+      const ci = Math.floor(d.position.x / CELL), cj = Math.floor(d.position.z / CELL);
+      if (!onLand(ci, cj) || inFun(ci, cj)) { c.gone = now + 800; body.setMatrixAt(c.slot, this.zero); this.lights.setMatrixAt(k, this.zero); continue; }
       d.rotation.y = c.axis ? (c.dir > 0 ? 0 : Math.PI) : (c.dir > 0 ? Math.PI / 2 : -Math.PI / 2);
       c.x = d.position.x; c.z = d.position.z;
       d.updateMatrix();

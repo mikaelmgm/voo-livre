@@ -270,7 +270,7 @@ export class Mine {
     }
     for (let y = -5; y < -1; y++) put(y, B.DIRT);
     if (L.beach) {
-      const top = Math.ceil(sandY(pz));
+      const top = Math.ceil(sandY(px, pz));
       for (let y = -1; y < top; y++) put(y, B.SAND);
       return;
     }

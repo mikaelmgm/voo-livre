@@ -69,6 +69,9 @@ VERSÃO 3D (TESTE)
   PERSONAGEM: no Esc escolha a skin e o quanto ele é mole (0 = borracha, 100 = derretendo). Todo mundo vê.
     Aranha, Aranha preto e Simbionte usam teia. Bala de goma e Cachecol esticam o próprio braço.
   DUAS TEIAS: botão esquerdo numa mão, botão direito na outra.
+  POUSO: aperte os dois botões juntos mirando num telhado ou no chão. As teias te levam até ali e você para sem escorregar.
+    Um clique basta. De baixo, mire a beirada do prédio. Espaço cancela. Em cima de um ponto brilhante continua sendo teia dupla.
+    Já balançando com uma mão, o outro botão pousa se não tiver ponto brilhante na mira.
   CTRL (ou C) no chão, com a teia presa: você finca o pé e ela não te leva. No ar, não faz nada.
     Ande pra trás pra puxar. O amigo vem arrastado (E ou a rodinha recolhem a teia).
     Num prédio a teia estica, cada vez mais pesada: solte o CTRL ou as mãos e saia voando.

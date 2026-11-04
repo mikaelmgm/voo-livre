@@ -50,6 +50,9 @@ const WALL_REACH = 1.1, WALL_PUSH = 17, WALL_UP = 14;     // pulo na parede
 // estilingue: a teia estica até SLING_MAX, ou mais SLING_TUG com um amigo puxando; quanto mais longe, mais pesado
 const SLING_MAX = 24, SLING_TUG = 28, SLING_POWER = 9, BRACE_WALK = 0.7;
 const THROW = 60, CARRY_Y = 2.7;                          // arremessar quem está no colo
+// pouso: os dois botões juntos num telhado ou no chão levam você até ali, e a chegada é parada seca
+const LAND_TOGETHER = 170, LAND_LATE = 140;               // ms: diferença entre os botões pra contar como juntos; com o outro já preso, quanto esperar um ponto brilhante
+const LAND_PACE = 55, LAND_ARC = 0.5, LAND_ARC_TOP = 24, LAND_INSET = 2.5, LAND_CLEAR = 3;
 const WARP_REEL = 24, WARP_PULL = 34;                      // teia que entra num portal: recolhe e leva você pra boca dele
 // espaço: a teia alcança muito mais, o jato empurra de leve e, solto, o excesso de velocidade vai embora devagar
 const SPACE_ROPE = 620, SPACE_JET = 34, SPACE_TURBO = 90, SPACE_CRUISE = 260, SPACE_FADE = 0.55, SPACE_KICK = 34;
@@ -568,7 +571,7 @@ function startFlip() {
 const me = {
   pos: new V3(), vel: new V3(), onGround: false, hooks: [null, null], airJumps: 1, flipT: 0, flipAxis: new V3(1, 0, 0), boosting: false, seat: null, wet: false,
   sling: null, braced: false, strain: 0, airT: 0, tug: null, carry: 0, carried: 0, wallCool: 0, where: 'city', home: new V3(),
-  size: 1, base: 1, mass: 0, eaten: 0, rock: null,
+  size: 1, base: 1, mass: 0, eaten: 0, rock: null, land: null,
   mesh: makeBody(SKIN3, COLOR, SLIME), ropes: [makeRope(SKIN3, COLOR), makeRope(SKIN3, COLOR)], ropes2: [makeRope(SKIN3, COLOR), makeRope(SKIN3, COLOR)],
   gun: makeGun(),
   get hook() { return this.hooks[0] || this.hooks[1]; },        // uma teia qualquer, a que estiver presa
@@ -708,6 +711,103 @@ function release(hand) {
   if (s > 5) me.vel.addScaledVector(me.vel, RELEASE_BOOST / s);
 }
 
+// Onde uma reta cai pra pousar: topo de alguma coisa ou chão. Na parede não dá, a não ser perto do topo:
+// quem está mais baixo que o telhado não enxerga o topo, então mirar a beirada vale como mirar o telhado.
+function surfaceOn(from, dir, top) {
+  const solid = -Math.max(0, R - R0), hit = me.where === 'moon' ? null : sweep(from, dir, top, solid);     // a mira vê o prédio de verdade, sem a folga do corpo
+  if (!voxels() && dir.y < -0.01) {
+    let g = groundAt(from.x, from.z), t = 0;
+    for (let k = 0; k < 4; k++) { t = (from.y - g) / -dir.y; g = groundAt(from.x + dir.x * t, from.z + dir.z * t); }
+    if (t > 0 && t < (hit ? hit.t : top)) return new V3(from.x + dir.x * t, g, from.z + dir.z * t);
+  }
+  if (!hit) return null;
+  const p = from.clone().addScaledVector(dir, hit.t), b = hit.box;
+  if (hit.axis === 1 && hit.sign < 0) return null;
+  if (hit.axis !== 1 && (!b || b[4] - p.y > clamp(hit.t * 0.12, 3, 12))) return null;
+  if (b) {
+    const m = hit.axis === 1 ? R + 0.5 : R + LAND_INSET, inside = (v, lo, hi) => (hi - lo < m * 2 ? (lo + hi) / 2 : clamp(v, lo + m, hi - m));
+    p.x = inside(p.x, b[0], b[3]);
+    p.z = inside(p.z, b[2], b[5]);
+    const sky = b[4] + 60, over = sweep(new V3(p.x, sky, p.z), DOWN, 70, solid);
+    p.y = over ? sky - over.t : b[4];
+    if (p.y - b[4] > 3) return null;             // tem mais prédio em cima dessa caixa
+  }
+  return p;
+}
+function landSpot() {
+  if (inSpace()) return null;
+  const look = new V3(0, 0, -1).applyQuaternion(camera.quaternion), dir = new V3(), top = reach() + camera.position.distanceTo(me.pos);
+  // um pouco acima da beirada também vale: a mira raramente fica exata no meio do voo
+  for (const dip of [0, 0.03, 0.06]) {
+    dir.copy(look).setY(look.y - dip).normalize();
+    const p = surfaceOn(camera.position, dir, top);
+    if (p) return p.distanceTo(me.pos) <= reach() ? p : null;
+  }
+  return null;
+}
+function startLand(p) {
+  standUp();
+  const d = p.distanceTo(me.pos), T = 0.35 + (d / 70 + me.vel.length() / 300) / Math.max(1, big());
+  me.land = { p: p.clone().setY(p.y + R), T, left: T + 1.2 };
+  for (let i = 0; i < 2; i++) {
+    me.hooks[i] = { p: p.clone(), L: 1e9, pid: 0, id: -3, t: 0, warp: null, real: null };
+    hookWait[i] = true;                           // chegou com os botões presos: não atira de novo sozinho
+  }
+  me.sling = null;
+  me.airJumps = 1;
+}
+const landWho = [false, false], landT = [0, 0];
+let landArmed = false;
+// Os dois botões juntos pousam na hora. Com uma mão já na teia, o segundo botão espera um instante por um ponto brilhante,
+// pra não atrapalhar quem troca de mão balançando; não aparecendo nenhum, pousa.
+function tryLand(now, held) {
+  for (let i = 0; i < 2; i++) {
+    const down = i ? mouseRight : mouseDown;       // só clique de verdade conta: quebrando bloco, held[0] pisca
+    if (down && !landWho[i]) { landT[i] = now; landArmed = true; }
+    landWho[i] = down;
+  }
+  if (!held[0] || !held[1]) landArmed = false;
+  if (!landArmed) return;
+  const late = landT[0] > landT[1] ? 0 : 1;
+  if (landT[late] - landT[1 - late] >= LAND_TOGETHER) {
+    if (me.hooks[late]) { landArmed = false; return; }
+    if (target || now - landT[late] < LAND_LATE) return;
+  }
+  landArmed = false;
+  if (me.land || act || me.carried || me.ride || trip.on || pulling() || target?.sky) return;
+  // bem em cima de um ponto brilhante ou do amigo, é teia dupla
+  const aim = new V3(0, 0, -1).applyQuaternion(camera.quaternion);
+  if (target && !voxels() && lookTmp.subVectors(target.p, camera.position).normalize().dot(aim) > 0.9985) return;
+  const p = landSpot();
+  if (p) startLand(p);
+}
+// a mesma conta de um foguete pousando: a cada passo refaz o caminho até o ponto, então uma batida no meio não estraga a chegada
+function landPull(acc, dt) {
+  const L = me.land, gap = lookTmp.subVectors(L.p, me.pos), d = gap.length();
+  L.T -= dt;
+  L.left -= dt;
+  // com um prédio no caminho, sobe primeiro: mira acima da beirada até a reta ficar livre
+  const wall = d > 1 ? sweep(me.pos, new V3().copy(gap).divideScalar(d), d, 0.4) : null;
+  if (wall && wall.box) {
+    if (wall.axis !== 1) { gap.x *= wall.t / d; gap.z *= wall.t / d; }
+    gap.y = Math.max(gap.y, wall.box[4] + LAND_CLEAR + R - me.pos.y);
+  }
+  const T = Math.max(L.T, d / (LAND_PACE * Math.max(1, big())), 0.14);
+  acc.copy(gap).multiplyScalar(6 / T / T).addScaledVector(me.vel, -4 / T);
+  acc.y += 2 * Math.min(Math.hypot(gap.x, gap.z) * LAND_ARC, LAND_ARC_TOP) / T;       // de longe chega por cima, de perto só desce
+}
+function landDone() {
+  const L = me.land, far = Math.hypot(L.p.x - me.pos.x, L.p.z - me.pos.z);
+  if (me.pos.distanceTo(L.p) > 0.25 && !(me.onGround && far < 1.2 * big())) {
+    if (L.left < 0) { me.land = null; me.hooks[0] = me.hooks[1] = null; }       // ficou preso em alguma coisa: solta
+    return;
+  }
+  me.land = null;
+  me.hooks[0] = me.hooks[1] = null;
+  me.vel.set(0, 0, 0);
+  sound.splat(0.25);
+}
+
 // CTRL no chão finca o pé: a teia não te leva. Quem puxa é você andando pra trás, e quanto mais estica, mais pesa.
 // Soltando o CTRL ou as mãos, a teia devolve tudo de uma vez. No ar o CTRL não faz nada.
 function holdRopes() {
@@ -819,7 +919,7 @@ function collide() {
     if (vn < 0) {
       const s0 = me.vel.length();
       me.vel.addScaledVector(n, -vn);
-      if (s0 > 14 && n.y < 0.7) {
+      if (s0 > 14 && n.y < 0.7 && !me.land) {
         // em alta velocidade a parede não para você: de raspão escorrega nela, de frente corre pro canto mais perto
         const s1 = me.vel.length();
         if (s1 > s0 * 0.5) me.vel.multiplyScalar(s0 * 0.96 / s1);
@@ -905,16 +1005,20 @@ function step(dt) {
     const w = nearWall();
     if (w) { wallJump(w); jumpPressed = false; }
   }
+  if (me.land && !me.hook) me.land = null;
 
   me.airT = me.onGround ? 0 : me.airT + dt;
-  const braced = me.airT < 0.08 && pulling() && !!me.hook, tied = me.hook && !braced;
+  const braced = !me.land && me.airT < 0.08 && pulling() && !!me.hook, tied = me.hook && !braced;
   if (braced && !me.braced) for (const h of me.hooks) if (h) h.L = me.pos.distanceTo(h.p);    // a teia fica do tamanho que está
   me.braced = braced;
   if (!braced) {
     me.strain = 0;
     if (me.sling) launch();
   }
-  if (wet && !tied) {
+  if (me.land) {
+    landPull(acc, dt);
+    if (jumpPressed && me.airJumps > 0) { me.land = null; release(); airJump(wish, fwd); acc.set(0, -G * GOD.grav, 0); }
+  } else if (wet && !tied) {
     const top = seaUp ? waterTop : lot(CINEMA.i, CINEMA.j).roof.pool.water, k = Math.min(1, dt * 5), swim = (seaUp ? 14 : 5.5) * tall;
     me.vel.x += (wish.x * swim - me.vel.x) * k;
     me.vel.z += (wish.z * swim - me.vel.z) * k;
@@ -1039,6 +1143,7 @@ function step(dt) {
   if (me.onGround && !wasDown && voxels()) mine.fell(fall);
   if (me.onGround && !wasDown && fall > 30) landed(fall);
   if (braced) holdRopes();
+  if (me.land) landDone();
 }
 
 // A gravidade dos astros. É alta de propósito: perto deles você cai sozinho. Devolve se está dentro do poço de algum.
@@ -1101,6 +1206,7 @@ function goThrough(p, q) {
   me.mesh.userData.head = null;
   me.onGround = false;
   me.mesh.userData.slime.reset();
+  if (me.land) { me.land = null; me.hooks[0] = me.hooks[1] = null; }     // o ponto do pouso ficou do outro lado
   // a teia atravessa junto: a que entrava por aqui volta pro ponto de verdade, a outra passa a cruzar o portal
   me.hooks.forEach((h, i) => {
     if (!h) return;
@@ -1248,6 +1354,7 @@ function avoid(dt) {
 
 // altura do que está embaixo de um ponto: telhado, degrau ou a rua
 const DOWN = new V3(0, -1, 0);
+const groundAt = (x, z) => (me.where === 'moon' ? space.height(x, z) : me.where === 'city' ? Math.max(sandY(z), GOD.sea, z > WATER_Z ? WATER_Y : 0) : 0);
 function floorUnder(p) {
   if (me.where === 'moon') return space.height(p.x, p.z);
   const hit = sweep(p, DOWN, 40, 0);
@@ -2795,14 +2902,15 @@ function simulate(now, dt) {
       if (mine.mobs(dt, day, hitPress) || (breaking && !me.hooks[0])) held[0] = false;
     }
     hitPress = false;
+    tryLand(now, held);
     for (let i = 0; i < 2; i++) {
-      if (!held[i]) hookWait[i] = false;
+      if (!(i ? mouseRight : mouseDown)) hookWait[i] = false;     // o botão de verdade: quebrando bloco, held[0] mente
       if (held[i] && !hookWait[i] && !me.hooks[i] && target && !act && !me.carried) {
         if (target.sky) startTrip(i);
         else if (target.planet) attachPlanet(target.planet, i);
         else { standUp(); attach(target, i); if (firstHook < 0) firstHook = now; }
       }
-      if (!held[i] && me.hooks[i]) release(i);
+      if (!held[i] && me.hooks[i] && !me.land) release(i);     // o pouso vai até o fim, mesmo num clique rápido
     }
     if (me.sling && !pulling()) launch();
   }
@@ -2847,7 +2955,7 @@ function simulate(now, dt) {
     }
   } else if (!me.seat && !act) {
     if (inSpace()) { space.followBelt(me.pos); if (!me.hook) bodyAssist(dt); skyInSpace(); }
-    else if (!portalAssist(dt) && !me.hooks.some(h => h && h.warp)) avoid(dt);
+    else if (!me.land && !portalAssist(dt) && !me.hooks.some(h => h && h.warp)) avoid(dt);
     // rápido demais, os passos da física encurtam: nunca anda mais que meio metro de uma vez
     const n = clamp(Math.ceil(Math.max(dt * 240, me.vel.length() * dt / 0.5)), 1, 64);
     for (let i = 0; i < n; i++) step(dt / n);
@@ -2870,7 +2978,9 @@ function simulate(now, dt) {
     return { p: x, t: h.t };
   });
   if (trip.landing) settleOnMoon(dt);
-  if (!me.seat && !(trip.landing && !me.onGround)) orient(me.mesh, me.pos, me.vel, hookCenter(shown), me.onGround, dt, me.braced);
+  // pousando, a teia fica abaixo do boneco: ele voa como solto e, perto do ponto, já desce de pé
+  const footing = me.onGround || (!!me.land && me.pos.distanceTo(me.land.p) < 12 * Math.max(1, big()));
+  if (!me.seat && !(trip.landing && !me.onGround)) orient(me.mesh, me.pos, me.vel, me.land ? null : hookCenter(shown), footing, dt, me.braced);
   me.mesh.position.copy(me.pos);
   updateCamera(0);
   const body = me.mesh.userData.slime, aimDir = new V3(0, 0, -1).applyQuaternion(camera.quaternion);

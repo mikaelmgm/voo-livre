@@ -141,15 +141,6 @@ const PIXEL = `void main(){
     gl_FragColor = vec4(nearest(clamp(c, 0.0, 1.0)), alphaAt(s.a));
   }`;
 
-// quatro tons de verde, como na tela do Game Boy
-const GAMEBOY = `void main(){
-    vec4 s = texture2D(tColor, vUv);
-    float z = zAt(vUv), sky = step(uFar * 0.98, z), l = luma(colorAt(vUv));
-    l = pow(l, 0.85) + (bayer(floor(vUv * uSize)) - 0.5) * 0.22;
-    l = mix(l, 0.0, lineAt(vUv, 1.0, 0.03, 0.07) * (1.0 - sky) * 0.95);
-    gl_FragColor = vec4(uPal[int(clamp(floor(l * 4.0), 0.0, 3.0))], alphaAt(s.a));
-  }`;
-
 // geleia: cada quarteirão de um sabor, com brilho molhado, borda mais clara e a imagem tremendo de leve, como vista por dentro
 const JELLY = `vec3 flavor(float k){
     float i = floor(k * 6.0);
@@ -255,7 +246,6 @@ const DREAM = `void main(){
 const hexes = list => list.map(h => new THREE.Vector3(parseInt(h.slice(0, 2), 16) / 255, parseInt(h.slice(2, 4), 16) / 255, parseInt(h.slice(4, 6), 16) / 255));
 // ENDESGA 32: paleta de 32 cores feita por quem desenha pixel art
 const ENDESGA = hexes('be4a2f d77643 ead4aa e4a672 b86f50 733e39 3e2731 a22633 e43b44 f77622 feae34 fee761 63c74d 3e8948 265c42 193c3e 124e89 0099db 2ce8f5 ffffff c0cbdc 8b9bb4 5a6988 3a4466 262b44 181425 ff0044 68386c b55088 f6757a e8b796 c28569'.split(' '));
-const GB = hexes(['0f380f', '306230', '8bac0f', '9bbc0f']);
 const SPRINGFIELD = hexes('fed90f f59db9 d1b271 8fc93a 5fa345 f28c28 d6432e 3b6fb6 70d1fe 8e5bb5 8a8a8e 4d4d54 d8d4c8 f7f4ec 8b5a2b 2a2a2e'.split(' '));
 const BIKINI_PAL = hexes('47c5d8 2e9e9b fff04d ffb7c9 ff8fb1 ff6b4a 9b6fd3 8fdc78 f5e6a8 e8a968 ffffff 4f7fd0 26588a'.split(' '));
 
@@ -362,7 +352,6 @@ const VAPOR = `// vaporwave: pôr do sol rosa, sol listrado, cidade em tons past
 export const ART_STYLES = [
   { id: 'normal', label: 'Normal', icon: '🌆' },
   { id: 'pixel', label: 'Pixel Art', icon: '👾', frag: PIXEL, lines: 270, pal: ENDESGA, rope: 2.6, step: 12, glow: 0.35 },
-  { id: 'gameboy', label: 'Game Boy', icon: '🎮', frag: GAMEBOY, lines: 144, pal: GB, rope: 3.4, step: 10, glow: 0.35 },
   { id: 'blocos', label: 'Minecraft', icon: '⛏️', mine: true },
   { id: 'geleia', label: 'Geleia', icon: '🍮', frag: JELLY, marks: true, jelly: true, rope: 1.4 },
   { id: 'gibi', label: 'Gibi', icon: '💥', frag: COMIC, rope: 1.6, glow: 0.5 },

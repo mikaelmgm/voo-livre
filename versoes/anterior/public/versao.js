@@ -2,6 +2,7 @@
 // Fica fora do jogo de propósito: mesmo com o jogo quebrado, este arquivo roda e o botão aparece no menu.
 (() => {
   const NOVIDADES = [
+    '🛬 Pouso: os dois botões juntos num telhado ou no chão levam você até ali, e você para sem escorregar',
     '🤲 Uma teia só: as duas mãos seguram, até você usar a outra teia',
     '🤸 Rolamentos diferentes conforme o movimento, e a primeira pessoa gira junto',
     '💨 Efeitos de velocidade: sutis no começo, exagerados em 460 km/h, e seguindo a direção do movimento',

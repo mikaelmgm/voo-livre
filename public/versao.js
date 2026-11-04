@@ -2,25 +2,9 @@
 // Fica fora do jogo de propósito: mesmo com o jogo quebrado, este arquivo roda e o botão aparece no menu.
 (() => {
   const NOVIDADES = [
-    '🛬 Pouso: os dois botões juntos num telhado ou no chão levam você até ali, e você para sem escorregar',
-    '🤲 Uma teia só: as duas mãos seguram, até você usar a outra teia',
-    '🤸 Rolamentos diferentes conforme o movimento, e a primeira pessoa gira junto',
-    '💨 Efeitos de velocidade: sutis no começo, exagerados em 460 km/h, e seguindo a direção do movimento',
-    '🌬️ Velocidade mais difícil: o ar segura cada vez mais acima de 150 km/h',
-    '🏁 Aba Mundo: velocidade máxima, ganho e desaceleração, com botões "Como era antes" e "Novo ajuste"',
-    '🎥 Primeira pessoa: tecla G ou aba Ajustes',
-    '🌀 Giros e câmera suaves: o boneco não vira de uma vez',
-    '✨ Terra e parque sem cintilar, estilos protegidos contra pixels estourados',
-    '🧹 Saíram chuva de vacas, meteoro e buraco negro',
-    '⏳ Tela de carregamento: cidade, shaders, texturas e mundos ficam prontos antes de entrar',
-    '🚀 Sem as travadas no meio do jogo: acabou o engasgo ao se afastar da laje e ao trocar de mundo',
-    '🌀 Trocar de arte e abrir portal não engasgam mais na primeira vez: tudo é ensaiado antes de entrar',
-    '⛏️ Modo Minecraft: a cidade vira blocos de verdade, com picareta, vida, fome, mochila e zumbis',
-    '🎨 Estilos novos: Simpsons, Bob Esponja e Vaporwave (saíram LEGO, Lápis, Vitral, Maquete e Térmica)',
-    '🎡 Parque de diversões: roda-gigante, montanha-russa e carrossel, dá pra andar em todos',
-    '🏖️ Praia com mar pra nadar, e lojas onde dá pra entrar',
-    '🏙️ Prédios redondos, torres gêmeas, casas, igrejas, postos, carros novos e gente mais variada',
-    '🔧 Geleia sem tremer, boneco pequeno sem deslizar, rebobinar sem limite, e sons novos',
+    '🏝️ A cidade virou uma ilha: grande, mas com fim, com praia, calçadão e coqueiros na volta toda e mar depois',
+    '🐢 Modo leve pra PC fraco: link "Versão 3D leve" na tela inicial ou botão em Ajustes',
+    '🧹 Saíram a chuva de carros e o estilo Game Boy',
   ];
   const css = `
     .ver-box { display: flex; flex-direction: column; gap: 8px; }
