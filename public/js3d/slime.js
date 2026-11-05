@@ -778,16 +778,23 @@ export class Slime {
   // cada mão presa estica na direção da sua teia
   reachHooks(s, hooks, sp) {
     const tg = this.tg, S = this.S, ro = this.Ro;
+    // uma teia só: a outra mão segura na mesma corda, um palmo acima da que atirou, até disparar a teia dela
+    // (a arma ocupa a mão direita; nas skins sem teia o braço é que estica, então a outra mão só acompanha)
+    const only = !hooks[0] !== !hooks[1] ? (hooks[0] ? 0 : 1) : -1, onRope = only >= 0 && !this.armOnly && !s.aim;
     for (let i = 0; i < 2; i++) {
-      // uma teia só: a outra mão segura junto, um pouco mais embaixo, até disparar a teia dela (a arma ocupa a mão direita)
       const spare = !hooks[i], h = hooks[i] || hooks[1 - i];
-      if (!h || (spare && s.aim)) continue;
+      if (!h || (spare && (s.aim || onRope))) continue;
       const dx = h.p.x - s.pos.x, dy = h.p.y - s.pos.y, dz = h.p.z - s.pos.z, L = Math.hypot(dx, dy, dz) + 1e-5;
       const bx = (ro[0] * dx + ro[3] * dy + ro[6] * dz) / L, by = (ro[1] * dx + ro[4] * dy + ro[7] * dz) / L, bz = (ro[2] * dx + ro[5] * dy + ro[8] * dz) / L;
       const reach = Math.min(L * 0.55, 1 + this.reach * (0.3 + 0.7 * this.tension + 0.5 * clamp(sp / 60, 0, 1))) * (spare ? 0.72 : 1);
       tg[HAND + i * 3] = S[i][0] + bx * reach; tg[HAND + i * 3 + 1] = S[i][1] + by * reach; tg[HAND + i * 3 + 2] = S[i][2] + bz * reach;
+      if (onRope && i === only) {
+        const o = HAND + (1 - i) * 3, k = HAND + i * 3, gap = 0.32;
+        tg[o] = tg[k] + bx * gap; tg[o + 1] = tg[k + 1] + by * gap; tg[o + 2] = tg[k + 2] + bz * gap;
+      }
     }
   }
+
 
   // uma passada das molas (h fixo pra não depender do FPS)
   springs(h) {

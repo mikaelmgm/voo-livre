@@ -2,7 +2,7 @@
 // Fica fora do jogo de propósito: mesmo com o jogo quebrado, este arquivo roda e o botão aparece no menu.
 (() => {
   const NOVIDADES = [
-    '🖐️ Primeira pessoa: mãos de borracha que esticam e seguram a teia (as duas na mesma, com uma teia só)',
+    '🖐️ Com uma teia só, as duas mãos seguram na mesma corda',
     '🛬 Pouso agora é CTRL no ar: rápido e embalado, freia só no fim. Os dois botões juntos voltaram a ser só duas teias',
     '🏙️ Bairros: casinhas com postes de teia e um centro com torres de 400 a 600 m',
     '🌉 Ponte pênsil gigante na costa leste, até a ilhota do farol (Esc > Ir pra ponte)',

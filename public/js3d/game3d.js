@@ -22,7 +22,6 @@ import { Flyers, Sea } from './god.js';
 import { SpeedFx } from './speedfx.js';
 import { Mine, BlockBody, REACH, B as VB } from './mine.js';
 import { Nether, End, Dragon, MoonFrame, NETHER_LIGHT, END_LIGHT } from './dims.js';
-import { FpHands } from './fphands.js';
 import { Bridge, bridgeParts, BRIDGE_TOP } from './bridge.js';
 import { FunPark, Beach, funLot, inFun, sandY, WATER_Y, BEACH_SPOT, FUN_GATE, ISLE, ISLE_SHAPE, SEA_IN, onLand, inSea, ISLET, MAP } from './places.js';
 import { Sinuca, Pong, Basket } from './games.js';
@@ -531,7 +530,6 @@ function glowTexture(color) {
 const slimes = new SlimeWorld(scene, renderer, day);
 const portals = new Portals(scene, renderer, slimes);
 const art = new Art(renderer, slimes);
-const fpHands = new FpHands(scene);
 const speedFx = new SpeedFx(renderer);
 
 // a arma de portais: ela aponta pra +z do grupo
@@ -3369,16 +3367,6 @@ function simulate(now, dt) {
   if (bodyT >= BODY_STEP || slimes.blocky) bodyT = 0;
   body.group.visible = !slimes.blocky && me.mesh.visible;
   placeRopes(me.ropes, shown, body);
-  // primeira pessoa: as mãos de borracha seguram a teia, e a corda sai delas
-  const fpOn = view.fp > 0.85 && !me.mesh.visible && !act && !slimes.blocky && !me.seat;
-  if (fpOn) fpHands.setColors(body.look.uA.value, body.look.uKind.value > 3.5 ? body.look.uA.value : body.look.uB.value);
-  fpHands.update(dt, camera, fpOn ? shown : null, body.armOnly, me.vel.length());
-  if (fpOn) shown.forEach((h, i) => {
-    if (!h || body.armOnly) return;
-    const a = fpHands.ropeFrom(i, shown);
-    placeRope(me.ropes[i], a, ropeEnd.copy(a).lerp(art.bent(h.p, ropeTip), Math.min(1, h.t / 0.12 || 1)));
-    me.ropes[i].scale.x *= 0.3; me.ropes[i].scale.z *= 0.3;      // de pertinho a corda é fina
-  });
   me.ropes2.forEach((rope, i) => {
     const h = me.hooks[i];
     if (h && h.warp && !trip.on) placeRope(rope, h.exit, h.real);
@@ -3568,7 +3556,7 @@ async function preload() {
   // Shaders: uma vez como vão pra tela, outra como vão pros estilos de arte, com todos os mundos à vista.
   // Mudar a quantidade de luzes acesas recompila todos os materiais, e isso acontece ao se afastar da laje, ao sair da
   // cidade ou quando a qualidade automática desliga a sombra. Por isso cada combinação é compilada aqui, de uma vez.
-  const shown = [city, space.sky, space.moon, space.floor, space.beltGroup, back.group, mine.group, day.sky, day.stars, extras, sea.mesh, coast.mesh, fun.group, beach.group, fpHands.group].filter(Boolean);
+  const shown = [city, space.sky, space.moon, space.floor, space.beltGroup, back.group, mine.group, day.sky, day.stars, extras, sea.mesh, coast.mesh, fun.group, beach.group].filter(Boolean);
   const was = shown.map(o => o.visible);
   shown.forEach(o => { o.visible = true; });
   const rt = new THREE.WebGLRenderTarget(8, 8, { type: THREE.HalfFloatType }), combos = LEVE ? [[false, false]] : [[true, true], [true, false], [false, true], [false, false]];
@@ -3662,7 +3650,7 @@ function enter() {
     get cineState() { return cineState; },
     setLook: (y, p) => { yaw = y; pitch = p; },
     lookAt: p => { const d = new V3().subVectors(p, camera.position); yaw = Math.atan2(-d.x, -d.z); pitch = Math.atan2(d.y, Math.hypot(d.x, d.z)); },
-    fun, beach, coast, FUN_GATE, BEACH_SPOT, teleport, boardRide, leaveRide, past, rewind, mine, art, setArt, powers, setPower, GOD, sendGod, flyers, godEvent, setBase, setFirstPerson, view, speedFx, speedCfg, setSpeed, get speedK() { return speedK; }, echoes, toggleRecord, eatenLots, eatLot, useItem, ITEMS, fpHands, bridge, setMap, ctrlLand, landSpot, startLand, nether, theEnd, dragon, moonFrame, quest, enterNether, enterEnd, landOnMoon, startTrip, shootArrow, openChest, useFrame, craft, sea, blast, space, back, trip, fx, gaze, startTrip, setWhere, enterBack, leaveBack, nearbyAction, setMouse: v => { mouseDown = v; }, setRight: v => { mouseRight = v; }, lock: v => { locked = v; }, slimes, view, launch, nearWall, grabFriend, portals, firePortal, selectSlot, portalRay, get held() { return held; }, get target() { return target; },
+    fun, beach, coast, FUN_GATE, BEACH_SPOT, teleport, boardRide, leaveRide, past, rewind, mine, art, setArt, powers, setPower, GOD, sendGod, flyers, godEvent, setBase, setFirstPerson, view, speedFx, speedCfg, setSpeed, get speedK() { return speedK; }, echoes, toggleRecord, eatenLots, eatLot, useItem, ITEMS, bridge, setMap, ctrlLand, landSpot, startLand, nether, theEnd, dragon, moonFrame, quest, enterNether, enterEnd, landOnMoon, startTrip, shootArrow, openChest, useFrame, craft, sea, blast, space, back, trip, fx, gaze, startTrip, setWhere, enterBack, leaveBack, nearbyAction, setMouse: v => { mouseDown = v; }, setRight: v => { mouseRight = v; }, lock: v => { locked = v; }, slimes, view, launch, nearWall, grabFriend, portals, firePortal, selectSlot, portalRay, get held() { return held; }, get target() { return target; },
     tick(dt = 1 / 60) { last += dt * 1000; simulate(last, dt); },
   };
 }

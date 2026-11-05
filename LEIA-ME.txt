@@ -72,7 +72,7 @@ VERSÃO 3D (TESTE)
   POUSO: no ar, aperte CTRL mirando num telhado ou no chão. As duas teias te levam até ali, embalado, e freiam só no fim.
     De baixo, mire a beirada do prédio. Espaço cancela. No chão o CTRL não pousa: finca o pé e puxa, como antes.
     Os dois botões do mouse agora são só as duas teias, sem pousar sem querer.
-  PRIMEIRA PESSOA (G): as mãos de borracha aparecem segurando a teia. Com uma teia só, as duas mãos pegam nela.
+  UMA TEIA SÓ: as duas mãos seguram na mesma corda, até você atirar a outra teia.
   CTRL (ou C) no chão, com a teia presa: você finca o pé e ela não te leva. No ar, não faz nada.
     Ande pra trás pra puxar. O amigo vem arrastado (E ou a rodinha recolhem a teia).
     Num prédio a teia estica, cada vez mais pesada: solte o CTRL ou as mãos e saia voando.
