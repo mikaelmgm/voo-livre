@@ -2,10 +2,11 @@
 // Fica fora do jogo de propósito: mesmo com o jogo quebrado, este arquivo roda e o botão aparece no menu.
 (() => {
   const NOVIDADES = [
-    '🌕 Segredo na Lua: uma moldura antiga com 12 encaixes vazios',
-    '🔥 No Minecraft: obsidiana, isqueiro e mesa de trabalho na mochila, e portal pro inferno com lava e um baú',
-    '👁️ Mesa de trabalho: pérola + vara de blaze viram olho do fim',
-    '🐉 O fim: pilares de obsidiana, cristais e o dragão. Arco no botão direito, 5 flechas, e créditos no final',
+    '🖐️ Primeira pessoa: mãos de borracha que esticam e seguram a teia (as duas na mesma, com uma teia só)',
+    '🛬 Pouso agora é CTRL no ar: rápido e embalado, freia só no fim. Os dois botões juntos voltaram a ser só duas teias',
+    '🏙️ Bairros: casinhas com postes de teia e um centro com torres de 400 a 600 m',
+    '🌉 Ponte pênsil gigante na costa leste, até a ilhota do farol (Esc > Ir pra ponte)',
+    '♾️ A cidade infinita voltou como opção: Esc > Mundo > mapa',
   ];
   const css = `
     .ver-box { display: flex; flex-direction: column; gap: 8px; }

@@ -69,9 +69,10 @@ VERSÃO 3D (TESTE)
   PERSONAGEM: no Esc escolha a skin e o quanto ele é mole (0 = borracha, 100 = derretendo). Todo mundo vê.
     Aranha, Aranha preto e Simbionte usam teia. Bala de goma e Cachecol esticam o próprio braço.
   DUAS TEIAS: botão esquerdo numa mão, botão direito na outra.
-  POUSO: aperte os dois botões juntos mirando num telhado ou no chão. As teias te levam até ali e você para sem escorregar.
-    Um clique basta. De baixo, mire a beirada do prédio. Espaço cancela. Em cima de um ponto brilhante continua sendo teia dupla.
-    Já balançando com uma mão, o outro botão pousa se não tiver ponto brilhante na mira.
+  POUSO: no ar, aperte CTRL mirando num telhado ou no chão. As duas teias te levam até ali, embalado, e freiam só no fim.
+    De baixo, mire a beirada do prédio. Espaço cancela. No chão o CTRL não pousa: finca o pé e puxa, como antes.
+    Os dois botões do mouse agora são só as duas teias, sem pousar sem querer.
+  PRIMEIRA PESSOA (G): as mãos de borracha aparecem segurando a teia. Com uma teia só, as duas mãos pegam nela.
   CTRL (ou C) no chão, com a teia presa: você finca o pé e ela não te leva. No ar, não faz nada.
     Ande pra trás pra puxar. O amigo vem arrastado (E ou a rodinha recolhem a teia).
     Num prédio a teia estica, cada vez mais pesada: solte o CTRL ou as mãos e saia voando.
@@ -146,6 +147,8 @@ VERSÃO 3D (TESTE)
     Vale pra todo mundo no 3D. Solto, o dia inteiro dura 24 minutos.
   CARREGAMENTO: o jogo prepara tudo antes de entrar, pra não travar lá dentro. A primeira vez depois de uma atualização
     demora mais; as seguintes são rápidas. O arquivo desempenho.log, na pasta do jogo, guarda o FPS real de cada jogador e os engasgos, com o que tinha acabado de acontecer.
+  MAPA (Esc > Mundo): Ilha (o normal, com a ponte pênsil até a ilhota do farol) ou Cidade infinita. Vale pra party toda.
+    A cidade tem bairros: casinhas com postes de teia, o centro com torres de 400 a 600 m, e o resto misturado.
   QUALIDADE (Esc): no modo Automática o jogo baixa sozinho se o FPS cair. Também dá pra fixar em Mínima, Baixa,
     Média ou Alta. P mostra o FPS, o pior quadro e a qualidade atual na tela.
   MODO LEVE (pra PC fraco): na tela inicial, "Versão 3D leve", ou Esc > Ajustes > Modo leve. A imagem sai bem menor,

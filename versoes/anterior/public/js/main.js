@@ -1105,7 +1105,7 @@ function buildLobby() {
   drawSkins();
   $('#play').onclick = startPlaying;
 
-  if (['localhost', '127.0.0.1', '[::1]'].includes(location.hostname)) {
+  {
     fetch('/api/info').then(r => r.json()).then(info => {
       const ips = info.ips.filter(i => i.radmin).concat(info.ips.filter(i => !i.radmin)).slice(0, 3);
       if (!ips.length) return;

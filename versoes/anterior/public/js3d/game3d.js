@@ -1891,6 +1891,24 @@ function teleport(p) {
 }
 $('#go-roof').onclick = () => { teleport(new V3(CINE.cx + 8, CINE.roof.Y + 0.7, CINE.cz + 4)); yaw = 0; lockMouse(); };
 $('#go-court').onclick = () => { teleport(new V3(COURT_LOT.cx - 13, COURT_LOT.courtData.Y + 0.7, COURT_LOT.cz)); yaw = -Math.PI / 2; lockMouse(); };
+// convite: os endereços pelos quais o amigo entra neste servidor, com botão de copiar
+fetch('/api/info').then(r => r.json()).then(info => {
+  const ips = info.ips.filter(i => i.radmin).concat(info.ips.filter(i => !i.radmin)).slice(0, 3);
+  if (!ips.length) return;
+  const wrap = $('#invite3-links');
+  for (const ip of ips) {
+    const url = `https://${ip.host}:${info.port}`, row = document.createElement('div');
+    row.className = 'musicrow';
+    row.innerHTML = `<code style="user-select:all;font-weight:600">${url}</code><small>${ip.radmin ? 'Radmin' : String(ip.name).replace(/[<>&]/g, '')}</small>`;
+    const btn = document.createElement('button');
+    btn.className = 'small';
+    btn.textContent = 'copiar';
+    btn.onclick = () => { navigator.clipboard?.writeText(url); btn.textContent = 'copiado!'; };
+    row.appendChild(btn);
+    wrap.appendChild(row);
+  }
+  $('#invite3').style.display = '';
+}).catch(() => {});
 $('#go-park').onclick = () => { teleport(FUN_GATE); yaw = Math.PI / 2; pitch = 0; lockMouse(); };
 $('#go-beach').onclick = () => { teleport(BEACH_SPOT); yaw = Math.PI; pitch = -0.05; lockMouse(); };
 
