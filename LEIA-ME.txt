@@ -92,11 +92,14 @@ VERSÃO 3D (TESTE)
     "Surpresa" troca sozinho a cada 25 s. Só você vê o seu estilo. Na Geleia, os pousos fortes viram ondas pela rua.
   OUTROS MUNDOS (segredo): na Lua tem uma moldura antiga com 12 encaixes vazios. No Minecraft, a mochila (E) tem
     obsidiana, isqueiro e mesa de trabalho: monte uma moldura em pé e acenda com o isqueiro (botão direito) pra ir ao
-    inferno. Lá, do outro lado do lago de lava, tem um baú. Na mesa de trabalho, pérola + vara = olho do fim. Com 12
+    inferno. Lá, do outro lado do lago de lava, tem um baú. Na mesa de trabalho (botão direito nela): vara = 2 pós de
+    blaze, e pérola + pó = olho do fim. Com 12
     olhos a moldura da Lua abre e leva pro fim: pilares de obsidiana, cristais e o dragão. No fim o botão direito atira
     com o arco; 5 flechas derrubam o dragão. Entre no portal que abre no meio da ilha pra ver os créditos.
   MINECRAFT (estilo de arte): a cidade vira blocos. Perto, segure o clique pra quebrar (a picareta é mais rápida na pedra).
-    Longe, a teia pega em qualquer bloco. Botão direito põe bloco ou come. 1 a 9 ou a rodinha trocam o item, E abre a mochila.
+    Longe, a teia pega em qualquer bloco. Botão direito põe bloco, come ou abre a mesa de trabalho (grade 3x3, igual a do jogo:
+    esquerdo pega/solta a pilha, direito pega metade ou solta 1, shift manda direto). 1 a 9 ou a rodinha trocam o item, E abre o
+    inventário com a grade 2x2. Vale também no inferno e na Lua: lá a Lua vira blocos em volta da moldura e dá pra cavar.
     Queda forte tira vida, a fome baixa com o tempo, e à noite aparecem zumbis (três pancadas derrubam).
     Dá pra cavar até a rocha-mãe, com carvão, ferro, ouro e diamante no caminho. Os blocos valem pra todo mundo no mesmo estilo.
   LUGARES: lojas pequenas têm porta e interior (lanchonete, mercado, fliperama, bar, academia, sorveteria).
@@ -148,7 +151,7 @@ VERSÃO 3D (TESTE)
   CARREGAMENTO: o jogo prepara tudo antes de entrar, pra não travar lá dentro. A primeira vez depois de uma atualização
     demora mais; as seguintes são rápidas. O arquivo desempenho.log, na pasta do jogo, guarda o FPS real de cada jogador e os engasgos, com o que tinha acabado de acontecer.
   MAPA (Esc > Mundo): Ilha (o normal, com a ponte pênsil até a ilhota do farol) ou Cidade infinita. Vale pra party toda.
-    A cidade tem bairros: casinhas com postes de teia, o centro com torres de 400 a 600 m, e o resto misturado.
+    Aqui e ali a cidade abre uma praça com uma torre de 300 a 500 m sozinha no meio, ou duas torres gêmeas.
   QUALIDADE (Esc): no modo Automática o jogo baixa sozinho se o FPS cair. Também dá pra fixar em Mínima, Baixa,
     Média ou Alta. P mostra o FPS, o pior quadro e a qualidade atual na tela.
   MODO LEVE (pra PC fraco): na tela inicial, "Versão 3D leve", ou Esc > Ajustes > Modo leve. A imagem sai bem menor,

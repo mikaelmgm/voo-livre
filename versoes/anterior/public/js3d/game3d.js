@@ -22,7 +22,8 @@ import { Flyers, Sea } from './god.js';
 import { SpeedFx } from './speedfx.js';
 import { Mine, BlockBody, REACH, B as VB } from './mine.js';
 import { Nether, End, Dragon, MoonFrame, NETHER_LIGHT, END_LIGHT } from './dims.js';
-import { FunPark, Beach, funLot, inFun, sandY, WATER_Y, BEACH_SPOT, FUN_GATE, ISLE, ISLE_SHAPE, SEA_IN, onLand, inSea } from './places.js';
+import { Bridge, bridgeParts, BRIDGE_TOP } from './bridge.js';
+import { FunPark, Beach, funLot, inFun, sandY, WATER_Y, BEACH_SPOT, FUN_GATE, ISLE, ISLE_SHAPE, SEA_IN, onLand, inSea, ISLET, MAP } from './places.js';
 import { Sinuca, Pong, Basket } from './games.js';
 
 const $ = s => document.querySelector(s);
@@ -51,9 +52,8 @@ const WALL_REACH = 1.1, WALL_PUSH = 17, WALL_UP = 14;     // pulo na parede
 // estilingue: a teia estica até SLING_MAX, ou mais SLING_TUG com um amigo puxando; quanto mais longe, mais pesado
 const SLING_MAX = 24, SLING_TUG = 28, SLING_POWER = 9, BRACE_WALK = 0.7;
 const THROW = 60, CARRY_Y = 2.7;                          // arremessar quem está no colo
-// pouso: os dois botões juntos num telhado ou no chão levam você até ali, e a chegada é parada seca
-const LAND_TOGETHER = 170, LAND_LATE = 140;               // ms: diferença entre os botões pra contar como juntos; com o outro já preso, quanto esperar um ponto brilhante
-const LAND_PACE = 55, LAND_ARC = 0.5, LAND_ARC_TOP = 24, LAND_INSET = 2.5, LAND_CLEAR = 3;
+// pouso: CTRL no ar, mirando num telhado ou no chão, as duas teias levam você até ali. Vai embalado e só freia no fim.
+const LAND_PACE = 70, LAND_BRAKE = 150, LAND_GRIP = 7, LAND_ARC = 0.22, LAND_ARC_TOP = 16, LAND_INSET = 2.5, LAND_CLEAR = 3;
 const WARP_REEL = 24, WARP_PULL = 34;                      // teia que entra num portal: recolhe e leva você pra boca dele
 // espaço: a teia alcança muito mais, o jato empurra de leve e, solto, o excesso de velocidade vai embora devagar
 const SPACE_ROPE = 620, SPACE_JET = 34, SPACE_TURBO = 90, SPACE_CRUISE = 260, SPACE_FADE = 0.55, SPACE_KICK = 34;
@@ -69,7 +69,7 @@ const R0 = 0.6;               // raio do corpo pra colisão, no tamanho normal
 let R = R0;
 // comilão: o que cada coisa pesa, e a partir de que tamanho dá pra comer
 const CAR_MASS = 6, EAT_CAR = 1.5, EAT_LOT = 6, GONE_MS = 60000;
-const GOD = { grav: 1, sea: 0, bend: 0, pace: 1 };   // painel de Deus: vale pra todo mundo da party
+const GOD = { grav: 1, sea: 0, bend: 0, pace: 1, map: 'ilha' };   // painel de Deus: vale pra todo mundo da party
 
 let prefs = {};
 try { prefs = JSON.parse(localStorage.getItem('voolivre') || '{}'); } catch { /* sem storage */ }
@@ -95,18 +95,55 @@ if (LEVE) QUALITY[0] = { name: 'Leve', pr: 0.4, view: 1, detail: 70, far: 600, s
 
 const lots = new Map();
 const eatenLots = new Set();
+// Bairros: um ruído bem largo diz o que cada quarteirão é. Perto de 0 é bairro de casas, perto de 1 é centro de arranha-céus.
+// Na ilha tem um centro de verdade a nordeste do cinema e um bairro de casas a sudoeste, perto da praia.
+function smoothNoise(x, z, seed) {
+  const i = Math.floor(x), j = Math.floor(z), fx = x - i, fz = z - j, u = fx * fx * (3 - 2 * fx), w = fz * fz * (3 - 2 * fz);
+  const a = rnd(i, j, seed), b = rnd(i + 1, j, seed), c = rnd(i, j + 1, seed), d = rnd(i + 1, j + 1, seed);
+  return a + (b - a) * u + (c - a) * w + (a - b - c + d) * u * w;
+}
+const DOWNTOWN = [9, -17], SUBURB = [-13, 6];
+function zoneAt(i, j) {
+  let z = 0.15 + 0.7 * smoothNoise(i / 7.5, j / 7.5, 61);
+  z += 0.55 * Math.exp(-((i - DOWNTOWN[0]) ** 2 + (j - DOWNTOWN[1]) ** 2) / 40);
+  z -= 0.6 * Math.exp(-((i - SUBURB[0]) ** 2 + (j - SUBURB[1]) ** 2) / 45);
+  if (Math.abs(i) <= 2 && Math.abs(j) <= 2) z = 0.5;      // em volta do começo, a cidade de sempre
+  return clamp(z, 0, 1);
+}
+const STRUCT = bridgeParts();
 function lot(i, j) {
-  const key = i + ',' + j;
-  let L = lots.get(key);
+  const L = lots.get(i + ',' + j);
   if (L) return L;
+  const N = lotRaw(i, j);
+  if (!MAP.infinite) {
+    const x0 = i * CELL, x1 = x0 + CELL, z0 = j * CELL, z1 = z0 + CELL;
+    for (const b of STRUCT.boxes) {
+      if (b[3] <= x0 || b[0] >= x1 || b[5] <= z0 || b[2] >= z1) continue;
+      N.boxes.push([Math.max(b[0], x0), b[1], Math.max(b[2], z0), Math.min(b[3], x1), b[4], Math.min(b[5], z1)]);
+    }
+    for (const a of STRUCT.anchors) if (a.x >= x0 && a.x < x1 && a.z >= z0 && a.z < z1) N.anchors.push(a);
+  }
+  return N;
+}
+function lotRaw(i, j) {
+  const key = i + ',' + j;
+  let L;
   const cx = (i + 0.5) * CELL, cz = (j + 0.5) * CELL;
   if (!onLand(i, j)) { L = { cx, cz, w: 0, d: 0, h: 0, park: true, beach: true, anchors: [], boxes: [] }; lots.set(key, L); return L; }
   if (inFun(i, j)) { L = funLot(i, j); lots.set(key, L); return L; }
   if (i === CINEMA.i && j === CINEMA.j) { L = cinemaLot(cx, cz); lots.set(key, L); return L; }
   if (i === COURT.i && j === COURT.j) { L = courtLot(cx, cz); lots.set(key, L); return L; }
-  let park = rnd(i, j, 1) < 0.07 || eatenLots.has(key);
-  let low = !park && rnd(i, j, 12) < 0.13;    // sobradinho comercial no meio dos prédios
+  const zone = zoneAt(i, j), home = zone < 0.3;
+  let park = rnd(i, j, 1) < (home ? 0.1 : 0.07) || eatenLots.has(key);
+  let low = !park && (rnd(i, j, 12) < 0.13 || (home && rnd(i, j, 13) < 0.88));    // sobradinho comercial no meio dos prédios; no bairro, quase tudo é casa
   let w = 14 + rnd(i, j, 2) * 12, d = 14 + rnd(i, j, 3) * 12, h = 16 + Math.pow(rnd(i, j, 4), 2.2) * 120;
+  if (zone > 0.62) {
+    // centro: torres altas e largas, e de vez em quando uma gigante de 400 a 600 metros
+    const k = (zone - 0.62) / 0.38, giant = rnd(i, j, 14) < 0.05 + 0.1 * k;
+    w = 20 + rnd(i, j, 2) * 8; d = 20 + rnd(i, j, 3) * 8;
+    h = giant ? 380 + rnd(i, j, 4) * 220 : 70 + Math.pow(rnd(i, j, 4), 1.4) * (120 + 220 * k);
+  } else if (zone > 0.45) h = 22 + Math.pow(rnd(i, j, 4), 1.8) * 160;
+  else if (zone < 0.38) h = 12 + Math.pow(rnd(i, j, 4), 2.5) * 40;
   if (low) { w = 22 + rnd(i, j, 2) * 7; d = 22 + rnd(i, j, 3) * 7; h = 8 + rnd(i, j, 4) * 6; }
   if (i === 0 && j === 0) { park = false; low = false; w = 22; d = 22; h = 95; }
   const anchors = [];
@@ -120,8 +157,15 @@ function lot(i, j) {
   }
   // caixas de colisão [x0, y0, z0, x1, y1, z1]
   const boxes = park ? [] : [[cx - w / 2 - 0.4, 0, cz - d / 2 - 0.4, cx + w / 2 + 0.4, h + 0.8, cz + d / 2 + 0.4]];
-  L = { cx, cz, w, d, h, park, low, anchors, boxes };
+  L = { cx, cz, w, d, h, park, low, anchors, boxes, home };
   styleLot(L, i, j);
+  // torre alta: pontos de teia também no meio da altura, senão de baixo não dá pra subir nela
+  if (!park && !L.low && L.h > 150 && !L.kind) {
+    for (let y = 95, n = 0; y < L.h - 40; y += 95, n++) {
+      const sx = n % 2 ? 1 : -1, sz = (n >> 1) % 2 ? 1 : -1, hw = L.w / 2, hd = L.d / 2;
+      L.anchors.push({ x: cx + sx * (hw + 2.5), y: y + 3, z: cz + sz * (hd + 2.5), bx: cx + sx * hw, bz: cz + sz * hd, roof: y, id: (i * 4099 + j) * 2 + 3000000 + n });
+    }
+  }
   if (lots.size > 20000) lots.clear();
   lots.set(key, L);
   return L;
@@ -260,9 +304,10 @@ ground.position.set(ISLE.i0 * CELL + ISLE_W / 2, 0, ISLE.j0 * CELL + ISLE_D / 2)
 ground.receiveShadow = true;
 city.add(ground);
 // na geleia o chão ondula, e pra isso precisa de vértices
-const flatGround = ground.geometry;
-let jellyGround = null;
-const denseGround = () => jellyGround || (jellyGround = new THREE.PlaneGeometry(ISLE_W, ISLE_D, 240, 240));
+const isleFlat = ground.geometry, GROUND_INF = CELL * 120;
+let isleDense = null, infFlat = null, infDense = null;
+const flatGround = () => (MAP.infinite ? infFlat || (infFlat = new THREE.PlaneGeometry(GROUND_INF, GROUND_INF)) : isleFlat);
+const denseGround = () => (MAP.infinite ? infDense || (infDense = new THREE.PlaneGeometry(GROUND_INF, GROUND_INF, 300, 300)) : isleDense || (isleDense = new THREE.PlaneGeometry(ISLE_W, ISLE_D, 240, 240)));
 
 // ---- o prédio do cinema
 const hallMat = new THREE.MeshLambertMaterial({ color: '#3a2147' });
@@ -441,6 +486,31 @@ function updateChunks(x, z) {
       chunks.delete(k);
     }
   }
+  if (MAP.infinite) ground.position.set(Math.round(x / CELL) * CELL, 0, Math.round(z / CELL) * CELL);
+}
+function dropChunks() {
+  for (const [k, c] of chunks) {
+    city.remove(c.group);
+    c.group.traverse(o => { if ((o.isMesh || o.isPoints) && !o.geometry.userData.shared) o.geometry.dispose(); if (o.isInstancedMesh) o.dispose(); });
+    chunks.delete(k);
+  }
+  skyline.dirty = true;
+}
+// Ilha ou cidade infinita: vale pra party inteira (painel de Deus). Refaz a cidade toda com a regra nova.
+function setMap(infinite) {
+  if (MAP.infinite === infinite) return;
+  MAP.infinite = infinite;
+  lots.clear();
+  dropChunks();
+  if (mine.active) { for (const c of mine.chunks.values()) mine.drop(c); mine.chunks.clear(); mine.at = null; }
+  groundTex.repeat.set(infinite ? 120 : ISLE.i1 - ISLE.i0 + 1, infinite ? 120 : ISLE.j1 - ISLE.j0 + 1);
+  ground.geometry = art.style.jelly || GOD.bend ? denseGround() : flatGround();
+  if (infinite) ground.position.set(Math.round(me.pos.x / CELL) * CELL, 0, Math.round(me.pos.z / CELL) * CELL);
+  else ground.position.set(ISLE.i0 * CELL + ISLE_W / 2, 0, ISLE.j0 * CELL + ISLE_D / 2);
+  beach.group.visible = bridge.group.visible = !infinite;
+  for (const id of ['go-beach', 'go-bridge']) $('#' + id).style.display = infinite ? 'none' : '';
+  $('#map-pick').querySelectorAll('button').forEach(b => b.classList.toggle('on', (b.dataset.v === 'inf') === infinite));
+  showToast(infinite ? '♾️ Cidade infinita' : '🏝️ A cidade é uma ilha');
 }
 
 // ------------------------------------------------------------------ bonecos de teste
@@ -762,44 +832,27 @@ function landSpot() {
 }
 function startLand(p) {
   standUp();
-  const d = p.distanceTo(me.pos), T = 0.35 + (d / 70 + me.vel.length() / 300) / Math.max(1, big());
-  me.land = { p: p.clone().setY(p.y + R), T, left: T + 1.2 };
+  const d = p.distanceTo(me.pos);
+  me.land = { p: p.clone().setY(p.y + R), v0: me.vel.length(), left: 1.6 + d / 35 };
   for (let i = 0; i < 2; i++) {
     me.hooks[i] = { p: p.clone(), L: 1e9, pid: 0, id: -3, t: 0, warp: null, real: null };
-    hookWait[i] = true;                           // chegou com os botões presos: não atira de novo sozinho
+    hookWait[i] = true;                           // os botões presos não disparam teia nova sozinhos
   }
   me.sling = null;
   me.airJumps = 1;
+  sound.hook();
 }
-const landWho = [false, false], landT = [0, 0];
-let landArmed = false;
-// Os dois botões juntos pousam na hora. Com uma mão já na teia, o segundo botão espera um instante por um ponto brilhante,
-// pra não atrapalhar quem troca de mão balançando; não aparecendo nenhum, pousa.
-function tryLand(now, held) {
-  for (let i = 0; i < 2; i++) {
-    const down = i ? mouseRight : mouseDown;       // só clique de verdade conta: quebrando bloco, held[0] pisca
-    if (down && !landWho[i]) { landT[i] = now; landArmed = true; }
-    landWho[i] = down;
-  }
-  if (!held[0] || !held[1]) landArmed = false;
-  if (!landArmed) return;
-  const late = landT[0] > landT[1] ? 0 : 1;
-  if (landT[late] - landT[1 - late] >= LAND_TOGETHER) {
-    if (me.hooks[late]) { landArmed = false; return; }
-    if (target || now - landT[late] < LAND_LATE) return;
-  }
-  landArmed = false;
-  if (me.land || act || me.carried || me.ride || trip.on || pulling() || target?.sky) return;
-  // bem em cima de um ponto brilhante ou do amigo, é teia dupla
-  const aim = new V3(0, 0, -1).applyQuaternion(camera.quaternion);
-  if (target && !voxels() && lookTmp.subVectors(target.p, camera.position).normalize().dot(aim) > 0.9985) return;
+// CTRL no ar: pousa onde a mira cai. No chão o CTRL continua sendo o pé fincado pra puxar.
+function ctrlLand() {
+  if (me.onGround || me.airT < 0.1 || me.land || act || me.carried || me.ride || trip.on || inSpace() || me.seat) return;
   const p = landSpot();
   if (p) startLand(p);
+  else sound.miss();
 }
-// a mesma conta de um foguete pousando: a cada passo refaz o caminho até o ponto, então uma batida no meio não estraga a chegada
+// Velocidade desejada até o ponto: o embalo que você já tinha (ou o ritmo do pouso), freando só no fim.
+// A cada passo refaz a conta, então uma batida no meio não estraga a chegada.
 function landPull(acc, dt) {
   const L = me.land, gap = lookTmp.subVectors(L.p, me.pos), d = gap.length();
-  L.T -= dt;
   L.left -= dt;
   // com um prédio no caminho, sobe primeiro: mira acima da beirada até a reta ficar livre
   const wall = d > 1 ? sweep(me.pos, new V3().copy(gap).divideScalar(d), d, 0.4) : null;
@@ -807,19 +860,22 @@ function landPull(acc, dt) {
     if (wall.axis !== 1) { gap.x *= wall.t / d; gap.z *= wall.t / d; }
     gap.y = Math.max(gap.y, wall.box[4] + LAND_CLEAR + R - me.pos.y);
   }
-  const T = Math.max(L.T, d / (LAND_PACE * Math.max(1, big())), 0.14);
-  acc.copy(gap).multiplyScalar(6 / T / T).addScaledVector(me.vel, -4 / T);
-  acc.y += 2 * Math.min(Math.hypot(gap.x, gap.z) * LAND_ARC, LAND_ARC_TOP) / T;       // de longe chega por cima, de perto só desce
+  const flat = Math.hypot(gap.x, gap.z);
+  gap.y += Math.min(flat * LAND_ARC, LAND_ARC_TOP) * sstep(3, 25, flat);    // de longe chega por cima, de perto só desce
+  const k = Math.max(1, big()), top = Math.max(LAND_PACE, Math.min(L.v0, 160)) * k;
+  const want = Math.min(top, Math.sqrt(2 * LAND_BRAKE * k * d) + 1.5);
+  acc.copy(gap).setLength(want).sub(me.vel).multiplyScalar(LAND_GRIP);
 }
 function landDone() {
-  const L = me.land, far = Math.hypot(L.p.x - me.pos.x, L.p.z - me.pos.z);
-  if (me.pos.distanceTo(L.p) > 0.25 && !(me.onGround && far < 1.2 * big())) {
+  const L = me.land, d = me.pos.distanceTo(L.p), far = Math.hypot(L.p.x - me.pos.x, L.p.z - me.pos.z);
+  if (d > 0.9 * big() && !(me.onGround && far < 1.6 * big())) {
     if (L.left < 0) { me.land = null; me.hooks[0] = me.hooks[1] = null; }       // ficou preso em alguma coisa: solta
     return;
   }
+  // chegou: um restinho do embalo vira um passo, sem parada seca
   me.land = null;
   me.hooks[0] = me.hooks[1] = null;
-  me.vel.set(0, 0, 0);
+  me.vel.set(me.vel.x * 0.15, Math.min(0, me.vel.y) * 0.1, me.vel.z * 0.15);
   sound.splat(0.25);
 }
 
@@ -1752,7 +1808,7 @@ function syncMine() {
   else { for (const c of mineHid) c.visible = true; mineHid.clear(); }
   crowd.head.geometry = on ? squareHead : roundHead;
   crowd.hair.visible = !on;
-  beach.sand.visible = beach.walk.visible = !on;
+  beach.sand.visible = beach.walk.visible = beach.islet.visible = !on;
   mine.setActive(on);
   selectSlot(on ? mine.slot : -1);
   skyline.dirty = true;
@@ -1765,7 +1821,7 @@ function setArt(id, quiet) {
   moment('arte ' + art.style.id);
   prefs.art = art.style.id;
   savePrefs();
-  ground.geometry = art.style.jelly || GOD.bend ? denseGround() : flatGround;
+  ground.geometry = art.style.jelly || GOD.bend ? denseGround() : flatGround();
   glowMat.opacity = art.glow;
   syncMine();
   artUi.querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.v === art.style.id));
@@ -1910,6 +1966,7 @@ fetch('/api/info').then(r => r.json()).then(info => {
   $('#invite3').style.display = '';
 }).catch(() => {});
 $('#go-park').onclick = () => { teleport(FUN_GATE); yaw = Math.PI / 2; pitch = 0; lockMouse(); };
+$('#go-bridge').onclick = () => { teleport(BRIDGE_TOP); yaw = -Math.PI / 2; pitch = -0.2; lockMouse(); };
 $('#go-beach').onclick = () => { teleport(BEACH_SPOT); yaw = Math.PI; pitch = -0.05; lockMouse(); };
 
 // ------------------------------------------------------------------ mundos: cidade, viagem, lua e backrooms
@@ -1917,9 +1974,10 @@ $('#go-beach').onclick = () => { teleport(BEACH_SPOT); yaw = Math.PI; pitch = -0
 const space = new Space(scene);
 const back = new Backrooms(scene);
 const sea = new Sea(scene, slimes.u.uSun.value);
-const coast = new Sea(city, slimes.u.uSun.value, ISLE_SHAPE, SEA_IN);
+const coast = new Sea(city, slimes.u.uSun.value, ISLE_SHAPE, SEA_IN, [ISLET.x, ISLET.z, ISLET.r + 60]);
 const fun = new FunPark(city);
 const beach = new Beach(city);
+const bridge = new Bridge(city);
 const underEl = $('#under');
 let timeK = 1, worldT = null, worldStopped = false;
 const fx = { veil: 0, chill: 0, veilOn: 0, chillOn: 0, ring: 0 };
@@ -2403,13 +2461,14 @@ function updateGod(dt) {
 // o painel de Deus chega pelo servidor, igual pra todos
 function applyGod(g) {
   Object.assign(GOD, g);
+  setMap(GOD.map === 'inf');
   for (const [k, id, fmt] of GOD_UI) {
     const el = $('#god-' + id);
     if (document.activeElement !== el) el.value = k === 'grav' || k === 'pace' ? GOD[k] * 100 : GOD[k];
     $('#god-' + id + '-l').textContent = fmt(GOD[k]);
   }
   art.setBend(me.where === 'city' ? GOD.bend * 1.5e-5 : 0);
-  ground.geometry = art.style.jelly || GOD.bend ? denseGround() : flatGround;
+  ground.geometry = art.style.jelly || GOD.bend ? denseGround() : flatGround();
 }
 // Velocidade de cada jogador. "Antes" é o ajuste anterior a esta atualização, pra comparar e escolher.
 const SPEED_OLD = { top: 360, gain: 140, drag: 0 }, SPEED_NEW = { top: 470, gain: 100, drag: 100 };
@@ -2443,6 +2502,7 @@ function sendGod(patchGod) {
   else applyGod(g);
 }
 for (const [k, id] of GOD_UI) $('#god-' + id).oninput = e => sendGod({ [k]: Number(e.target.value) / (k === 'grav' || k === 'pace' ? 100 : 1) });
+$('#map-pick').onclick = e => { const b = e.target.closest('button'); if (b) sendGod({ map: b.dataset.v }); };
 $('#god-reset').onclick = () => sendGod({ grav: 1, sea: 0, bend: 0, pace: 1 });
 $('#god-city').onclick = () => { const m = { t: 'e3', k: 'city' }; godEvent(m); net.send(m); };
 
@@ -2909,6 +2969,7 @@ addEventListener('keydown', e => {
   if (slot && !e.repeat) selectSlot(Number(slot[1]) - 1);
   if (e.code === 'Space') { if (!e.repeat) jumpPressed = true; e.preventDefault(); }
   if (e.code === 'KeyQ' && !e.repeat && !me.onGround && me.flipT <= 0) startFlip();
+  if ((e.code === 'ControlLeft' || e.code === 'ControlRight' || e.code === 'KeyC') && !e.repeat) ctrlLand();
   if (e.code === 'KeyR' && !trip.on) { trip.landing = false; view.roll = 0; start(); }
   if (e.code === 'KeyT') {
     const r = [...remotes.values()].find(x => x.pos && !x.stale);
@@ -3218,7 +3279,6 @@ function simulate(now, dt) {
       if (mine.mobs(dt, day, hitPress) || (breaking && !me.hooks[0])) held[0] = false;
     }
     hitPress = false;
-    tryLand(now, held);
     for (let i = 0; i < 2; i++) {
       if (!(i ? mouseRight : mouseDown)) hookWait[i] = false;     // o botão de verdade: quebrando bloco, held[0] mente
       if (held[i] && !hookWait[i] && !me.hooks[i] && target && !act && !me.carried) {
@@ -3370,8 +3430,9 @@ function simulate(now, dt) {
   updateSplash(dt);
   sea.update(GOD.sea, me.where === 'city', camera, T, day);
   if (me.where === 'city') {
-    coast.update(WATER_Y, true, camera, T, day);
+    coast.update(WATER_Y, !MAP.infinite, camera, T, day);
     beach.update(camera);
+    if (!MAP.infinite) bridge.update(performance.now() / 1000, day.night);
     fun.update(dt, Math.hypot(camera.position.x + 286, camera.position.z + 52) < 1500);
   }
   flyers.update(dt, belly.set(me.pos.x, me.pos.y + 0.2 * me.size, me.pos.z), R * 1.05);
@@ -3539,7 +3600,7 @@ async function preload() {
   [-6, 6].forEach((s, color) => portals.set('ensaio', color, { c: camera.position.clone().addScaledVector(ahead, 24).addScaledVector(side, s).toArray(), n: ahead.clone().negate().toArray(), u: top.toArray(), where: me.where }));
   for (const S of LEVE ? [] : ART_STYLES) {
     art.set(S.id);
-    ground.geometry = S.jelly ? denseGround() : flatGround;
+    ground.geometry = S.jelly ? denseGround() : flatGround();
     last = performance.now();
     simulate(last, 1 / 60);
     await say(87);
@@ -3589,7 +3650,7 @@ function enter() {
     get cineState() { return cineState; },
     setLook: (y, p) => { yaw = y; pitch = p; },
     lookAt: p => { const d = new V3().subVectors(p, camera.position); yaw = Math.atan2(-d.x, -d.z); pitch = Math.atan2(d.y, Math.hypot(d.x, d.z)); },
-    fun, beach, coast, FUN_GATE, BEACH_SPOT, teleport, boardRide, leaveRide, past, rewind, mine, art, setArt, powers, setPower, GOD, sendGod, flyers, godEvent, setBase, setFirstPerson, view, speedFx, speedCfg, setSpeed, get speedK() { return speedK; }, echoes, toggleRecord, eatenLots, eatLot, useItem, ITEMS, nether, theEnd, dragon, moonFrame, quest, enterNether, enterEnd, landOnMoon, startTrip, shootArrow, openChest, useFrame, craft, sea, blast, space, back, trip, fx, gaze, startTrip, setWhere, enterBack, leaveBack, nearbyAction, setMouse: v => { mouseDown = v; }, setRight: v => { mouseRight = v; }, lock: v => { locked = v; }, slimes, view, launch, nearWall, grabFriend, portals, firePortal, selectSlot, portalRay, get held() { return held; }, get target() { return target; },
+    fun, beach, coast, FUN_GATE, BEACH_SPOT, teleport, boardRide, leaveRide, past, rewind, mine, art, setArt, powers, setPower, GOD, sendGod, flyers, godEvent, setBase, setFirstPerson, view, speedFx, speedCfg, setSpeed, get speedK() { return speedK; }, echoes, toggleRecord, eatenLots, eatLot, useItem, ITEMS, bridge, setMap, ctrlLand, landSpot, startLand, nether, theEnd, dragon, moonFrame, quest, enterNether, enterEnd, landOnMoon, startTrip, shootArrow, openChest, useFrame, craft, sea, blast, space, back, trip, fx, gaze, startTrip, setWhere, enterBack, leaveBack, nearbyAction, setMouse: v => { mouseDown = v; }, setRight: v => { mouseRight = v; }, lock: v => { locked = v; }, slimes, view, launch, nearWall, grabFriend, portals, firePortal, selectSlot, portalRay, get held() { return held; }, get target() { return target; },
     tick(dt = 1 / 60) { last += dt * 1000; simulate(last, dt); },
   };
 }

@@ -42,7 +42,7 @@ const SKINS3 = ['spider', 'miles', 'simb', 'gummy', 'scarf'];
 
 // Configurações da party, iguais pra todo mundo: PVP, mapa, música do YouTube, vídeo do telão do cinema (3D),
 // rádio da laje (YouTube ou Spotify) e o horário do dia (3D).
-const party = { pvp: false, mode: 'course', music: null, cinema: null, radio: null, time: { locked: false, hour: 15, at: Date.now() }, god: { grav: 1, sea: 0, bend: 0, pace: 1 } };
+const party = { pvp: false, mode: 'course', music: null, cinema: null, radio: null, time: { locked: false, hour: 15, at: Date.now() }, god: { grav: 1, sea: 0, bend: 0, pace: 1, map: 'ilha' } };
 // prédios comidos ou destruídos no 3D, pra quem chegar depois ver a cidade do mesmo jeito
 const eaten = new Set();
 // blocos quebrados e colocados no modo Minecraft
@@ -344,7 +344,7 @@ class Client {
         if ('radio' in m) { party.radio = radioState(m.radio, this.name); changed.push('radio'); }
         if (m.god && typeof m.god === 'object') {
           const num = (v, lo, hi, d) => (Number.isFinite(v) ? Math.max(lo, Math.min(hi, v)) : d);
-          party.god = { grav: num(m.god.grav, -1, 3, 1), sea: num(m.god.sea, 0, 220, 0), bend: num(m.god.bend, -100, 100, 0), pace: num(m.god.pace, 0, 4, 1) };
+          party.god = { grav: num(m.god.grav, -1, 3, 1), sea: num(m.god.sea, 0, 220, 0), bend: num(m.god.bend, -100, 100, 0), pace: num(m.god.pace, 0, 4, 1), map: m.god.map === 'inf' ? 'inf' : 'ilha' };
           changed.push('god');
         }
         if (m.time && typeof m.time === 'object' && Number.isFinite(m.time.hour)) {

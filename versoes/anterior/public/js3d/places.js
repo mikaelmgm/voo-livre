@@ -496,14 +496,34 @@ const IZ0 = (ISLE.j0 + 0.5) * CELL + ISLE_R, IZ1 = SAND_Z - ISLE_R;
 export const ISLE_SHAPE = [IX0, IZ0, IX1, IZ1, ISLE_R];
 export const SEA_IN = WATER_Z - SAND_Z;   // da linha da areia até a água
 // quanto um ponto já passou da linha da areia, pra fora (dentro da ilha dá zero ou menos)
+// O mapa da party: a ilha (com a ponte e a ilhota do farol) ou a cidade infinita de antes, sem mar
+export const MAP = { infinite: false };
 export function shore(x, z) {
+  if (MAP.infinite) return -1e9;
   const dx = Math.max(IX0 - x, 0, x - IX1), dz = Math.max(IZ0 - z, 0, z - IZ1);
   return Math.hypot(dx, dz) - ISLE_R;
 }
 export const onLand = (i, j) => shore((i + 0.5) * CELL, (j + 0.5) * CELL) <= 1;
-export const inSea = (x, z) => shore(x, z) > SEA_IN;
+
+// a ilhota do farol, do outro lado da ponte: um platô redondo com gramado, praia em volta e mar
+export const ISLET = { x: 2330, z: -520, r: 110, top: 6 };
+export const isletDist = (x, z) => Math.hypot(x - ISLET.x, z - ISLET.z);
+export function isletY(x, z) {
+  if (MAP.infinite) return -1e9;
+  const a = isletDist(x, z) - ISLET.r;
+  if (a <= 0) return ISLET.top;
+  if (a < 30) { const t = a / 30; return ISLET.top - (ISLET.top - 4.6) * t * t * (3 - 2 * t); }
+  if (a < 110) { const t = (a - 30) / 80; return 4.6 - 4.5 * t * t * (3 - 2 * t); }
+  if (a < 170) return 0.1;
+  return 0.1 - Math.min(1, (a - 170) / 600) * 30;
+}
+export const inSea = (x, z) => !MAP.infinite && shore(x, z) > SEA_IN && isletDist(x, z) > ISLET.r + 60;
 
 export function sandY(x, z) {
+  if (MAP.infinite) return 0;
+  return Math.max(mainY(x, z), isletY(x, z));
+}
+function mainY(x, z) {
   const a = shore(x, z);
   if (a <= 0) return 0;
   if (a < 40) { const t = a / 40; return 4.6 * t * t * (3 - 2 * t); }
@@ -638,6 +658,34 @@ export class Beach {
       this.umbs.setColorAt(k, c.set(['#e8483a', '#3c9ae8', '#f0c030', '#3cc87a'][k % 4]));
     });
     this.group.add(this.palms, this.umbs);
+    const rings = [0, 20, 40, 60, 80, 96, 104, 110, 116, 124, 134, 146, 160, 180, 200, 220, 240, 280, 340, 420, 600, 1000], seg = 64, IP = [], IC = [], II = [], col = new THREE.Color();
+    for (const d of rings) for (let k = 0; k <= seg; k++) {
+      const a = k / seg * Math.PI * 2, x = ISLET.x + Math.cos(a) * d, z = ISLET.z + Math.sin(a) * d;
+      IP.push(x, isletY(x, z) + 0.03, z);
+      col.set(d < ISLET.r - 3 ? (k % 3 ? '#6aa84f' : '#5f9a46') : '#e6d39c');
+      IC.push(col.r, col.g, col.b);
+    }
+    for (let r = 0; r < rings.length - 1; r++) for (let k = 0; k < seg; k++) {
+      const a = r * (seg + 1) + k, b = a + seg + 1;
+      II.push(a, a + 1, b, a + 1, b + 1, b);    // de frente pra cima
+    }
+    const ig = new THREE.BufferGeometry();
+    ig.setAttribute('position', new THREE.Float32BufferAttribute(IP, 3));
+    ig.setAttribute('color', new THREE.Float32BufferAttribute(IC, 3));
+    ig.setIndex(II);
+    ig.computeVertexNormals();
+    this.islet = new THREE.Mesh(ig, new THREE.MeshLambertMaterial({ vertexColors: true }));
+    this.islet.receiveShadow = true;
+    this.islet.frustumCulled = false;
+    const ipalms = new THREE.InstancedMesh(this.palms.geometry, this.palms.material, 14);
+    for (let k = 0; k < 14; k++) {
+      const a = k / 14 * Math.PI * 2 + 0.2, d = ISLET.r + 8 + (k % 3) * 9, x = ISLET.x + Math.cos(a) * d, z = ISLET.z + Math.sin(a) * d;
+      m.makeRotationY(k * 1.7).setPosition(x, isletY(x, z), z);
+      ipalms.setMatrixAt(k, m);
+    }
+    ipalms.castShadow = true;
+    ipalms.frustumCulled = false;
+    this.group.add(this.islet, ipalms);
   }
   update() {}
 }

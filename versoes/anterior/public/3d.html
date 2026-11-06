@@ -189,10 +189,11 @@
       <button id="go-court">🏀 Ir pra quadra</button>
       <button id="go-park">🎡 Ir pro parque</button>
       <button id="go-beach">🏖️ Ir pra praia</button>
+      <button id="go-bridge">🌉 Ir pra ponte</button>
     </div>
       <div class="controls inline">
       <div><b>Mouse</b> olha em volta · <b>segure o clique</b> mirando num ponto brilhante (ou no amigo) → teia · <b>solte</b> → voa · <b>botão direito</b> = a outra mão</div>
-      <div><b>Os dois botões juntos</b> mirando num telhado ou no chão: as teias te levam até ali e você <b>para sem escorregar</b> · de baixo, mire a beirada do prédio · Espaço cancela · em cima de um ponto brilhante continua sendo teia dupla</div>
+      <div><b>CTRL no ar</b> mirando num telhado ou no chão: as duas teias te levam até ali, embalado, e você para no ponto · de baixo, mire a beirada do prédio · Espaço cancela · no chão o CTRL continua puxando</div>
       <div><b>CTRL</b> (ou C) no chão, com a teia presa: você finca o pé e ela não te leva. <b>Ande pra trás</b> pra puxar: o amigo vem arrastado e, num prédio, a teia estica feito estilingue. <b>Solte</b> e saia voando</div>
       <div><b>Shift preso na corda = BOOST</b> (prende, boosta rapidinho, solta e acumula velocidade) · Shift solto no ar = mergulho · no chão = correr</div>
       <div><b>W A S D</b> andar / impulso no balanço / controle no ar (combine pra ir na diagonal)</div>
@@ -280,6 +281,7 @@
     </div>
       <div class="box">
         <div class="box-h">🌍 Painel de Deus <small>(vale pra todo mundo)</small></div>
+        <div class="musicrow"><span>mapa</span><div class="seg" id="map-pick"><button data-v="ilha" class="on">🏝️ Ilha</button><button data-v="inf">♾️ Cidade infinita</button></div></div>
         <div class="musicrow"><label class="vol wide-vol">gravidade <input type="range" id="god-grav" min="-100" max="300" step="5"></label><span id="god-grav-l" class="val"></span></div>
         <div class="musicrow"><label class="vol wide-vol">nível do mar <input type="range" id="god-sea" min="0" max="220" step="2"></label><span id="god-sea-l" class="val"></span></div>
         <div class="musicrow"><label class="vol wide-vol">mundo enrolado <input type="range" id="god-bend" min="-100" max="100" step="1"></label><span id="god-bend-l" class="val"></span></div>

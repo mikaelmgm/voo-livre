@@ -2,11 +2,10 @@
 // Fica fora do jogo de propósito: mesmo com o jogo quebrado, este arquivo roda e o botão aparece no menu.
 (() => {
   const NOVIDADES = [
-    '🖐️ Com uma teia só, as duas mãos seguram na mesma corda',
-    '🛬 Pouso agora é CTRL no ar: rápido e embalado, freia só no fim. Os dois botões juntos voltaram a ser só duas teias',
-    '🏙️ Bairros: casinhas com postes de teia e um centro com torres de 400 a 600 m',
-    '🌉 Ponte pênsil gigante na costa leste, até a ilhota do farol (Esc > Ir pra ponte)',
-    '♾️ A cidade infinita voltou como opção: Esc > Mundo > mapa',
+    '🏙️ A cidade voltou a ser a de antes, mas aqui e ali abre uma praça com uma torre altíssima ou duas torres gêmeas',
+    '🪵 Mesa de trabalho de verdade: botão direito nela abre a grade 3x3 (E abre a 2x2). Vara vira pó, pérola + pó vira olho',
+    '⛏️ O modo Minecraft agora vale no inferno e na Lua: quebrar, pôr bloco, vida e fome. A Lua vira blocos em volta da moldura',
+    '🌙 A moldura da Lua não parece mais flutuando quando vista de longe',
   ];
   const css = `
     .ver-box { display: flex; flex-direction: column; gap: 8px; }
