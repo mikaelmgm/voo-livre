@@ -655,7 +655,7 @@ export class Mine {
   // ---- vida e fome
   hurt(n, why) {
     if (this.hp <= 0) return;
-    this.hp = Math.max(0, this.hp - n);
+    this.hp = Math.max(this.mortal?.() ? 0 : 1, this.hp - n);
     this.red = 0.9;
     this.sound.hurt?.();
     if (this.hp <= 0) {

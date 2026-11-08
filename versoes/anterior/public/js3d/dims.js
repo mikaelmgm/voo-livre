@@ -50,7 +50,7 @@ class VoxWorld {
     this.built = true;
   }
   meshChunk(a, c) {
-    const P = [], U = [], S = [], I = [], w = 1 / 8, h = 1 / 4;
+    const P = [], U = [], S = [], I = [], w = 1 / 8, h = 1 / 8;
     const x0 = this.ox + a * CH, z0 = this.oz + c * CH;
     for (let ly = 0; ly < this.H; ly++) for (let lz = 0; lz < CH; lz++) for (let lx = 0; lx < CH; lx++) {
       const x = x0 + lx, y = this.oy + ly, z = z0 + lz, b = this.get(x, y, z);
@@ -483,7 +483,8 @@ export class MoonFrame {
     scene.add(this.group);
     const side = new THREE.MeshLambertMaterial({ map: FRAME_TEX }), stone = new THREE.MeshLambertMaterial({ color: '#c8c8bc' }), eyeMat = new THREE.MeshLambertMaterial({ color: '#2f8a3a', emissive: '#103a14' });
     // plataforma de pedra com degrau, os 12 blocos da moldura em volta de um vão de 3x3
-    this.group.add(box(9, 1, 9, stone, 0, 0.5, 0), box(11, 0.5, 11, stone, 0, 0.25, 0));
+    this.base = [box(9, 5, 9, stone, 0, -2, 0), box(11, 4.5, 11, stone, 0, -2, 0)];
+    this.group.add(...this.base);
     this.slots = [];
     for (let i = -2; i <= 2; i++) for (let j = -2; j <= 2; j++) {
       if (Math.abs(i) !== 2 && Math.abs(j) !== 2) continue;
@@ -508,6 +509,7 @@ export class MoonFrame {
   get open() { return this.filled >= 12; }
   place(x, y, z) {
     this.group.position.set(x, y, z);
+    this.y = y;
     this.placed = true;
     // caixas de colisão: plataforma e os blocos da moldura
     this.boxes = [[x - 4.5, y - 3, z - 4.5, x + 4.5, y + 1, z + 4.5], [x - 5.5, y - 3, z - 5.5, x + 5.5, y + 0.5, z + 5.5]];
@@ -520,5 +522,49 @@ export class MoonFrame {
   }
   near(p, r = 6) { return this.placed && Math.hypot(p.x - this.group.position.x, p.z - this.group.position.z) < r; }
   inside(p) { return this.open && Math.abs(p.x - this.group.position.x) < 1.5 && Math.abs(p.z - this.group.position.z) < 1.5 && p.y < this.group.position.y + 2.2; }
-  update(t) { this.u.uTime.value = t; }
+  // o chão da Lua é desenhado curvado (é uma lua pequena): a moldura desce junto, senão de longe parece que flutua
+  update(t, cam, bend) {
+    this.u.uTime.value = t;
+    if (cam && this.placed) { const dx = this.group.position.x - cam.x, dz = this.group.position.z - cam.z; this.group.position.y = this.y - (dx * dx + dz * dz) / (2 * bend); }
+  }
+}
+
+// ------------------------------------------------------------------ a Lua em blocos (no modo Minecraft)
+// Um pedaço grande da Lua em volta da moldura vira blocos de verdade: poeira por cima, pedra por baixo, as mesmas crateras.
+// Fica curvado igual ao chão liso, que continua lá fora.
+const BENT_VERT = 'attribute float aS; uniform float uBend; varying vec2 vUv; varying float vS, vD; void main(){ vUv = uv; vS = aS; vec4 w = modelMatrix * vec4(position, 1.0); vec2 d = w.xz - cameraPosition.xz; w.y -= dot(d, d) / (2.0 * uBend); vec4 mv = viewMatrix * w; vD = -mv.z; gl_Position = projectionMatrix * mv; }';
+export class MoonVox extends VoxWorld {
+  constructor(scene, atlas, bend) {
+    super(scene, atlas, [192, 1, 192], [0, 0, 0], '#000000', 0.0007);
+    this.u.uBend = { value: bend };
+    this.mat.vertexShader = BENT_VERT;
+    this.mat.uniforms = this.u;
+  }
+  // o centro, a altura da Lua lisa e o patamar da moldura (que fica plano)
+  setup(cx, cz, height, pad) {
+    if (this.built) return;
+    this.ox = floor(cx) - this.W / 2;
+    this.oz = floor(cz) - this.D / 2;
+    this.height = height;
+    this.pad = pad;
+  }
+  generate() {
+    const { W, D } = this, tops = new Int16Array(W * D);
+    let lo = 1e9, hi = -1e9;
+    for (let z = 0; z < D; z++) for (let x = 0; x < W; x++) {
+      const wx = this.ox + x + 0.5, wz = this.oz + z + 0.5, P = this.pad;
+      const t = P && Math.max(Math.abs(wx - P.x), Math.abs(wz - P.z)) < 6.5 ? P.y : Math.ceil(this.height(wx, wz));
+      tops[x + W * z] = t;
+      lo = Math.min(lo, t); hi = Math.max(hi, t);
+    }
+    this.oy = lo - 8;
+    this.H = hi - this.oy + 24;          // espaço pra construir em cima
+    this.v = new Uint8Array(W * this.H * D);
+    for (let z = 0; z < D; z++) for (let x = 0; x < W; x++) {
+      const t = tops[x + W * z], wx = this.ox + x, wz = this.oz + z;
+      const P = this.pad, base = P && Math.max(Math.abs(wx + 0.5 - P.x), Math.abs(wz + 0.5 - P.z)) < 4.6;
+      for (let y = this.oy; y < t; y++) this.put(wx, y, wz, y === this.oy ? B.BEDROCK : base && y >= t - 2 ? B.COBBLE : y < t - 3 ? B.MOONROCK : B.MOON);
+    }
+  }
+  inside(x, z) { return this.built && x > this.ox + 1 && x < this.ox + this.W - 1 && z > this.oz + 1 && z < this.oz + this.D - 1; }
 }

@@ -18,7 +18,7 @@ export function styleLot(L, i, j) {
   if (L.park) return;
   const { cx, cz, w, d, h } = L;
   if (L.low) { styleLow(L, i, j); return; }
-  if (!(i === 0 && j === 0) && styleShape(L, i, j)) return;
+  if (!(i === 0 && j === 0) && !L.mark && styleShape(L, i, j)) return;
   if (!L.low && h > 30 && rnd(i, j, 16) < 0.38) {
     const m = Math.min(3, 15 - w / 2, 15 - d / 2);
     if (m > 1) {
@@ -71,8 +71,7 @@ function styleShape(L, i, j) {
   return true;
 }
 function styleLow(L, i, j) {
-  // no bairro de casas, quase tudo vira casinha
-  const k = L.home ? (rnd(i, j, 42) < 0.8 ? 0.6 : rnd(i, j, 43) < 0.5 ? 0.2 : 0.8) : rnd(i, j, 42), { cx: x, cz: z, w, d } = L;
+  const k = rnd(i, j, 42), { cx: x, cz: z, w, d } = L;
   if (k < 0.5) {
     storeLayout(L, i, j);
     for (const an of L.anchors) { an.y = L.h + 3; an.roof = L.h; }

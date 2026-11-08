@@ -11,13 +11,13 @@ const S2 = SX * SX;
 const at = (x, y, z) => (x + 1) + SX * (z + 1) + S2 * (y - Y0);
 const floor = Math.floor;
 
-export const B = { AIR: 0, GRASS: 1, DIRT: 2, STONE: 3, COBBLE: 4, SAND: 5, PLANK: 6, LOG: 7, LEAVES: 8, BRICK: 9, GLASS: 10, CONCRETE: 11, ASPHALT: 12, WHITE: 13, COAL: 14, IRON: 15, GOLD: 16, DIAMOND: 17, BEDROCK: 18, YELLOW: 19, RED: 20, BLUE: 21, OBSIDIAN: 22, NETHERRACK: 23, LAVA: 24, GLOW: 25, ENDSTONE: 26, PORTAL: 27, TABLE: 28, NBRICK: 29 };
+export const B = { AIR: 0, GRASS: 1, DIRT: 2, STONE: 3, COBBLE: 4, SAND: 5, PLANK: 6, LOG: 7, LEAVES: 8, BRICK: 9, GLASS: 10, CONCRETE: 11, ASPHALT: 12, WHITE: 13, COAL: 14, IRON: 15, GOLD: 16, DIAMOND: 17, BEDROCK: 18, YELLOW: 19, RED: 20, BLUE: 21, OBSIDIAN: 22, NETHERRACK: 23, LAVA: 24, GLOW: 25, ENDSTONE: 26, PORTAL: 27, TABLE: 28, NBRICK: 29, MOON: 30, MOONROCK: 31 };
 // tile de cima, do lado e de baixo no atlas
-export const FACES = { 1: [0, 1, 2], 2: [2, 2, 2], 3: [3, 3, 3], 4: [4, 4, 4], 5: [5, 5, 5], 6: [6, 6, 6], 7: [8, 7, 8], 8: [9, 9, 9], 9: [10, 10, 10], 10: [11, 11, 11], 11: [12, 12, 12], 12: [13, 13, 13], 13: [14, 14, 14], 14: [15, 15, 15], 15: [16, 16, 16], 16: [17, 17, 17], 17: [18, 18, 18], 18: [19, 19, 19], 19: [20, 20, 20], 20: [21, 21, 21], 21: [22, 22, 22], 22: [23, 23, 23], 23: [24, 24, 24], 24: [25, 25, 25], 25: [26, 26, 26], 26: [27, 27, 27], 27: [28, 28, 28], 28: [30, 29, 6], 29: [31, 31, 31] };
-const NAMES = { 1: 'Grama', 2: 'Terra', 3: 'Pedra', 4: 'Pedregulho', 5: 'Areia', 6: 'Tábuas', 7: 'Tronco', 8: 'Folhas', 9: 'Tijolos', 10: 'Vidro', 11: 'Concreto', 12: 'Asfalto', 13: 'Concreto branco', 14: 'Carvão', 15: 'Ferro', 16: 'Ouro', 17: 'Diamante', 18: 'Rocha-mãe', 19: 'Bloco amarelo', 20: 'Bloco vermelho', 21: 'Bloco azul', 22: 'Obsidiana', 23: 'Pedra do inferno', 24: 'Lava', 25: 'Pedra brilhante', 26: 'Pedra do fim', 27: 'Portal', 28: 'Mesa de trabalho', 29: 'Tijolo do inferno' };
+export const FACES = { 1: [0, 1, 2], 2: [2, 2, 2], 3: [3, 3, 3], 4: [4, 4, 4], 5: [5, 5, 5], 6: [6, 6, 6], 7: [8, 7, 8], 8: [9, 9, 9], 9: [10, 10, 10], 10: [11, 11, 11], 11: [12, 12, 12], 12: [13, 13, 13], 13: [14, 14, 14], 14: [15, 15, 15], 15: [16, 16, 16], 16: [17, 17, 17], 17: [18, 18, 18], 18: [19, 19, 19], 19: [20, 20, 20], 20: [21, 21, 21], 21: [22, 22, 22], 22: [23, 23, 23], 23: [24, 24, 24], 24: [25, 25, 25], 25: [26, 26, 26], 26: [27, 27, 27], 27: [28, 28, 28], 28: [30, 29, 6], 29: [31, 31, 31], 30: [32, 33, 34], 31: [34, 34, 34] };
+const NAMES = { 1: 'Grama', 2: 'Terra', 3: 'Pedra', 4: 'Pedregulho', 5: 'Areia', 6: 'Tábuas', 7: 'Tronco', 8: 'Folhas', 9: 'Tijolos', 10: 'Vidro', 11: 'Concreto', 12: 'Asfalto', 13: 'Concreto branco', 14: 'Carvão', 15: 'Ferro', 16: 'Ouro', 17: 'Diamante', 18: 'Rocha-mãe', 19: 'Bloco amarelo', 20: 'Bloco vermelho', 21: 'Bloco azul', 22: 'Obsidiana', 23: 'Pedra do inferno', 24: 'Lava', 25: 'Pedra brilhante', 26: 'Pedra do fim', 27: 'Portal', 28: 'Mesa de trabalho', 29: 'Tijolo do inferno', 30: 'Poeira da Lua', 31: 'Pedra da Lua' };
 // segundos pra quebrar na mão (com a picareta, pedra sai bem mais rápido)
-const HARD = { 1: 0.5, 2: 0.45, 3: 1.6, 4: 1.7, 5: 0.45, 6: 1, 7: 1.1, 8: 0.2, 9: 1.8, 10: 0.25, 11: 1.8, 12: 1.6, 13: 1.8, 14: 2, 15: 2.4, 16: 2.8, 17: 3.4, 18: Infinity, 19: 0.8, 20: 0.8, 21: 0.8, 22: 9, 23: 0.5, 24: Infinity, 25: 0.4, 26: 2, 27: Infinity, 28: 1.2, 29: 1.8 };
-const STONY = new Set([3, 4, 9, 11, 12, 13, 14, 15, 16, 17, 22, 23, 26, 29]);
+const HARD = { 1: 0.5, 2: 0.45, 3: 1.6, 4: 1.7, 5: 0.45, 6: 1, 7: 1.1, 8: 0.2, 9: 1.8, 10: 0.25, 11: 1.8, 12: 1.6, 13: 1.8, 14: 2, 15: 2.4, 16: 2.8, 17: 3.4, 18: Infinity, 19: 0.8, 20: 0.8, 21: 0.8, 22: 9, 23: 0.5, 24: Infinity, 25: 0.4, 26: 2, 27: Infinity, 28: 1.2, 29: 1.8, 30: 0.5, 31: 1.7 };
+const STONY = new Set([3, 4, 9, 11, 12, 13, 14, 15, 16, 17, 22, 23, 26, 29, 31]);
 export const SEE = new Uint8Array(32);
 SEE[B.AIR] = SEE[B.LEAVES] = SEE[B.GLASS] = SEE[B.PORTAL] = 1;
 // o que não segura o corpo: dá pra atravessar (e na lava, afundar)
@@ -27,13 +27,13 @@ SOFT[B.AIR] = SOFT[B.LEAVES] = SOFT[B.PORTAL] = SOFT[B.LAVA] = 1;
 export const LIT = new Uint8Array(32);
 LIT[B.LAVA] = LIT[B.GLOW] = LIT[B.PORTAL] = 1;
 const WALL = [B.BRICK, B.CONCRETE, B.WHITE, B.COBBLE, B.PLANK, B.BRICK];
-const COLORS = { 1: '#5f9f35', 2: '#79553a', 3: '#7d7d7d', 4: '#6e6e6e', 5: '#dccf9c', 6: '#a6804c', 7: '#5f4627', 8: '#3f7f2c', 9: '#96503c', 10: '#c8e8f0', 11: '#8a8a88', 12: '#3e3e42', 13: '#d4d4cc', 14: '#3a3a3a', 15: '#bfa58f', 16: '#e8c84a', 17: '#5fe0d8', 18: '#3a3a3a', 19: '#e8c030', 20: '#c83a2c', 21: '#2f5fc0', 22: '#1c1228', 23: '#6e2a2a', 24: '#ff8a20', 25: '#ffe070', 26: '#dedca0', 27: '#8a3ae0', 28: '#a6804c', 29: '#3a1620' };
+const COLORS = { 1: '#5f9f35', 2: '#79553a', 3: '#7d7d7d', 4: '#6e6e6e', 5: '#dccf9c', 6: '#a6804c', 7: '#5f4627', 8: '#3f7f2c', 9: '#96503c', 10: '#c8e8f0', 11: '#8a8a88', 12: '#3e3e42', 13: '#d4d4cc', 14: '#3a3a3a', 15: '#bfa58f', 16: '#e8c84a', 17: '#5fe0d8', 18: '#3a3a3a', 19: '#e8c030', 20: '#c83a2c', 21: '#2f5fc0', 22: '#1c1228', 23: '#6e2a2a', 24: '#ff8a20', 25: '#ffe070', 26: '#dedca0', 27: '#8a3ae0', 28: '#a6804c', 29: '#3a1620', 30: '#b4b4b0', 31: '#6e6e70' };
 
 function pix(seed) { let s = seed; return () => { s = (s * 16807) % 2147483647; return (s - 1) / 2147483646; }; }
-// o atlas: 8 por 4 ladrilhos de 16 pixels
+// o atlas: 8 por 8 ladrilhos de 16 pixels
 function paintAtlas() {
   const c = document.createElement('canvas');
-  c.width = 128; c.height = 64;
+  c.width = 128; c.height = 128;
   const g = c.getContext('2d');
   const tile = (n, draw) => { const ox = (n % 8) * 16, oy = floor(n / 8) * 16; draw((x, y, col) => { g.fillStyle = col; g.fillRect(ox + x, oy + y, 1, 1); }, pix(n * 97 + 13)); };
   const noise = (put, r, list) => { for (let y = 0; y < 16; y++) for (let x = 0; x < 16; x++) put(x, y, list[floor(r() * list.length)]); };
@@ -68,6 +68,11 @@ function paintAtlas() {
   tile(29, (p, r) => { noise(p, r, ['#a6804c', '#ae8854', '#9a7644']); for (let k = 0; k < 16; k++) { p(k, 0, '#5f4627'); p(k, 15, '#5f4627'); } for (let y = 4; y < 12; y++) { p(3, y, '#4a4a4a'); p(4, y, '#6a6a6a'); p(11, y, '#7a5a30'); p(12, y, '#5f4627'); } for (let x = 9; x < 14; x++) p(x, 4, '#9a9a9a'); });
   tile(30, (p, r) => { noise(p, r, ['#b8925c', '#a6804c']); for (let k = 0; k < 16; k++) { p(k, 0, '#5f4627'); p(k, 15, '#5f4627'); p(0, k, '#5f4627'); p(15, k, '#5f4627'); p(k, 7, '#7a5a30'); p(7, k, '#7a5a30'); } });
   tile(31, (p, r) => { for (let y = 0; y < 16; y++) for (let x = 0; x < 16; x++) { const row = floor(y / 4), odd = row % 2 ? 4 : 0; p(x, y, y % 4 === 3 || (x + odd) % 8 === 7 ? '#1a0a0e' : ['#3a1620', '#44202a', '#32121a'][floor(r() * 3)]); } });
+  // a Lua: poeira clara com crateras pequenas por cima, a poeira descendo pelo lado e a pedra escura de baixo
+  const DUST = ['#b4b4b0', '#bdbdb9', '#aaaaa6', '#c4c4c0'];
+  tile(32, (p, r) => { noise(p, r, DUST); for (let k = 0; k < 3; k++) { const x = 2 + floor(r() * 11), y = 2 + floor(r() * 11); p(x, y, '#8a8a88'); p(x + 1, y, '#8a8a88'); p(x, y + 1, '#9a9a98'); p(x + 1, y + 1, '#d6d6d2'); } });
+  tile(33, (p, r) => { noise(p, r, ['#6e6e70', '#646466', '#78787a', '#5c5c5e']); for (let x = 0; x < 16; x++) { const d = 3 + floor(r() * 3); for (let y = 0; y < d; y++) p(x, y, DUST[floor(r() * 4)]); } });
+  tile(34, (p, r) => { noise(p, r, ['#6e6e70', '#646466', '#78787a', '#5c5c5e']); for (let k = 0; k < 9; k++) p(floor(r() * 16), floor(r() * 16), '#4a4a4c'); });
   return c;
 }
 
@@ -226,6 +231,7 @@ const pixels = (rows, pal) => {
 const LIGHTER = ['................', '..........ff....', '.........fF.f...', '........fFFf....', '.......ssFs.....', '......sSss......', '.....sSs........', '....dSs.........', '...dds..........', '..dds...........', '.ddd..ggg.......', '.dd..ggGGg......', '.....gGGGg......', '......gGg.......', '................', '................'];
 const PEARL = ['................', '................', '.....kkkkk......', '....kmmmmmk.....', '...kmmwwmmmk....', '...kmwwmmmmk....', '..kmmmmmmmmmk...', '..kmmmmDDmmmk...', '..kmmmmDDmmmk...', '..kmmmmmmmmmk...', '...kmmmmmmmk....', '...kmmmmmmmk....', '....kmmmmmk.....', '.....kkkkk......', '................', '................'];
 const ROD = ['................', '............yy..', '...........yYy..', '..........yYy...', '.........yYy....', '........yYy.....', '.......yYy......', '......yYy.......', '.....yYy........', '....yYy.........', '...yYy..........', '..yYy...........', '..yy............', '................', '................', '................'];
+const POWDER = ['................', '................', '................', '................', '.......y........', '......yYy.......', '.....yYFYy......', '....yYFFFYy.....', '...yyYFFFYyy....', '..yyyYYYYYyyy...', '..ffyyyyyyyff...', '...ffffffff.....', '................', '................', '................', '................'];
 const EYE = ['................', '.....kkkkk......', '....kmmmmmk.....', '...kmmGGGmmk....', '..kmmGGGGGmmk...', '..kmGGkkkGGmk...', '..kmGGkDkGGmk...', '..kmGGkkkGGmk...', '..kmmGGGGGmmk...', '...kmmGGGmmk....', '....kmmmmmk.....', '.....kkkkk......', '................', '................', '................', '................'];
 const PAL = { f: '#ff9a20', F: '#ffe070', s: '#9a9a9a', S: '#d8d8d8', d: '#4a4a4a', g: '#5a5a5a', G: '#8a8a8a', k: '#0a2a24', m: '#1f7a6a', w: '#a8f0e0', D: '#06120f', y: '#e8a020', Y: '#fff070' };
 const EYE_PAL = { ...PAL, m: '#2f8a3a', G: '#6ad860', k: '#0c2410', D: '#000000' };
@@ -233,6 +239,7 @@ export const THINGS = {
   isqueiro: { name: 'Isqueiro', icon: () => pixels(LIGHTER, PAL) },
   perola: { name: 'Pérola do fim', icon: () => pixels(PEARL, PAL) },
   vara: { name: 'Vara de blaze', icon: () => pixels(ROD, PAL) },
+  po: { name: 'Pó de blaze', icon: () => pixels(POWDER, PAL) },
   olho: { name: 'Olho do fim', icon: () => pixels(EYE, EYE_PAL) },
 };
 
@@ -294,6 +301,7 @@ export class Mine {
     this.stacks[11] = { t: 'block', b: B.TABLE, n: 1 };
     this.zombies = [];
     this.zT = 3;
+    this.world = null;          // fora da cidade: o mundo de blocos de lá (inferno, Lua), que só existe pra você
     this.buildHud();
   }
 
@@ -366,12 +374,14 @@ export class Mine {
   }
 
   get(x, y, z) {
+    if (this.world) return this.world.get(x, y, z);
     if (y < Y0 || y >= Y0 + H) return 0;
     const cx = floor(x / CH), cz = floor(z / CH);
     return this.load(cx, cz).v[at(x - cx * CH, y, z - cz * CH)];
   }
 
   set(x, y, z, b, fromNet) {
+    if (this.world && !fromNet) { this.world.put(x, y, z, b); this.world.refresh(x, z, x, z); return; }
     const key = x + ',' + y + ',' + z;
     this.edits.set(key, b);
     const cx = floor(x / CH), cz = floor(z / CH), lx = x - cx * CH, lz = z - cz * CH;
@@ -392,7 +402,7 @@ export class Mine {
 
   // só as faces que dá pra ver viram geometria
   mesh(c) {
-    const v = c.v, { tp, tu, ts, ti } = this, Y1 = Y0 + H - 1, w = 1 / 8, h = 1 / 4, ox = c.cx * CH, oz = c.cz * CH;
+    const v = c.v, { tp, tu, ts, ti } = this, Y1 = Y0 + H - 1, w = 1 / 8, h = 1 / 8, ox = c.cx * CH, oz = c.cz * CH;
     let q = 0, top = -2;
     for (let y = Y1; y > 0 && !top; y--) top = 0;
     for (let z = 0; z < CH; z++) for (let x = 0; x < CH; x++) for (let y = Math.max(Y0, c.low); y < Y1; y++) {
@@ -430,6 +440,7 @@ export class Mine {
 
   // carrega o que está perto, um pouco por quadro, e solta o que ficou longe
   stream(px, pz) {
+    if (this.world) return;
     const cx = floor(px / CH), cz = floor(pz / CH), key = cx + ',' + cz;
     if (key !== this.at) {
       this.at = key;
@@ -449,9 +460,18 @@ export class Mine {
     }
   }
 
+  setWorld(w) {
+    if (w === this.world) return;
+    this.world = w;
+    this.group.visible = this.active && !w;
+    this.hit = null;
+    this.outline.visible = this.crack.visible = false;
+    this.at = null;
+    for (const z of this.zombies.splice(0)) z.body.dispose();
+  }
   setActive(on) {
     this.active = on;
-    this.group.visible = on;
+    this.group.visible = on && !this.world;
     document.body.classList.toggle('mine', on);
     document.body.classList.toggle('mine-tab', on);
     this.outline.visible = this.crack.visible = false;
@@ -477,6 +497,7 @@ export class Mine {
 
   // ---- mira: anda de bloco em bloco pela reta
   ray(o, d, max) {
+    if (this.world) return this.world.ray(o, d, max);
     let x = floor(o.x), y = floor(o.y), z = floor(o.z);
     const sx = Math.sign(d.x), sy = Math.sign(d.y), sz = Math.sign(d.z);
     const dx = sx ? Math.abs(1 / d.x) : Infinity, dy = sy ? Math.abs(1 / d.y) : Infinity, dz = sz ? Math.abs(1 / d.z) : Infinity;
@@ -493,6 +514,7 @@ export class Mine {
 
   // caixas de bloco em volta de um ponto, no formato das caixas dos prédios
   around(x, y, z, r) {
+    if (this.world) return this.world.around(x, y, z, r);
     const out = [], R = Math.min(3, Math.ceil(r)), ax = floor(x), ay = floor(y), az = floor(z);
     for (let c = -R; c <= R; c++) for (let b = -R; b <= R; b++) for (let a = -R; a <= R; a++) {
       const X = ax + a, Y = ay + b, Z = az + c;
@@ -656,6 +678,7 @@ export class Mine {
   // zumbis à noite: andam até você, e três pancadas derrubam
   mobs(dt, day, press) {
     const me = this.me, Z = this.zombies;
+    if (this.world) return false;
     if (day.night > 0.5 && Z.length < 5 && (this.zT -= dt) <= 0) {
       this.zT = 5;
       const a = Math.random() * 6.283, x = me.pos.x + Math.cos(a) * 26, z = me.pos.z + Math.sin(a) * 26, body = new BlockBody(this.scene, 'zumbi');

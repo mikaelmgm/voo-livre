@@ -14,14 +14,15 @@ import { roofLayout, courtLayout, groundLift, buildRoof, buildCourt } from './ro
 import { Skyline } from './skyline.js';
 import { Whiteboard } from './board.js';
 import { Slime, SlimeWorld, SlimeStage, SLIME_SKINS } from './slime.js';
-import { Space, SUN, EARTH, MOON, BODIES } from './space.js';
+import { Space, SUN, EARTH, MOON, BODIES, BEND as MOON_BEND } from './space.js';
 import { Backrooms, BACK_H } from './backrooms.js';
 import { Portals, PORTAL_W, PORTAL_H, PORTAL_COLORS } from './portals.js';
 import { Art, ART_STYLES, compileAll } from './art.js';
 import { Flyers, Sea } from './god.js';
 import { SpeedFx } from './speedfx.js';
 import { Mine, BlockBody, REACH, B as VB } from './mine.js';
-import { Nether, End, Dragon, MoonFrame, NETHER_LIGHT, END_LIGHT } from './dims.js';
+import { Nether, End, Dragon, MoonFrame, MoonVox, NETHER_LIGHT, END_LIGHT } from './dims.js';
+import { CraftGui } from './craft.js';
 import { Bridge, bridgeParts, BRIDGE_TOP } from './bridge.js';
 import { FunPark, Beach, funLot, inFun, sandY, WATER_Y, BEACH_SPOT, FUN_GATE, ISLE, ISLE_SHAPE, SEA_IN, onLand, inSea, ISLET, MAP } from './places.js';
 import { Sinuca, Pong, Basket } from './games.js';
@@ -95,20 +96,19 @@ if (LEVE) QUALITY[0] = { name: 'Leve', pr: 0.4, view: 1, detail: 70, far: 600, s
 
 const lots = new Map();
 const eatenLots = new Set();
-// Bairros: um ruído bem largo diz o que cada quarteirão é. Perto de 0 é bairro de casas, perto de 1 é centro de arranha-céus.
-// Na ilha tem um centro de verdade a nordeste do cinema e um bairro de casas a sudoeste, perto da praia.
-function smoothNoise(x, z, seed) {
-  const i = Math.floor(x), j = Math.floor(z), fx = x - i, fz = z - j, u = fx * fx * (3 - 2 * fx), w = fz * fz * (3 - 2 * fz);
-  const a = rnd(i, j, seed), b = rnd(i + 1, j, seed), c = rnd(i, j + 1, seed), d = rnd(i + 1, j + 1, seed);
-  return a + (b - a) * u + (c - a) * w + (a - b - c + d) * u * w;
-}
-const DOWNTOWN = [9, -17], SUBURB = [-13, 6];
-function zoneAt(i, j) {
-  let z = 0.15 + 0.7 * smoothNoise(i / 7.5, j / 7.5, 61);
-  z += 0.55 * Math.exp(-((i - DOWNTOWN[0]) ** 2 + (j - DOWNTOWN[1]) ** 2) / 40);
-  z -= 0.6 * Math.exp(-((i - SUBURB[0]) ** 2 + (j - SUBURB[1]) ** 2) / 45);
-  if (Math.abs(i) <= 2 && Math.abs(j) <= 2) z = 0.5;      // em volta do começo, a cidade de sempre
-  return clamp(z, 0, 1);
+// Marcos: a cidade é a de sempre, mas de vez em quando abre uma praça e no meio dela sobe do nada
+// UMA torre altíssima, ou duas torres gêmeas. Um marco no máximo por bloco de 8x8 quarteirões.
+const MARK_G = 8;
+function landmark(i, j) {
+  const gi = Math.floor(i / MARK_G), gj = Math.floor(j / MARK_G);
+  if (rnd(gi, gj, 71) > 0.5) return null;
+  const ci = gi * MARK_G + 2 + Math.floor(rnd(gi, gj, 72) * 4), cj = gj * MARK_G + 2 + Math.floor(rnd(gi, gj, 73) * 4);
+  if (Math.abs(ci) <= 3 && Math.abs(cj) <= 3) return null;           // em volta do começo fica como sempre foi
+  const twin = rnd(gi, gj, 85) < 0.45, alongI = rnd(gi, gj, 75) < 0.5;
+  const ti = twin && alongI ? 1 : 0, tj = twin && !alongI ? 1 : 0;
+  if (i < ci - 1 || i > ci + 1 + ti || j < cj - 1 || j > cj + 1 + tj) return null;
+  const tower = (i === ci && j === cj) || (twin && i === ci + ti && j === cj + tj);
+  return { tower, twin, ci, cj, h: twin ? 300 + rnd(gi, gj, 76) * 120 : 260 + rnd(gi, gj, 77) * 240, s: twin ? 22 : 24 + rnd(gi, gj, 78) * 4 };
 }
 const STRUCT = bridgeParts();
 function lot(i, j) {
@@ -133,18 +133,15 @@ function lotRaw(i, j) {
   if (inFun(i, j)) { L = funLot(i, j); lots.set(key, L); return L; }
   if (i === CINEMA.i && j === CINEMA.j) { L = cinemaLot(cx, cz); lots.set(key, L); return L; }
   if (i === COURT.i && j === COURT.j) { L = courtLot(cx, cz); lots.set(key, L); return L; }
-  const zone = zoneAt(i, j), home = zone < 0.3;
-  let park = rnd(i, j, 1) < (home ? 0.1 : 0.07) || eatenLots.has(key);
-  let low = !park && (rnd(i, j, 12) < 0.13 || (home && rnd(i, j, 13) < 0.88));    // sobradinho comercial no meio dos prédios; no bairro, quase tudo é casa
+  const mark = landmark(i, j);
+  let park = rnd(i, j, 1) < 0.07 || eatenLots.has(key);
+  let low = !park && rnd(i, j, 12) < 0.13;    // sobradinho comercial no meio dos prédios
   let w = 14 + rnd(i, j, 2) * 12, d = 14 + rnd(i, j, 3) * 12, h = 16 + Math.pow(rnd(i, j, 4), 2.2) * 120;
-  if (zone > 0.62) {
-    // centro: torres altas e largas, e de vez em quando uma gigante de 400 a 600 metros
-    const k = (zone - 0.62) / 0.38, giant = rnd(i, j, 14) < 0.05 + 0.1 * k;
-    w = 20 + rnd(i, j, 2) * 8; d = 20 + rnd(i, j, 3) * 8;
-    h = giant ? 380 + rnd(i, j, 4) * 220 : 70 + Math.pow(rnd(i, j, 4), 1.4) * (120 + 220 * k);
-  } else if (zone > 0.45) h = 22 + Math.pow(rnd(i, j, 4), 1.8) * 160;
-  else if (zone < 0.38) h = 12 + Math.pow(rnd(i, j, 4), 2.5) * 40;
   if (low) { w = 22 + rnd(i, j, 2) * 7; d = 22 + rnd(i, j, 3) * 7; h = 8 + rnd(i, j, 4) * 6; }
+  if (mark) {
+    if (mark.tower) { park = low = false; w = d = mark.s; h = mark.h; }
+    else { park = true; low = false; }      // a praça aberta em volta
+  }
   if (i === 0 && j === 0) { park = false; low = false; w = 22; d = 22; h = 95; }
   const anchors = [];
   if (!park) {
@@ -157,8 +154,9 @@ function lotRaw(i, j) {
   }
   // caixas de colisão [x0, y0, z0, x1, y1, z1]
   const boxes = park ? [] : [[cx - w / 2 - 0.4, 0, cz - d / 2 - 0.4, cx + w / 2 + 0.4, h + 0.8, cz + d / 2 + 0.4]];
-  L = { cx, cz, w, d, h, park, low, anchors, boxes, home };
-  styleLot(L, i, j);
+  L = { cx, cz, w, d, h, park, low, anchors, boxes, mark: mark && mark.tower };
+  if (L.mark) styleLot(L, mark.ci, mark.cj);       // gêmeas de verdade: a mesma fachada e a mesma coroa
+  else styleLot(L, i, j);
   // torre alta: pontos de teia também no meio da altura, senão de baixo não dá pra subir nela
   if (!park && !L.low && L.h > 150 && !L.kind) {
     for (let y = 95, n = 0; y < L.h - 40; y += 95, n++) {
@@ -237,13 +235,13 @@ function inCinema(p) {
 // o que tem de sólido por perto no mundo em que você está
 function lotsNear(x, z, r) {
   const V = vox();
-  if (V) return [{ boxes: V.around(x, me.pos.y, z, 1 + R) }];
+  if (V) return me.where === 'moon' && moonFrame.placed ? [{ boxes: V.around(x, me.pos.y, z, 1 + R) }, { boxes: moonFrame.boxes }] : [{ boxes: V.around(x, me.pos.y, z, 1 + R) }];
   if (me.where === 'moon') return moonFrame.placed ? [{ boxes: moonFrame.boxes }] : [];
   return me.where === 'city' ? lotsAround(x, z, r) : me.where === 'back' ? back.near(x, z) : [];
 }
 const voxels = () => mine?.active && me.where === 'city';
 // o mundo de blocos em que você está: a cidade no modo Minecraft, o inferno ou o fim
-const vox = () => (voxels() ? mine : me.where === 'nether' ? nether : me.where === 'end' ? theEnd : null);
+const vox = () => (voxels() ? mine : me.where === 'nether' ? nether : me.where === 'end' ? theEnd : me.where === 'moon' && mine?.active && moonVox?.built ? moonVox : null);
 
 function lotsAround(x, z, r) {
   const out = [];
@@ -759,9 +757,9 @@ function findTarget(dt) {
   if (gaze.ready && dir.dot(skyDir()) > 0.994) return { p: me.pos.clone(), sky: true };
   if (vox()) {
     const top = reach(), h = vox().ray(camera.position, dir, top + 12);
-    if (!h || h.t < REACH + camera.position.distanceTo(me.pos)) return null;
-    const p = camera.position.clone().addScaledVector(dir, h.t);
-    return p.distanceTo(me.pos) > top ? null : { p, id: 500000000 + (h.x * 73 + h.y * 179 + h.z * 283) };
+    const near = !h || h.t < REACH + camera.position.distanceTo(me.pos), p = h && camera.position.clone().addScaledVector(dir, h.t);
+    if (!near && p.distanceTo(me.pos) <= top) return { p, id: 500000000 + (h.x * 73 + h.y * 179 + h.z * 283) };
+    if (me.where !== 'moon' || (h && near)) return null;       // na Lua, as pedras com ponto de teia continuam valendo
   }
   let best = null, bestA = 0.22;
   const top = reach();
@@ -1034,7 +1032,8 @@ function spaceCollide() {
 }
 
 function moonCollide() {
-  const floor = space.height(me.pos.x, me.pos.z) + R;
+  // dentro da Lua de blocos quem segura são os blocos (dá pra cavar); fora dela, o chão liso
+  const floor = mine.active && moonVox.inside(me.pos.x, me.pos.z) ? moonVox.oy - 50 : space.height(me.pos.x, me.pos.z) + R;
   if (me.pos.y < floor) { me.pos.y = floor; if (me.vel.y < 0) me.vel.y = 0; me.onGround = true; }
   for (const r of space.rocksNear(me.pos.x, me.pos.z, 6)) {
     const dx = me.pos.x - r.x, dy = me.pos.y - r.y, dz = me.pos.z - r.z, d = Math.hypot(dx, dy, dz), far = r.r + R;
@@ -1211,7 +1210,7 @@ function step(dt) {
   const fall = -me.vel.y, wasDown = me.onGround;
   collide();
   if (me.pos.y > 1400 && GOD.grav < 0) { me.pos.y = 1400; if (me.vel.y > 0) me.vel.y = 0; }   // gravidade ao contrário: o céu tem teto
-  if (me.onGround && !wasDown && voxels()) mine.fell(fall);
+  if (me.onGround && !wasDown && mine.active && !trip.landing) mine.fell(fall);      // chegar na Lua não machuca
   if (me.onGround && !wasDown && fall > 30) landed(fall);
   if (braced) holdRopes();
   if (me.land) landDone();
@@ -1800,8 +1799,27 @@ const artUi = $('#art-pick');
 let artAuto = false, artClock = 0;
 // o mundo de blocos toma o lugar dos prédios; gente, carros, horizonte, parque e praia continuam
 const mineHid = new Set();     // só volta o que estava à vista: o que já vivia escondido continua escondido
+function mineWorld() {
+  if (me.where === 'nether') return nether;
+  if (me.where !== 'moon') return null;
+  if (!moonVox.built) {
+    ensureMoonFrame();
+    // a moldura desce até ficar em cima de um patamar de blocos (altura inteira)
+    const f = moonFrame.group.position, top = Math.round(moonFrame.y + 1);
+    moonFrame.place(f.x, top - 1, f.z);
+    moonVox.setup(f.x, f.z, (x, z) => space.height(x, z), { x: f.x, z: f.z, y: top });
+    moonVox.build();
+  }
+  return moonVox;
+}
 function syncMine() {
-  const on = !!art.style.mine && me.where === 'city';
+  const on = !!art.style.mine && (me.where === 'city' || me.where === 'nether' || me.where === 'moon');
+  const w = on ? mineWorld() : null;
+  mine.setWorld(w);
+  moonVox.group.visible = on && me.where === 'moon';
+  for (const b of moonFrame.base) b.visible = !(on && me.where === 'moon');      // na Lua de blocos, a base é de blocos
+  if (on && me.where === 'moon') space.setHole(moonVox.ox + 1, moonVox.oz + 1, moonVox.ox + moonVox.W - 1, moonVox.oz + moonVox.D - 1);
+  else space.setHole();
   if (on === mine.active) return;
   const keep = new Set([skyline.mesh, crowd.torso, crowd.head, crowd.legs, crowd.arms, crowd.hats, crowd.skirts, crowd.bags, crowd.dogs, ...traffic.bodies, traffic.lights, fun.group, coast.mesh, beach.group]);
   if (on) { for (const c of city.children) if (!keep.has(c) && c.visible) { c.visible = false; mineHid.add(c); } }
@@ -1813,7 +1831,7 @@ function syncMine() {
   selectSlot(on ? mine.slot : -1);
   skyline.dirty = true;
   slimes.blocky = on ? (skin, color) => new BlockBody(scene, skin, color) : null;
-  if (on) showToast('⛏️ Perto: segure o clique pra quebrar · Longe: teia em qualquer bloco · E = mochila · Direito = põe bloco ou come');
+  if (on) showToast('⛏️ Perto: segure o clique pra quebrar · Longe: teia em qualquer bloco · E = inventário · Direito = põe bloco, come ou abre a mesa');
 }
 function setArt(id, quiet) {
   if (LEVE) id = 'normal';           // no modo leve não tem estilo de arte (cada um desenha a tela duas vezes)
@@ -2143,6 +2161,17 @@ function nearestBody() {
   for (const b of BODIES) { const d = me.pos.distanceTo(b.c) - b.r; if (d < bd) { bd = d; best = b; } }
   return { b: best, d: bd };
 }
+function moonSpot() {
+  const rock = space.rocksNear(0, 0, 1200).filter(r => r.anchor).sort((p, q) => Math.hypot(p.x, p.z) - Math.hypot(q.x, q.z))[0];
+  return { x: rock.x - 48, z: rock.z };
+}
+function ensureMoonFrame() {
+  if (moonFrame.placed) return;
+  const { x, z } = moonSpot(), fx0 = x + 30, fz0 = z + 10;
+  let top = -1e9;
+  for (let a = -6; a <= 6; a += 2) for (let b = -6; b <= 6; b += 2) top = Math.max(top, space.height(fx0 + a, fz0 + b));
+  moonFrame.place(fx0, top - 0.2, fz0);
+}
 function landOnMoon() {
   trip.on = false;
   trip.landing = true;
@@ -2155,12 +2184,7 @@ function landOnMoon() {
   // cai perto de uma pedra com ponto de teia, senão não sobra nada pra se agarrar
   const rock = space.rocksNear(0, 0, 1200).filter(r => r.anchor).sort((p, q) => Math.hypot(p.x, p.z) - Math.hypot(q.x, q.z))[0];
   const x = rock.x - 48, z = rock.z;
-  if (!moonFrame.placed) {
-    const fx0 = x + 30, fz0 = z + 10;
-    let top = -1e9;
-    for (let a = -6; a <= 6; a += 2) for (let b = -6; b <= 6; b += 2) top = Math.max(top, space.height(fx0 + a, fz0 + b));
-    moonFrame.place(fx0, top - 0.2, fz0);
-  }
+  ensureMoonFrame();
   me.pos.set(x, space.height(x, z) + 150, z);
   me.vel.set(0, -62, 0);
   yaw = -Math.PI / 2;
@@ -2595,13 +2619,28 @@ const roundHead = crowd.head.geometry, squareHead = new THREE.BoxGeometry(0.3, 0
 const mine = new Mine({
   scene, me, lot, cell: CELL, sound, flyers, items: ITEMS, toast: t => showToast(t), send: o => net.send(o),
   onDie: () => { start(); me.vel.set(0, 0, 0); },
-  onTable: () => { unlockMouse(); openTab('mochila'); renderCraft(); },
+  onTable: () => openCraft(3),
 });
 
 // ------------------------------------------------------------------ outros mundos: inferno, a moldura da Lua e o fim
 // O caminho: no Minecraft a mochila tem obsidiana e isqueiro. Moldura acesa leva pro inferno, onde um baú do outro lado da
 // lava tem pérolas e varas. Na mesa de trabalho viram olhos; doze olhos abrem a moldura da Lua, que leva pro fim e pro dragão.
+const craftGui = new CraftGui(mine, {
+  sound,
+  onClose: how => { if (how !== 'esc') lockMouse(); },      // o Esc não conta como clique pro navegador: aí volta pro menu
+  onEye: () => { if (mine.count('olho') >= 12 && !moonFrame.open) showToast('👁️ Doze olhos! A moldura velha da Lua está esperando'); },
+});
+function openCraft(size) {
+  if (craftGui.open) return;
+  unlockMouse();
+  craftGui.show(size);
+}
+addEventListener('keydown', e => {
+  if (!craftGui.open || e.repeat) return;
+  if (e.code === 'KeyE' || e.code === 'Escape') { e.preventDefault(); craftGui.hide(e.code === 'Escape' ? 'esc' : 'key'); }
+});
 const nether = new Nether(scene, mine.u.uAtlas.value);
+const moonVox = new MoonVox(scene, mine.u.uAtlas.value, MOON_BEND);
 const theEnd = new End(scene, mine.u.uAtlas.value);
 const dragon = new Dragon(scene, sound);
 const moonFrame = new MoonFrame(scene);
@@ -2666,28 +2705,8 @@ function openChest() {
   mine.give('perola', 12);
   mine.give('vara', 12);
   sound.kill();
-  showToast('📦 12 pérolas do fim e 12 varas de blaze! Numa mesa de trabalho elas viram olhos (E = mochila, no Minecraft)');
+  showToast('📦 12 pérolas do fim e 12 varas de blaze! Na mesa de trabalho: a vara vira pó, e pérola + pó vira olho');
 }
-function renderCraft() {
-  const el = $('#craft-note');
-  if (!el) return;
-  const a = mine.count('perola'), b = mine.count('vara'), near = mine.active && mine.nearTable(me.pos);
-  el.textContent = `você tem ${a} pérola${a === 1 ? '' : 's'}, ${b} vara${b === 1 ? '' : 's'} e ${mine.count('olho')} olho${mine.count('olho') === 1 ? '' : 's'}` + (near ? '' : ' · fique perto de uma mesa de trabalho (ela está na mochila: ponha no chão)');
-}
-function craft(all) {
-  if (!mine.active || !mine.nearTable(me.pos)) { showToast('🪵 Precisa estar perto de uma mesa de trabalho'); renderCraft(); return; }
-  const n = Math.min(mine.count('perola'), mine.count('vara'), all ? 64 : 1);
-  if (!n) { showToast('Faltam pérola e vara de blaze'); renderCraft(); return; }
-  mine.take('perola', n);
-  mine.take('vara', n);
-  mine.give('olho', n);
-  sound.place();
-  showToast(`👁️ ${n} olho${n > 1 ? 's' : ''} do fim`);
-  renderCraft();
-}
-$('#craft-one').onclick = () => craft(false);
-$('#craft-all').onclick = () => craft(true);
-$('#tabs [data-tab="mochila"]').addEventListener('click', renderCraft);
 function useFrame() {
   if (mine.count('olho') < 12) { showToast('🕳️ Doze encaixes vazios. Parece coisa de um mundo de blocos... lá na Terra'); return; }
   mine.take('olho', 12);
@@ -2829,7 +2848,7 @@ function questStep(dt) {
     }
   }
   if (me.where === 'moon') {
-    moonFrame.update(t);
+    moonFrame.update(t, camera.position, MOON_BEND);
     if (frameFill.on && (frameFill.t -= dt) <= 0) {
       frameFill.t = 0.18;
       moonFrame.fill(++frameFill.n);
@@ -2953,7 +2972,7 @@ addEventListener('keydown', e => {
   if (e.code === 'Escape' && freeMouse) { unlockMouse(); return; }
   if (e.code === 'KeyB' && !e.repeat) nextArt();
   if (e.code === 'KeyG' && !e.repeat) setFirstPerson(!firstPerson);
-  if (e.code === 'KeyE' && !e.repeat && mine.active && !me.hook) { unlockMouse(); openTab('mochila'); }
+  if (e.code === 'KeyE' && !e.repeat && mine.active && !me.hook) { openCraft(2); return; }
   if (e.code === 'KeyH' && !e.repeat) toggleRecord();
   if (e.code === 'KeyJ' && !e.repeat) clearEchoes();
   if (e.code === 'KeyN' && !e.repeat) { worldStopped = !worldStopped; showToast(worldStopped ? '⏸️ O mundo parou' : '▶️ O mundo voltou'); }
@@ -2994,7 +3013,7 @@ canvas.addEventListener('mousedown', e => {
   else if (locked && e.button === 2 && me.where === 'end') shootArrow();
   else if (locked && e.button === 2) {
     const item = heldItem();
-    if (mine.active && voxels() && mine.useRight()) return;
+    if (mine.active && mine.useRight()) return;
     if (item && !trip.on) useItem(item);
     else if (!item) mouseRight = true;
   }
@@ -3274,7 +3293,7 @@ function simulate(now, dt) {
     if (freeMouse && !act) { yaw -= edgeX * EDGE_TURN * dt; pitch = clamp(pitch - edgeY * EDGE_TURN * 0.5 * dt, -1.4, 1.25); }
     const held = [mouseDown, mouseRight];
     // de perto, o esquerdo é pra quebrar bloco e bater em zumbi; a teia só sai pra longe
-    if (voxels() && !act && !me.seat) {
+    if (mine.active && !act && !me.seat) {
       const breaking = mine.mineStep(dt, mouseDown && !heldItem(), camera, me.mesh.userData.slime.block || {});
       if (mine.mobs(dt, day, hitPress) || (breaking && !me.hooks[0])) held[0] = false;
     }
@@ -3342,7 +3361,8 @@ function simulate(now, dt) {
   updateGod(dt);
   if (artAuto && (artClock += dt) > 25) { artClock = 0; nextArt(true); }
 
-  if (voxels()) { mine.stream(me.pos.x, me.pos.z); mine.live(dt, me.vel.length()); }
+  if (mine.active) mine.live(dt, me.vel.length());
+  if (voxels()) mine.stream(me.pos.x, me.pos.z);
   else if (me.where === 'city') updateChunks(me.pos.x, me.pos.z);
   // teia que cruza um portal: pro corpo ela vai até a boca dele; o resto sai do outro lado
   const shown = trip.on ? trip.hooks : me.hooks.map(h => {
@@ -3650,7 +3670,7 @@ function enter() {
     get cineState() { return cineState; },
     setLook: (y, p) => { yaw = y; pitch = p; },
     lookAt: p => { const d = new V3().subVectors(p, camera.position); yaw = Math.atan2(-d.x, -d.z); pitch = Math.atan2(d.y, Math.hypot(d.x, d.z)); },
-    fun, beach, coast, FUN_GATE, BEACH_SPOT, teleport, boardRide, leaveRide, past, rewind, mine, art, setArt, powers, setPower, GOD, sendGod, flyers, godEvent, setBase, setFirstPerson, view, speedFx, speedCfg, setSpeed, get speedK() { return speedK; }, echoes, toggleRecord, eatenLots, eatLot, useItem, ITEMS, bridge, setMap, ctrlLand, landSpot, startLand, nether, theEnd, dragon, moonFrame, quest, enterNether, enterEnd, landOnMoon, startTrip, shootArrow, openChest, useFrame, craft, sea, blast, space, back, trip, fx, gaze, startTrip, setWhere, enterBack, leaveBack, nearbyAction, setMouse: v => { mouseDown = v; }, setRight: v => { mouseRight = v; }, lock: v => { locked = v; }, slimes, view, launch, nearWall, grabFriend, portals, firePortal, selectSlot, portalRay, get held() { return held; }, get target() { return target; },
+    fun, beach, coast, FUN_GATE, BEACH_SPOT, teleport, boardRide, leaveRide, past, rewind, mine, art, setArt, powers, setPower, GOD, sendGod, flyers, godEvent, setBase, setFirstPerson, view, speedFx, speedCfg, setSpeed, get speedK() { return speedK; }, echoes, toggleRecord, eatenLots, eatLot, useItem, ITEMS, bridge, setMap, ctrlLand, landSpot, startLand, nether, theEnd, dragon, moonFrame, moonVox, craftGui, openCraft, quest, enterNether, enterEnd, landOnMoon, startTrip, shootArrow, openChest, useFrame, sea, blast, space, back, trip, fx, gaze, startTrip, setWhere, enterBack, leaveBack, nearbyAction, setMouse: v => { mouseDown = v; }, setRight: v => { mouseRight = v; }, lock: v => { locked = v; }, slimes, view, launch, nearWall, grabFriend, portals, firePortal, selectSlot, portalRay, get held() { return held; }, get target() { return target; },
     tick(dt = 1 / 60) { last += dt * 1000; simulate(last, dt); },
   };
 }

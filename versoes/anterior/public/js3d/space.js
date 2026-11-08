@@ -5,7 +5,7 @@ import { clamp, rnd, softDot } from './lib3d.js';
 
 const FAR = 3000;                  // distância em que os astros são desenhados
 const TILE = 1600;                 // o chão da Lua se repete a cada TILE metros
-const BEND = 3200;                 // curvatura do horizonte: é uma lua bem pequena
+export const BEND = 3200;                 // curvatura do horizonte: é uma lua bem pequena
 
 export const SUN = new THREE.Vector3();
 // O espaço de verdade: a Terra na origem e a Lua numa linha reta. g é a gravidade na superfície, bem maior que a real.
@@ -94,8 +94,9 @@ const GROUND_VERT = `varying vec3 vW, vN; uniform float uBend;
     gl_Position = projectionMatrix * viewMatrix * w;
   }`;
 
-const GROUND_FRAG = `uniform vec3 uSun; uniform float uFlat; varying vec3 vW, vN; ${NOISE}
+const GROUND_FRAG = `uniform vec3 uSun; uniform float uFlat; uniform vec4 uHole; varying vec3 vW, vN; ${NOISE}
   void main(){
+    if (vW.x > uHole.x && vW.x < uHole.z && vW.z > uHole.y && vW.z < uHole.w) discard;     // onde a Lua virou blocos
     vec3 N = uFlat > 0.5 ? normalize(cross(dFdx(vW), dFdy(vW))) : normalize(vN);
     if (uFlat > 0.5 && N.y < 0.0 && dot(N, normalize(cameraPosition - vW)) < 0.0) N = -N;
     float grain = fbm(vW * 0.09) * 0.55 + fbm(vW * 0.8) * 0.3 + fbm(vW * vec3(5.0)) * 0.15;
@@ -168,6 +169,7 @@ export class Space {
     scene.add(this.sky);
 
     this.belt = null;                  // as pedras do espaço também só na primeira viagem
+    this.hole = { value: new THREE.Vector4(1, 1, -1, -1) };     // um retângulo do chão liso que não aparece
     this.floor = null;                 // o chão só é montado na primeira visita
     this.craters = [];
     const r2 = seeded(90210);
@@ -193,6 +195,8 @@ export class Space {
     scene.add(this.clouds);
   }
 
+  setHole(x0 = 1, z0 = 1, x1 = -1, z1 = -1) { this.hole.value.set(x0, z0, x1, z1); }
+
   height(x, z) {
     const a = 6.2832 / TILE;
     let h = 5 * Math.sin(a * 2 * x + 1.3) * Math.cos(a * 3 * z + 0.4) + 2.4 * Math.sin(a * 5 * x) * Math.sin(a * 4 * z + 2);
@@ -212,7 +216,7 @@ export class Space {
     for (let i = 0; i < p.count; i++) p.setY(i, this.height(p.getX(i), p.getZ(i)));
     geo.computeVertexNormals();
     const uBend = { value: BEND }, uSun = { value: SUN };
-    const mat = flat => new THREE.ShaderMaterial({ vertexShader: GROUND_VERT, fragmentShader: GROUND_FRAG, uniforms: { uBend, uSun, uFlat: { value: flat } }, toneMapped: false });
+    const mat = flat => new THREE.ShaderMaterial({ vertexShader: GROUND_VERT, fragmentShader: GROUND_FRAG, uniforms: { uBend, uSun, uFlat: { value: flat }, uHole: flat ? { value: new THREE.Vector4(1, 1, -1, -1) } : this.hole }, toneMapped: false });
     this.floor = new THREE.Group();
     this.ground = new THREE.InstancedMesh(geo, mat(0), 9);
     this.stones = new THREE.InstancedMesh(new THREE.IcosahedronGeometry(1, 1), mat(1), this.rocks.length * 9);

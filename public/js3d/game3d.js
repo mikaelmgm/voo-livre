@@ -734,7 +734,7 @@ function hookTargets() {
   }
   // o que dá pra ver pelo buraco também é alvo: a teia entra num portal e sai no outro
   for (const p of portals.list) {
-    const q = p.where === me.where && p.open > 0.5 ? portals.partner(p) : null;
+    const q = p.where === me.where && p.open > 0.5 ? portals.link(p) : null;
     if (!q) continue;
     const left = reach() - p.c.distanceTo(me.pos);
     if (left < 5 || (me.pos.x - p.c.x) * p.n.x + (me.pos.y - p.c.y) * p.n.y + (me.pos.z - p.c.z) * p.n.z <= 0) continue;
@@ -1256,6 +1256,11 @@ function portalCross() {
     if (!portals.inside(p, me.pos, rope ? 1.3 : me.vel.length() > 40 ? 1.14 : 1.03)) continue;
     const q = portals.partner(p);
     if (!q) continue;
+    if (q.where !== me.where) {
+      goWorld(q.where);              // o par está em outro mundo: muda de mundo e sai pela boca de lá
+      veilEl.style.background = PORTAL_COLORS[q.color];
+      fx.veil = Math.max(fx.veil, 0.7);
+    }
     goThrough(p, q);
     return;
   }
@@ -2025,6 +2030,49 @@ function setWhere(w) {
   if (mine) syncMine();
 }
 
+// pula direto pra outro mundo, sem a viagem: pelo portal ou indo até um amigo. Cada mundo arruma o que precisa antes.
+function goWorld(w) {
+  if (w === me.where) return;
+  const from = me.where;
+  leaveAct();
+  standUp();
+  me.hooks[0] = me.hooks[1] = null;
+  me.sling = null;
+  hookWait[0] = hookWait[1] = true;
+  trip.on = trip.landing = false;
+  view.roll = 0;
+  if (from === 'city') { me.home.copy(me.pos); quest.back.copy(me.pos); }
+  if (w === 'moon') { trip.earth.copy(space.earthSky); trip.earthA = 0.055; space.sunOnMoon(); }
+  if (w === 'nether') {
+    nether.build();
+    quest.cool = 2.5;
+    if (!quest.back.lengthSq()) { const L = lot(0, 0); quest.back.set(L.cx, L.h + R + 0.05, L.cz + L.d / 2 - 3); }
+  }
+  if (w === 'end') { theEnd.build(); quest.hp = 20; }
+  setWhere(w);
+  if (w === 'moon') ensureMoonFrame();
+}
+// T: vai até um amigo, em qualquer mundo (ele na Lua e você na Terra, por exemplo). Com mais de um, cada T vai pro próximo.
+let friendTurn = 0;
+function goFriend() {
+  if (trip.on) return;
+  const list = [...remotes.values()].filter(x => x.pos && !x.stale);
+  if (!list.length) { showToast('👀 Não tem mais ninguém no jogo agora'); return; }
+  const r = list[friendTurn++ % list.length], name = r.info?.name || 'seu amigo';
+  if (r.where === 'trip') { showToast(`🚀 ${name} está viajando pelo espaço. Espera chegar e aperta T de novo`); return; }
+  if (r.where !== me.where) {
+    goWorld(r.where);
+    veilEl.style.background = '#fff';
+    fx.veil = Math.max(fx.veil, 0.8);
+    sound.warp();
+    showToast(`✨ Foi até ${name}, ${({ city: 'na cidade', moon: 'na Lua', nether: 'no inferno', end: 'no fim', back: 'nas backrooms' })[r.where] || 'lá'}`);
+  }
+  standUp();
+  me.pos.copy(r.pos).add(new V3(0, 2.5, 0));
+  me.vel.copy(r.vel || new V3());
+  me.hook = null;
+}
+
 function warp(color, fn) {
   veilEl.style.background = color;
   fx.veil = 1.2;
@@ -2247,25 +2295,36 @@ function selectSlot(i) {
   }
 }
 
-// onde o tiro bate: caixas dos prédios, chão e (nas backrooms) teto
+// onde o tiro bate: caixas dos prédios (ou blocos), o chão de verdade e (nas backrooms) teto
 function portalRay(from, dir) {
-  if (me.where === 'moon') {
-    for (let t = 2; t < 900; t += 2 + t * 0.02) {
-      const x = from.x + dir.x * t, y = from.y + dir.y * t, z = from.z + dir.z * t, h = space.height(x, z);
-      if (y > h) continue;
-      const e = 2, n = new V3(space.height(x - e, z) - space.height(x + e, z), 2 * e, space.height(x, z - e) - space.height(x, z + e)).normalize();
-      return { at: new V3(x, h, z), n };
-    }
-    return null;
-  }
   const hit = sweep(from, dir, 1400, 0);
   let t = hit ? hit.t : Infinity, n = null;
   if (hit) n = new V3().setComponent(hit.axis, hit.sign);
-  if (dir.y < 0 && -from.y / dir.y < t) { t = -from.y / dir.y; n = new V3(0, 1, 0); }
+  const g = groundRay(from, dir, Math.min(t, 1400));
+  if (g) { t = g.t; n = g.n; }
   if (me.where === 'back' && dir.y > 0 && (BACK_H - from.y) / dir.y < t) { t = (BACK_H - from.y) / dir.y; n = new V3(0, -1, 0); }
   if (!n) return null;
   const onBox = hit && hit.t === t;
   return { at: from.clone().addScaledVector(dir, t), n, box: onBox ? hit.box : null, axis: onBox ? hit.axis : 1 };
+}
+// o chão de cada mundo com o morro dele: a areia da praia sobe até 4,6 m (antes o portal ia pra altura 0 e ficava
+// enterrado), o mar tem a água por cima e a Lua tem crateras. No inferno e no fim o chão são os blocos.
+function floorH(x, z) {
+  if (me.where === 'moon') return space.height(x, z);
+  if (me.where === 'city') return Math.max(sandY(x, z), GOD.sea, inSea(x, z) ? WATER_Y : 0);
+  return 0;
+}
+function groundRay(from, dir, max) {
+  if (me.where !== 'city' && me.where !== 'moon' && me.where !== 'back') return null;
+  let prev = 0;
+  for (let t = 0.5; t < max; t += 0.5 + t * 0.02) {
+    if (from.y + dir.y * t > floorH(from.x + dir.x * t, from.z + dir.z * t)) { prev = t; continue; }
+    let a = prev, b = t;
+    for (let k = 0; k < 14; k++) { const m = (a + b) / 2; if (from.y + dir.y * m > floorH(from.x + dir.x * m, from.z + dir.z * m)) a = m; else b = m; }
+    const x = from.x + dir.x * b, z = from.z + dir.z * b, e = 1.5;
+    return { t: b, n: new V3(floorH(x - e, z) - floorH(x + e, z), 2 * e, floorH(x, z - e) - floorH(x, z + e)).normalize() };
+  }
+  return null;
 }
 const fit = (v, lo, hi) => (lo > hi ? (lo + hi) / 2 : clamp(v, lo, hi));
 function firePortal(color) {
@@ -2619,6 +2678,7 @@ const roundHead = crowd.head.geometry, squareHead = new THREE.BoxGeometry(0.3, 0
 const mine = new Mine({
   scene, me, lot, cell: CELL, sound, flyers, items: ITEMS, toast: t => showToast(t), send: o => net.send(o),
   onDie: () => { start(); me.vel.set(0, 0, 0); },
+  mortal: () => me.where === 'end',          // fora do fim ninguém morre: a vida para em meio coração
   onTable: () => openCraft(3),
 });
 
@@ -2990,10 +3050,7 @@ addEventListener('keydown', e => {
   if (e.code === 'KeyQ' && !e.repeat && !me.onGround && me.flipT <= 0) startFlip();
   if ((e.code === 'ControlLeft' || e.code === 'ControlRight' || e.code === 'KeyC') && !e.repeat) ctrlLand();
   if (e.code === 'KeyR' && !trip.on) { trip.landing = false; view.roll = 0; start(); }
-  if (e.code === 'KeyT') {
-    const r = [...remotes.values()].find(x => x.pos && !x.stale);
-    if (r && r.where === me.where) { standUp(); me.pos.copy(r.pos).add(new V3(0, 2.5, 0)); me.vel.copy(r.vel || new V3()); me.hook = null; }
-  }
+  if (e.code === 'KeyT' && !e.repeat) goFriend();
   if (e.code === 'KeyF' && !e.repeat) nearbyAction()?.run();
   if (e.code === 'KeyY' && !e.repeat) {
     // solta o mouse pra poder colar o link
@@ -3487,7 +3544,7 @@ function simulate(now, dt) {
   // o desenho da visão dos portais vem antes do quadro: cada um é a cidade inteira de novo, então só nas qualidades de cima
   if (portals.list.length) {
     camera.updateMatrixWorld();
-    portals.update(dt, me.where);
+    portals.update(dt, me.where, me.where === 'moon' ? MOON_BEND : 1e9);
     if (art.on) art.fit();
     portals.render(camera, me.where, Q.pr >= 1 ? 2 : Q.pr >= 0.85 ? 1 : 0, art.on ? art.size : null);
   }
@@ -3664,7 +3721,7 @@ function enter() {
     me, remotes, keys, camera, lotsAround, lot, cinema, CINEMA, nearestSeat, sitDown, standUp, setCinema, inCinema,
     quality: () => ({ pref: prefs.quality ?? 'auto', level: qLevel, name: Q.name, software: SOFTWARE, fps: Math.round(perf.fps) }), setQuality, skyline, buildChunk,
     day, setTime, hourNow, board, sinuca, pong, basket, voice, renderer, enterAct, leaveAct, nearbyAction, chunks, crowd, traffic, net,
-    setRadio, radioYt, radioSp, inPool, COURT, sweep,
+    setRadio, radioYt, radioSp, inPool, COURT, sweep, goWorld, goFriend, groundRay, goThrough,
     get act() { return act; },
     get timeState() { return timeState; },
     get cineState() { return cineState; },
