@@ -2,10 +2,10 @@
 // Fica fora do jogo de propósito: mesmo com o jogo quebrado, este arquivo roda e o botão aparece no menu.
 (() => {
   const NOVIDADES = [
-    '🏙️ A cidade voltou a ser a de antes, mas aqui e ali abre uma praça com uma torre altíssima ou duas torres gêmeas',
-    '🪵 Mesa de trabalho de verdade: botão direito nela abre a grade 3x3 (E abre a 2x2). Vara vira pó, pérola + pó vira olho',
-    '⛏️ O modo Minecraft agora vale no inferno e na Lua: quebrar, pôr bloco, vida e fome. A Lua vira blocos em volta da moldura',
-    '🌙 A moldura da Lua não parece mais flutuando quando vista de longe',
+    '🌀 O portal agora pega na areia da praia e na água (antes ficava enterrado)',
+    '🌙 Portal entre mundos: um na Lua e o outro na Terra. O buraco mostra a cor do outro lado e quem entra muda de mundo',
+    '👋 T leva até o amigo em qualquer mundo: ele na Lua, no inferno ou no fim e você na Terra. Com mais de um, cada T vai pro próximo',
+    '❤️ No Minecraft só se morre no fim. No resto a vida para em meio coração',
   ];
   const css = `
     .ver-box { display: flex; flex-direction: column; gap: 8px; }

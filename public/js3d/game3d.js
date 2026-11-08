@@ -17,6 +17,7 @@ import { Slime, SlimeWorld, SlimeStage, SLIME_SKINS } from './slime.js';
 import { Space, SUN, EARTH, MOON, BODIES, BEND as MOON_BEND } from './space.js';
 import { Backrooms, BACK_H } from './backrooms.js';
 import { Portals, PORTAL_W, PORTAL_H, PORTAL_COLORS } from './portals.js';
+import { PortalWater } from './water.js';
 import { Art, ART_STYLES, compileAll } from './art.js';
 import { Flyers, Sea } from './god.js';
 import { SpeedFx } from './speedfx.js';
@@ -527,6 +528,7 @@ function glowTexture(color) {
 
 const slimes = new SlimeWorld(scene, renderer, day);
 const portals = new Portals(scene, renderer, slimes);
+const water = new PortalWater(scene, portals, { level: waterLevel, hit: waterHit, few: LEVE });
 const art = new Art(renderer, slimes);
 const speedFx = new SpeedFx(renderer);
 
@@ -1198,6 +1200,9 @@ function step(dt) {
     const top = speedCfg.top / 3.6;
     if (s > top) me.vel.multiplyScalar((top + (s - top) * Math.exp(-OVERSPEED * dt)) / s);
   }
+  const inJet = water.jets.size ? water.push(me.pos, me.vel, dt, me.where, R) : false;      // jato de água de portal e redemoinho
+  if (inJet && !me.inJet) sound.splash();
+  me.inJet = inJet;
   me.pos.addScaledVector(me.vel, dt);
   portalCross();
 
@@ -2325,6 +2330,30 @@ function groundRay(from, dir, max) {
     return { t: b, n: new V3(floorH(x - e, z) - floorH(x + e, z), 2 * e, floorH(x, z - e) - floorH(x, z + e)).normalize() };
   }
   return null;
+}
+// a água em volta de um portal: o mar, a cidade alagada pelo Deus ou a piscina da laje (null = está no seco)
+function waterLevel(p) {
+  if (p.where !== 'city') return null;
+  const c = p.c, sea = Math.max(GOD.sea, inSea(c.x, c.z) ? WATER_Y : 0);
+  if (sea > 0 && c.y <= sea + 0.3) return sea;
+  const W = lot(CINEMA.i, CINEMA.j).roof?.pool;
+  if (W && c.x > W.x0 && c.x < W.x1 && c.z > W.z0 && c.z < W.z1 && c.y <= W.water + 0.3 && c.y > W.floor - 0.6) return W.water;
+  return null;
+}
+// onde o jato de água bate no caminho de a até b, no mundo em que você está; up = caiu deitado (dá poça)
+function waterHit(a, b) {
+  const d = new V3().subVectors(b, a), L = d.length();
+  if (L < 1e-6) return null;
+  d.divideScalar(L);
+  const h = sweep(a, d, L, 0);
+  let t = h ? h.t : Infinity, up = !!h && h.axis === 1 && h.sign > 0;
+  const g = groundRay(a, d, Math.min(t, L));
+  if (g) { t = g.t; up = g.n.y > 0.6; }
+  else if (t > L && (me.where === 'city' || me.where === 'moon' || me.where === 'back') && b.y < floorH(b.x, b.z)) { t = L; up = true; }
+  if (t > L) return null;
+  const p = a.clone().addScaledVector(d, t);
+  if (me.where === 'city' && inSea(p.x, p.z) && p.y < WATER_Y + 0.5) up = false;     // caiu no mar: não faz poça
+  return { p, up };
 }
 const fit = (v, lo, hi) => (lo > hi ? (lo + hi) / 2 : clamp(v, lo, hi));
 function firePortal(color) {
@@ -3548,6 +3577,11 @@ function simulate(now, dt) {
     if (art.on) art.fit();
     portals.render(camera, me.where, Q.pr >= 1 ? 2 : Q.pr >= 0.85 ? 1 : 0, art.on ? art.size : null);
   }
+  if (water.jets.size || portals.list.length > 1) {
+    const light = me.where === 'city' ? 1 - 0.7 * day.night : me.where === 'moon' ? 0.95 : me.where === 'end' ? 0.6 : 0.8;
+    water.update(dt, me.where, camera, { grav: w => (w === 'moon' ? G / 5 : G) * GOD.grav, light, bend: me.where === 'moon' ? MOON_BEND : 1e9, height: art.on ? art.size.y : renderer.domElement.height });
+  }
+  if (water.loud || sound.waterV) sound.water(water.loud);
   renderer.shadowMap.needsUpdate = Q.shadow > 0 && perf.drew++ % Q.every === 0;
   art.update(dt, camera, slimes.u.uSun.value, me.where === 'city' ? day.night : 0);
   art.render(scene, camera);
@@ -3613,6 +3647,7 @@ async function preload() {
   // o que só aparece mais tarde também passa por aqui: portal e boneco quadrado
   const extras = new THREE.Group(), block = new BlockBody(extras, 'spider', COLOR);
   extras.add(new THREE.Mesh(portals.geo, portals.base));
+  water.warm(extras);
   extras.visible = false;
   scene.add(extras);
 
@@ -3721,7 +3756,7 @@ function enter() {
     me, remotes, keys, camera, lotsAround, lot, cinema, CINEMA, nearestSeat, sitDown, standUp, setCinema, inCinema,
     quality: () => ({ pref: prefs.quality ?? 'auto', level: qLevel, name: Q.name, software: SOFTWARE, fps: Math.round(perf.fps) }), setQuality, skyline, buildChunk,
     day, setTime, hourNow, board, sinuca, pong, basket, voice, renderer, enterAct, leaveAct, nearbyAction, chunks, crowd, traffic, net,
-    setRadio, radioYt, radioSp, inPool, COURT, sweep, goWorld, goFriend, groundRay, goThrough,
+    setRadio, radioYt, radioSp, inPool, COURT, sweep, goWorld, goFriend, groundRay, goThrough, water, waterLevel, waterHit, sound,
     get act() { return act; },
     get timeState() { return timeState; },
     get cineState() { return cineState; },

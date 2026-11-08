@@ -88,6 +88,9 @@ VERSÃO 3D (TESTE)
     Dá pra ver o outro lado e jogar a teia num ponto brilhante através do portal: ela te leva junto.
     O portal pega em qualquer chão, até na areia da praia e na água. Um pode ficar na Lua e o outro na Terra:
     aí o buraco mostra a cor do outro mundo e quem entra sai lá.
+    ÁGUA: um portal no mar (ou na piscina da laje) e o outro fora d'água, a água jorra pelo de fora. Na parede de um
+    prédio vira cachoeira, no chão vira chafariz, na Lua sobe alto. O jato carrega quem entra nele, e em volta do
+    portal do mar um redemoinho puxa pra dentro: você sai voando junto com a água do outro lado.
   VELOCIDADE: não tem limite, mas acima de 360 km/h ela cai bem rápido.
   ESTILOS DE ARTE (aba Arte): tudo muda na hora e as mecânicas são as mesmas. B troca jogando.
     Pixel Art, Minecraft, Geleia, Gibi, Simpsons, Bob Esponja, Neon, Vaporwave, ASCII, Noir e Sonho.

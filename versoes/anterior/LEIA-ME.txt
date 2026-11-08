@@ -33,7 +33,7 @@ CONTROLES
   S no ar ....................................... mergulho (ganha velocidade)
   W ou Espaço ................................... pular (na casinha)
   Botão direito ................................. atira laser (PVP ligado, recarga de 0,6 s)
-  T ............................................. ir até o amigo
+  T ............................................. ir até o amigo (em qualquer mundo; com mais de um, cada T vai pro próximo)
   R ............................................. voltar à casinha
   C ............................................. troca a câmera
   M ............................................. liga/desliga o som
@@ -86,6 +86,8 @@ VERSÃO 3D (TESTE)
 
     Quem entra num portal sai no outro com a mesma velocidade, e voando em direção a ele a rota ajuda um pouco.
     Dá pra ver o outro lado e jogar a teia num ponto brilhante através do portal: ela te leva junto.
+    O portal pega em qualquer chão, até na areia da praia e na água. Um pode ficar na Lua e o outro na Terra:
+    aí o buraco mostra a cor do outro mundo e quem entra sai lá.
   VELOCIDADE: não tem limite, mas acima de 360 km/h ela cai bem rápido.
   ESTILOS DE ARTE (aba Arte): tudo muda na hora e as mecânicas são as mesmas. B troca jogando.
     Pixel Art, Minecraft, Geleia, Gibi, Simpsons, Bob Esponja, Neon, Vaporwave, ASCII, Noir e Sonho.
@@ -101,6 +103,7 @@ VERSÃO 3D (TESTE)
     esquerdo pega/solta a pilha, direito pega metade ou solta 1, shift manda direto). 1 a 9 ou a rodinha trocam o item, E abre o
     inventário com a grade 2x2. Vale também no inferno e na Lua: lá a Lua vira blocos em volta da moldura e dá pra cavar.
     Queda forte tira vida, a fome baixa com o tempo, e à noite aparecem zumbis (três pancadas derrubam).
+    Mas só se morre no fim: no resto, a vida para em meio coração.
     Dá pra cavar até a rocha-mãe, com carvão, ferro, ouro e diamante no caminho. Os blocos valem pra todo mundo no mesmo estilo.
   LUGARES: lojas pequenas têm porta e interior (lanchonete, mercado, fliperama, bar, academia, sorveteria).
     PARQUE: F na entrada da roda-gigante, da montanha-russa ou do carrossel. Espaço salta fora, com a velocidade que estiver.

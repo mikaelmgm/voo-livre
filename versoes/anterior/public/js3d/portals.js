@@ -1,5 +1,6 @@
 // Portais: dois buracos ligados, cada jogador tem um par (azul e laranja). Quem olha pra um vê o que está saindo
-// do outro: a cena é desenhada de novo numa textura, por uma câmera colocada do outro lado.
+// do outro: a cena é desenhada de novo numa textura, por uma câmera colocada do outro lado. O par pode ficar em outro
+// mundo (um na Lua, outro na Terra): aí o buraco mostra a cor de lá e quem entra muda de mundo.
 import * as THREE from 'three';
 
 export const PORTAL_W = 3.6, PORTAL_H = 5;       // meia largura e meia altura: um oval de 7 por 10 metros
@@ -7,9 +8,13 @@ export const PORTAL_COLORS = ['#3aa0ff', '#ff8a1e'];
 
 const FLIP = new THREE.Matrix4().makeRotationY(Math.PI);
 
-const VERT = `varying vec2 vUv;
-  void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`;
-const FRAG = `uniform sampler2D uView; uniform vec2 uRes; uniform vec3 uCol; uniform float uOpen, uLinked, uTime; varying vec2 vUv;
+// na Lua o chão curva pra baixo com a distância: o portal curva junto, senão de longe parece que flutua
+const VERT = `uniform float uBend; varying vec2 vUv;
+  void main(){ vUv = uv; vec4 w = modelMatrix * vec4(position, 1.0); vec2 d = w.xz - cameraPosition.xz; w.y -= dot(d, d) / (2.0 * uBend);
+    gl_Position = projectionMatrix * viewMatrix * w; }`;
+// a cor do mundo do outro lado, quando o par está em outro mundo
+const AWAY = { city: '#8fd4ff', moon: '#d6d6e2', nether: '#d8461c', end: '#6a3aa8', back: '#e6d27a', trip: '#1a2a5a' };
+const FRAG = `uniform sampler2D uView; uniform vec2 uRes; uniform vec3 uCol; uniform float uOpen, uLinked, uTime; uniform vec4 uAway; varying vec2 vUv;
   float hash(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
   float noise(vec2 p){ vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
     return mix(mix(hash(i), hash(i + vec2(1, 0)), f.x), mix(hash(i + vec2(0, 1)), hash(i + vec2(1, 1)), f.x), f.y); }
@@ -24,6 +29,7 @@ const FRAG = `uniform sampler2D uView; uniform vec2 uRes; uniform vec3 uCol; uni
     else {
       float s = noise(vec2(a * 2.0 + uTime * 0.6 + r * 3.0, r * 5.0 - uTime * 1.3));
       c = uCol * (0.12 + 0.5 * s * s);
+      if (uAway.w > 0.5) c = mix(uAway.rgb * (0.45 + 0.8 * s), uCol, 0.15 + 0.3 * s * s);     // o outro lado é outro mundo
     }
     float rim = smoothstep(0.9, 0.97, e), halo = smoothstep(0.78, 0.95, e);
     c = mix(c + uCol * halo * 0.16, uCol * (2.4 + 0.9 * noise(vec2(a * 9.0 - uTime * 5.0, 1.0))), rim);
@@ -42,6 +48,7 @@ export class Portals {
     this.drew = 0;
     this.size = new THREE.Vector2();
     this.uRes = { value: new THREE.Vector2(1, 1) };
+    this.uBend = { value: 1e9 };
     this.geo = new THREE.PlaneGeometry(1, 1);
     this.cam = new THREE.PerspectiveCamera();
     this.cam.matrixAutoUpdate = false;
@@ -60,7 +67,7 @@ export class Portals {
   material(color) {
     return new THREE.ShaderMaterial({
       vertexShader: VERT, fragmentShader: FRAG,
-      uniforms: { uView: { value: null }, uRes: this.uRes, uCol: { value: new THREE.Color(PORTAL_COLORS[color]) }, uOpen: { value: 0.05 }, uLinked: { value: 0 }, uTime: { value: 0 } },
+      uniforms: { uView: { value: null }, uRes: this.uRes, uBend: this.uBend, uCol: { value: new THREE.Color(PORTAL_COLORS[color]) }, uOpen: { value: 0.05 }, uLinked: { value: 0 }, uTime: { value: 0 }, uAway: { value: new THREE.Vector4() } },
       polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4,
     });
   }
@@ -90,7 +97,9 @@ export class Portals {
     });
   }
 
-  partner(p) { return this.list.find(o => o.owner === p.owner && o.color !== p.color && o.where === p.where) || null; }
+  // o par do portal, em qualquer mundo; link() só quando os dois estão no mesmo (aí dá pra ver através e passar teia)
+  partner(p) { return this.list.find(o => o.owner === p.owner && o.color !== p.color) || null; }
+  link(p) { const q = this.partner(p); return q && q.where === p.where ? q : null; }
 
   // leva um ponto de quem está na frente de `a` pro que sai na frente de `b`
   matrix(a, b, out = new THREE.Matrix4()) { return out.copy(b.M).multiply(FLIP).multiply(a.Mi); }
@@ -112,14 +121,18 @@ export class Portals {
     return a * a + b * b <= 1;
   }
 
-  update(dt, where) {
+  update(dt, where, bend = 1e9) {
     this.time += dt;
+    this.uBend.value = bend;
     for (const p of this.list) {
       p.open = Math.min(1, p.open + dt * 5);
       const u = p.mesh.material.uniforms;
       u.uOpen.value = p.open * (2 - p.open);
       u.uTime.value = this.time;
       p.mesh.visible = p.where === where;
+      const q = this.partner(p), far = q && q.where !== p.where;
+      if (far) u.uAway.value.set(...new THREE.Color(AWAY[q.where] || '#ffffff').toArray(), 1);
+      else u.uAway.value.w = 0;
     }
   }
 
@@ -138,7 +151,7 @@ export class Portals {
     this.frustum.setFromProjectionMatrix(this.pv);
     const eye = camera.position, seen = [];
     for (const p of this.list) {
-      if (p.where !== where || !this.partner(p)) continue;
+      if (p.where !== where || !this.link(p)) continue;
       const side = (eye.x - p.c.x) * p.n.x + (eye.y - p.c.y) * p.n.y + (eye.z - p.c.z) * p.n.z;
       if (side <= 0 || !this.frustum.intersectsSphere(this.sphere.set(p.c, PORTAL_H + 1))) continue;
       seen.push({ p, d: p.c.distanceTo(eye) });
@@ -149,7 +162,7 @@ export class Portals {
     const u = this.slimes.u.uHasScene, refract = u.value;
     u.value = 0;                                  // a casca do boneco não refrata aqui: não tem quadro pronto pra copiar
     for (let i = 0; i < n; i++) {
-      const { p } = seen[i], q = this.partner(p), rt = this.targets[i];
+      const { p } = seen[i], q = this.link(p), rt = this.targets[i];
       if (rt.width !== w || rt.height !== h) rt.setSize(w, h);
       this.place(p, q, camera);
       R.setRenderTarget(rt);
@@ -163,7 +176,7 @@ export class Portals {
   }
 
   // quadros sem desenhar de novo: continua mostrando a última imagem
-  keep() { for (const p of this.list) if (p.mesh.material.uniforms.uView.value && this.partner(p)) p.mesh.material.uniforms.uLinked.value = 1; }
+  keep() { for (const p of this.list) if (p.mesh.material.uniforms.uView.value && this.link(p)) p.mesh.material.uniforms.uLinked.value = 1; }
 
   // câmera do outro lado, cortando tudo que estiver atrás do portal de saída (plano de corte oblíquo)
   place(p, q, camera) {
