@@ -16,7 +16,10 @@
     .ver-box ul { margin: 0; padding-left: 4px; list-style: none; font-size: 13.5px; line-height: 1.5; }
     .ver-box p { margin: 0; font-size: 13px; opacity: 0.8; }
     .ver-box button { font: inherit; font-weight: 700; font-size: 14px; padding: 10px; border-radius: 10px; border: 1px solid rgba(255, 255, 255, 0.3); color: #fff; background: rgba(255, 255, 255, 0.1); cursor: pointer; }
-    .ver-box button.sure { background: #c0392b; border-color: #ff8a7a; }`;
+    .ver-box button.sure { background: #c0392b; border-color: #ff8a7a; }
+    .ver-top { padding: 10px 12px; border-radius: 12px; border: 1px solid #ffcf3f; background: rgba(255, 207, 63, 0.14); }
+    .ver-top p { opacity: 1; font-weight: 700; }
+    .ver-top button { background: linear-gradient(180deg, #ffe08a, #ff9f5a); color: #2a1020; border-color: transparent; }`;
 
   const send = v => fetch('/api/versao', { method: 'POST', body: JSON.stringify({ v }) }).then(r => r.json());
   const day = iso => { try { return new Date(iso).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' }); } catch { return ''; } };
@@ -51,6 +54,20 @@
     box.append(p, button('Voltar pra versão anterior', 'Clique de novo: troca pra todo mundo', 'anterior'));
   }
 
+  // Na versão anterior, o caminho de volta fica à vista no topo do menu. Antes ele só existia dentro da aba, e ninguém achava.
+  function banner(st) {
+    if (st.ativa !== 'anterior' || document.querySelector('.ver-top')) return;
+    const panel = document.querySelector('#start3 .panel') || document.querySelector('#lobby .panel');
+    if (!panel) return;
+    const top = document.createElement('div');
+    top.className = 'ver-box ver-top';
+    const p = document.createElement('p');
+    p.textContent = '⏪ Você está jogando a versão anterior.';
+    top.append(p, button('✨ Voltar pra atualização nova', 'Clique de novo: troca pra todo mundo', 'nova'));
+    const anchor = panel.querySelector('#go3') || panel.querySelector('.tag');
+    if (anchor) anchor.after(top); else panel.prepend(top);
+  }
+
   function mount() {
     const style = document.createElement('style');
     style.textContent = css;
@@ -69,7 +86,7 @@
     }
     let seen = null;
     const check = () => fetch('/api/versao').then(r => r.json()).then(st => {
-      if (seen === null) { seen = st.ativa; fill(box, st); }
+      if (seen === null) { seen = st.ativa; fill(box, st); banner(st); }
       else if (st.ativa !== seen) location.reload();      // alguém trocou a versão: todo mundo acompanha
     }).catch(() => { /* servidor fora do ar: o jogo já avisa */ });
     check();
