@@ -3121,9 +3121,25 @@ addEventListener('mouseup', e => {
   if (e.button === 2) mouseRight = false;
   if (e.button === 0 && basket.charging) basket.shoot(new V3(0, 0, -1).applyQuaternion(camera.quaternion));
 });
+// Com o mouse travado, o Chrome e o Edge no Windows às vezes entregam um salto enorme de uma vez, sem a mão ter mexido,
+// e a câmera ia parar apontada pro céu. Movimento de verdade vem acelerando; o salto aparece do nada, num evento só.
+const mouseSeen = { rate: 0, at: 0, dropped: 0 };
+function mouseJump(e) {
+  const size = Math.hypot(e.movementX, e.movementY), gap = Math.max(4, e.timeStamp - mouseSeen.at), rate = size / gap;
+  mouseSeen.at = e.timeStamp;
+  if (size > 100 && rate > 8 && rate > mouseSeen.rate * 5 && mouseSeen.dropped < 2) {
+    mouseSeen.dropped++;
+    if (report.spikes.length < 8) report.spikes.push(`salto do mouse ${e.movementX},${e.movementY}`);      // aparece no desempenho.log
+    return true;
+  }
+  mouseSeen.rate = Math.max(rate, mouseSeen.rate * Math.exp(-gap / 80));
+  mouseSeen.dropped = 0;
+  return false;
+}
 addEventListener('mousemove', e => {
   if (!locked) return;
   if (freeMouse) { edgeX = edgeOf(e.clientX / innerWidth); edgeY = edgeOf(e.clientY / innerHeight); }
+  if (mouseJump(e)) return;
   if (act) { act.mouse(e.movementX, e.movementY); return; }
   yaw -= e.movementX * 0.0022;
   pitch = clamp(pitch - e.movementY * 0.0022, -1.4, 1.25);
