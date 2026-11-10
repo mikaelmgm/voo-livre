@@ -63,6 +63,7 @@ const PLANET_PULL = 230, PLANET_TOP = 3200;                // teia presa num ast
 // a teia é uma mola: estica até um limite e devolve, em vez de ser uma barra rígida que freia você
 const ROPE_K = 70, ROPE_DAMP = 5, ROPE_STRETCH = 0.16;
 const GROUND_CLEAR = 3.4, GUARD_RATE = 48;     // o arco da teia nunca passa rente ao chão (S segurado libera)
+const GUARD_LOW = 12, GUARD_SOFT = 2;          // teia atirada até essa altura da rua puxa você pra cima de uma vez; de mais alto é pêndulo
 const ASSIST = 5, ASSIST_TOP = 50;             // empurrãozinho pra manter o embalo enquanto balança
 const STEER_MIN = 20;                          // acima disso o voo desvia sozinho dos prédios
 const BOOST = 24;             // Shift preso na corda: empurra na direção do balanço
@@ -302,7 +303,7 @@ ground.rotation.x = -Math.PI / 2;
 ground.position.set(ISLE.i0 * CELL + ISLE_W / 2, 0, ISLE.j0 * CELL + ISLE_D / 2);
 ground.receiveShadow = true;
 city.add(ground);
-// na geleia o chão ondula, e pra isso precisa de vértices
+// com o mundo enrolado o chão curva, e pra isso precisa de vértices
 const isleFlat = ground.geometry, GROUND_INF = CELL * 120;
 let isleDense = null, infFlat = null, infDense = null;
 const flatGround = () => (MAP.infinite ? infFlat || (infFlat = new THREE.PlaneGeometry(GROUND_INF, GROUND_INF)) : isleFlat);
@@ -503,7 +504,7 @@ function setMap(infinite) {
   dropChunks();
   if (mine.active) { for (const c of mine.chunks.values()) mine.drop(c); mine.chunks.clear(); mine.at = null; }
   groundTex.repeat.set(infinite ? 120 : ISLE.i1 - ISLE.i0 + 1, infinite ? 120 : ISLE.j1 - ISLE.j0 + 1);
-  ground.geometry = art.style.jelly || GOD.bend ? denseGround() : flatGround();
+  ground.geometry = GOD.bend ? denseGround() : flatGround();
   if (infinite) ground.position.set(Math.round(me.pos.x / CELL) * CELL, 0, Math.round(me.pos.z / CELL) * CELL);
   else ground.position.set(ISLE.i0 * CELL + ISLE_W / 2, 0, ISLE.j0 * CELL + ISLE_D / 2);
   beach.group.visible = bridge.group.visible = !infinite;
@@ -535,7 +536,7 @@ const speedFx = new SpeedFx(renderer);
 // a arma de portais: ela aponta pra +z do grupo
 function makeGun() {
   const g = new THREE.Group();
-  const shell = art.rigid(new THREE.MeshLambertMaterial({ color: '#e9edf2' })), dark = art.rigid(new THREE.MeshLambertMaterial({ color: '#23262e' }));
+  const shell = new THREE.MeshLambertMaterial({ color: '#e9edf2' }), dark = new THREE.MeshLambertMaterial({ color: '#23262e' });
   const add = (geo, mat, x, y, z) => { const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); g.add(m); return m; };
   add(new THREE.BoxGeometry(0.2, 0.2, 0.5), shell, 0, 0.03, 0.08);
   add(new THREE.BoxGeometry(0.12, 0.24, 0.13), dark, 0, -0.14, -0.04);
@@ -567,19 +568,19 @@ function makeBody(skin, color, amount) {
 const SIT_Y = 0.55 + 0.55;   // do chão da fileira até o centro do boneco sentado
 
 function makeRope(skin, color) {
-  const m = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.07, 1, 6, 1), art.rigid(new THREE.MeshBasicMaterial({ color: SLIME_SKINS[skin]?.arm ? color : '#f4f6ff' })));
+  const m = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.07, 1, 6, 1), new THREE.MeshBasicMaterial({ color: SLIME_SKINS[skin]?.arm ? color : '#f4f6ff' }));
   m.visible = false;
   scene.add(m);
   return m;
 }
 const UP = new V3(0, 1, 0);
 // a teia sai da mão e voa até o ponto; nas skins sem teia quem faz esse papel é o próprio braço
-const ropeEnd = new V3(), ropeTip = new V3(), roofSway = new V3(), ZERO3 = new V3();
+const ropeEnd = new V3();
 function placeRopes(ropes, hooks, body) {
   ropes.forEach((rope, i) => {
     const h = hooks[i];
     if (!h || body.armOnly) { rope.visible = false; return; }
-    placeRope(rope, body.hands[i], ropeEnd.copy(body.hands[i]).lerp(art.bent(h.p, ropeTip), Math.min(1, h.t / 0.12 || 1)));
+    placeRope(rope, body.hands[i], ropeEnd.copy(body.hands[i]).lerp(h.p, Math.min(1, h.t / 0.12 || 1)));
   });
 }
 function placeRope(rope, a, b) {
@@ -781,8 +782,13 @@ function findTarget(dt) {
   return best;
 }
 
+// Pisando na rua ou voando bem perto dela: a teia precisa tirar você de lá. Em cima de um prédio não, mesmo baixo.
+function nearStreet() {
+  return me.pos.y - R - groundAt(me.pos.x, me.pos.z) < (me.onGround ? 1.5 : GUARD_LOW);
+}
+
 function attach(t, hand = 0) {
-  me.hooks[hand] = { p: t.p.clone(), L: clamp(t.p.distanceTo(me.pos), ROPE_MIN, reach() + 10), pid: t.pid || 0, id: t.id, t: 0, warp: t.via ? { a: t.via[0], b: t.via[1] } : null, real: t.real || null };
+  me.hooks[hand] = { p: t.p.clone(), L: clamp(t.p.distanceTo(me.pos), ROPE_MIN, reach() + 10), snap: nearStreet(), pid: t.pid || 0, id: t.id, t: 0, warp: t.via ? { a: t.via[0], b: t.via[1] } : null, real: t.real || null };
   me.airJumps = 1;
 }
 
@@ -1128,19 +1134,25 @@ function step(dt) {
     const f = wish.clone().multiplyScalar(PUMP);
     f.addScaledVector(n, -f.dot(n));
     acc.add(f);
-    // perto do chão a teia encurta sozinha, pra você passar por cima em vez de arrastar o pé
     for (const h of me.hooks) {
       if (!h || !h.warp) continue;
       h.L = Math.max(ROPE_MIN, h.L - WARP_REEL * dt);
       acc.addScaledVector(new V3().subVectors(h.warp.a.c, me.pos).normalize(), WARP_PULL);
     }
     for (const h of me.hooks) if (h && h.planet) acc.addScaledVector(lookTmp.subVectors(h.planet.c, me.pos).normalize(), PLANET_PULL);
+    // Perto do chão a teia encurta sozinha, pra você passar por cima em vez de arrastar o pé.
+    // Atirada da rua, ela puxa de uma vez. Atirada lá do alto é um pêndulo: só encolhe enquanto você desce, na medida
+    // pra chegar embaixo do tamanho que não raspa. Parado num telhado ela não puxa nada.
     if (!keys.KeyS && !space3d) for (const h of me.hooks) {
       if (!h || h.pid || h.warp) continue;
       // conta quanto a teia vai esticar nessa velocidade, senão a mola leva você pro chão do mesmo jeito
       const sag = Math.min(h.L * ROPE_STRETCH + 1.5, me.vel.lengthSq() / (Math.max(h.L, 4) * ROPE_K));
       const safe = Math.max(ROPE_MIN, h.p.y - GROUND_CLEAR - sag);
-      if (h.L > safe) h.L = Math.max(safe, h.L - (GUARD_RATE + Math.max(0, -me.vel.y) * 1.2) * dt);
+      if (h.L <= safe) continue;
+      if (me.onGround && nearStreet()) h.snap = true;      // voltou pra rua: precisa sair de novo
+      const down = Math.max(0, -me.vel.y), top = GUARD_RATE + down * 1.2;
+      const rate = h.snap ? top : Math.min(top, (h.L - safe) / Math.max(GUARD_SOFT, me.pos.y - (h.p.y - safe)) * down);
+      h.L = Math.max(safe, h.L - rate * dt);
     }
     // ajuda a manter o embalo: empurra de leve pra onde você já está indo
     const along = me.vel.clone().addScaledVector(n, -me.vel.dot(n)), sp = along.length();
@@ -1475,7 +1487,6 @@ const roofFx = buildRoof(CINE, mats, city, day);
 const courtFx = buildCourt(COURT_LOT, mats, city, day);
 const crowd = new Crowd(city);
 const traffic = new Traffic(city);
-for (const m of [crowd.torso.material, crowd.extraMat, traffic.mat, mats.small, mats.canopy]) art.markFine(m);
 const skyline = new Skyline(city, lot, CELL);
 const ctx = { scene: city, mats, sound, send: o => net.send(o), toast: t => showToast(t), myId: () => myId, myName: () => NAME };
 const board = new Whiteboard(ctx, CINE.roof.board);
@@ -1849,7 +1860,7 @@ function setArt(id, quiet) {
   moment('arte ' + art.style.id);
   prefs.art = art.style.id;
   savePrefs();
-  ground.geometry = art.style.jelly || GOD.bend ? denseGround() : flatGround();
+  ground.geometry = GOD.bend ? denseGround() : flatGround();
   glowMat.opacity = art.glow;
   syncMine();
   artUi.querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.v === art.style.id));
@@ -2490,7 +2501,6 @@ function eatStep(now) {
     eatLot(Math.floor(L.cx / CELL), Math.floor(L.cz / CELL), true);
     sound.boom(0.6);
     view.shake = 1.2 * big();
-    art.ripple(L.cx, L.cz, 1);
   }
 }
 // o prédio desaba no lugar: uma caixa da cor dele afunda no chão
@@ -2502,10 +2512,9 @@ function biteLot(L) {
   bites.push({ m, t: 0, h: L.h });
 }
 
-// pancada: no chão ela vira onda na geleia; com o Pouso bomba (ou bem grande) joga tudo que estiver em volta pro alto
+// pancada: com o Pouso bomba (ou bem grande) joga tudo que estiver em volta pro alto
 function landed(v) {
   const k = clamp(v / 90, 0.2, 1.6) * big();
-  art.ripple(me.pos.x, me.pos.z, k);
   if (me.where !== 'city' || (!powers.slam && me.size < 4)) return;
   blast(me.pos, clamp(v * 0.9, 25, 130) * big(), true);
 }
@@ -2522,7 +2531,6 @@ function blast(p, r, send) {
     c.gone = now + GONE_MS;
     fling('carro', c.x, c.z, c.color, 0.3);
   }
-  art.ripple(x, z, 1.4);
   sound.boom(clamp(1 - near / 500, 0.15, 1));
   view.shake = Math.max(view.shake, clamp(2.4 - near / 80, 0, 2.4));
   if (send) net.send({ t: 'e3', k: 'blast', p: [x, p.y, z], r });
@@ -2580,7 +2588,7 @@ function applyGod(g) {
     $('#god-' + id + '-l').textContent = fmt(GOD[k]);
   }
   art.setBend(me.where === 'city' ? GOD.bend * 1.5e-5 : 0);
-  ground.geometry = art.style.jelly || GOD.bend ? denseGround() : flatGround();
+  ground.geometry = GOD.bend ? denseGround() : flatGround();
 }
 // Velocidade de cada jogador. "Antes" é o ajuste anterior a esta atualização, pra comparar e escolher.
 const SPEED_OLD = { top: 360, gain: 140, drag: 0 }, SPEED_NEW = { top: 470, gain: 100, drag: 100 };
@@ -3113,9 +3121,25 @@ addEventListener('mouseup', e => {
   if (e.button === 2) mouseRight = false;
   if (e.button === 0 && basket.charging) basket.shoot(new V3(0, 0, -1).applyQuaternion(camera.quaternion));
 });
+// Com o mouse travado, o Chrome e o Edge no Windows às vezes entregam um salto enorme de uma vez, sem a mão ter mexido,
+// e a câmera ia parar apontada pro céu. Movimento de verdade vem acelerando; o salto aparece do nada, num evento só.
+const mouseSeen = { rate: 0, at: 0, dropped: 0 };
+function mouseJump(e) {
+  const size = Math.hypot(e.movementX, e.movementY), gap = Math.max(4, e.timeStamp - mouseSeen.at), rate = size / gap;
+  mouseSeen.at = e.timeStamp;
+  if (size > 100 && rate > 8 && rate > mouseSeen.rate * 5 && mouseSeen.dropped < 2) {
+    mouseSeen.dropped++;
+    if (report.spikes.length < 8) report.spikes.push(`salto do mouse ${e.movementX},${e.movementY}`);      // aparece no desempenho.log
+    return true;
+  }
+  mouseSeen.rate = Math.max(rate, mouseSeen.rate * Math.exp(-gap / 80));
+  mouseSeen.dropped = 0;
+  return false;
+}
 addEventListener('mousemove', e => {
   if (!locked) return;
   if (freeMouse) { edgeX = edgeOf(e.clientX / innerWidth); edgeY = edgeOf(e.clientY / innerHeight); }
+  if (mouseJump(e)) return;
   if (act) { act.mouse(e.movementX, e.movementY); return; }
   yaw -= e.movementX * 0.0022;
   pitch = clamp(pitch - e.movementY * 0.0022, -1.4, 1.25);
@@ -3466,10 +3490,9 @@ function simulate(now, dt) {
   me.mesh.position.copy(me.pos);
   updateCamera(0);
   const body = me.mesh.userData.slime, aimDir = new V3(0, 0, -1).applyQuaternion(camera.quaternion);
-  roofSway.lerp(art.style.jelly && me.onGround ? art.bent(me.pos, ropeTip).sub(me.pos) : ZERO3, 1 - Math.exp(-dt * 7));
   bodyT += dt;
-  if (bodyT < BODY_STEP && !slimes.blocky) body.follow(me.pos, roofSway);
-  else body.update(bodyT, { shift: roofSway, pos: me.pos, vel: me.vel, quat: me.mesh.quaternion, hooks: shown, onGround: me.onGround, flip: me.flipT > 0 ? 1 - me.flipT / 0.5 : 0, flipAxis: me.flipAxis, sit: !!me.seat || !!me.ride, wet: me.wet, floor: me.where === 'trip' ? undefined : me.onGround ? me.pos.y - R : floorUnder(me.pos), sling: me.sling ? me.sling.x / (SLING_MAX + SLING_TUG) * 1.6 : 0, braced: me.braced, hold: !!me.carry, aim: heldItem() ? aimDir : null, visible: me.mesh.visible });
+  if (bodyT < BODY_STEP && !slimes.blocky) body.follow(me.pos);
+  else body.update(bodyT, { pos: me.pos, vel: me.vel, quat: me.mesh.quaternion, hooks: shown, onGround: me.onGround, flip: me.flipT > 0 ? 1 - me.flipT / 0.5 : 0, flipAxis: me.flipAxis, sit: !!me.seat || !!me.ride, wet: me.wet, floor: me.where === 'trip' ? undefined : me.onGround ? me.pos.y - R : floorUnder(me.pos), sling: me.sling ? me.sling.x / (SLING_MAX + SLING_TUG) * 1.6 : 0, braced: me.braced, hold: !!me.carry, aim: heldItem() ? aimDir : null, visible: me.mesh.visible });
   if (bodyT >= BODY_STEP || slimes.blocky) bodyT = 0;
   body.group.visible = !slimes.blocky && me.mesh.visible;
   placeRopes(me.ropes, shown, body);
@@ -3712,7 +3735,6 @@ async function preload() {
   [-6, 6].forEach((s, color) => portals.set('ensaio', color, { c: camera.position.clone().addScaledVector(ahead, 24).addScaledVector(side, s).toArray(), n: ahead.clone().negate().toArray(), u: top.toArray(), where: me.where }));
   for (const S of LEVE ? [] : ART_STYLES) {
     art.set(S.id);
-    ground.geometry = S.jelly ? denseGround() : flatGround();
     last = performance.now();
     simulate(last, 1 / 60);
     await say(87);
@@ -3762,7 +3784,7 @@ function enter() {
     get cineState() { return cineState; },
     setLook: (y, p) => { yaw = y; pitch = p; },
     lookAt: p => { const d = new V3().subVectors(p, camera.position); yaw = Math.atan2(-d.x, -d.z); pitch = Math.atan2(d.y, Math.hypot(d.x, d.z)); },
-    fun, beach, coast, FUN_GATE, BEACH_SPOT, teleport, boardRide, leaveRide, past, rewind, mine, art, setArt, powers, setPower, GOD, sendGod, flyers, godEvent, setBase, setFirstPerson, view, speedFx, speedCfg, setSpeed, get speedK() { return speedK; }, echoes, toggleRecord, eatenLots, eatLot, useItem, ITEMS, bridge, setMap, ctrlLand, landSpot, startLand, nether, theEnd, dragon, moonFrame, moonVox, craftGui, openCraft, quest, enterNether, enterEnd, landOnMoon, startTrip, shootArrow, openChest, useFrame, sea, blast, space, back, trip, fx, gaze, startTrip, setWhere, enterBack, leaveBack, nearbyAction, setMouse: v => { mouseDown = v; }, setRight: v => { mouseRight = v; }, lock: v => { locked = v; }, slimes, view, launch, nearWall, grabFriend, portals, firePortal, selectSlot, portalRay, get held() { return held; }, get target() { return target; },
+    fun, beach, coast, FUN_GATE, BEACH_SPOT, teleport, boardRide, leaveRide, past, rewind, mine, art, setArt, powers, setPower, GOD, sendGod, flyers, godEvent, setBase, setFirstPerson, view, speedFx, speedCfg, setSpeed, get speedK() { return speedK; }, echoes, toggleRecord, eatenLots, eatLot, useItem, ITEMS, bridge, setMap, ctrlLand, landSpot, startLand, attach, nether, theEnd, dragon, moonFrame, moonVox, craftGui, openCraft, quest, enterNether, enterEnd, landOnMoon, startTrip, shootArrow, openChest, useFrame, sea, blast, space, back, trip, fx, gaze, startTrip, setWhere, enterBack, leaveBack, nearbyAction, setMouse: v => { mouseDown = v; }, setRight: v => { mouseRight = v; }, lock: v => { locked = v; }, slimes, view, launch, nearWall, grabFriend, portals, firePortal, selectSlot, portalRay, get held() { return held; }, get target() { return target; },
     tick(dt = 1 / 60) { last += dt * 1000; simulate(last, dt); },
   };
 }

@@ -238,7 +238,6 @@ function bodyTemplate() {
 
 const VERT = `attribute vec3 aRest; attribute float aMix, aThick;
   uniform float uInset;
-  #define ART_RIGID
   ${ART_VERT}
   varying vec3 vN, vV, vNV, vRest; varying float vMix, vThick, vDist;
   void main(){
@@ -257,7 +256,7 @@ const LIGHTS = `uniform vec3 uSun, uSunCol, uSky, uGnd, uHor, uTop, uFog; unifor
 
 // o miolo: aqui mora o traje, desenhado a partir da posição de repouso, então ele estica junto com o corpo
 const SUIT_FRAG = `${LIGHTS}
-  uniform vec3 uA, uB, uLine; uniform float uKind, uEye, uMark;
+  uniform vec3 uA, uB, uLine; uniform float uKind, uEye;
   float stroke(float d, float w, float aa){ return 1.0 - smoothstep(w - aa, w + aa, abs(d)); }
   float seg(vec2 p, vec2 a, vec2 b){ vec2 pa = p - a, ba = b - a; return length(pa - ba * clamp(dot(pa, ba) / dot(ba, ba), 0.0, 1.0)); }
   float web(vec2 q, float n, float dr, float w){
@@ -351,7 +350,7 @@ const SUIT_FRAG = `${LIGHTS}
     float ndl = dot(N, uSun), wrap = clamp(ndl * 0.55 + 0.45, 0.0, 1.0);
     vec3 amb = mix(uGnd, uSky, 0.5 + 0.5 * N.y) * uHemi;
     vec3 lit = amb * 0.62 + uSunCol * uSunI * wrap * 0.34 + vec3(0.1 + uNight * 0.16);
-    gl_FragColor = vec4(fogged(c * lit + c * glow * (0.2 + uNight * 0.5)), uMark);
+    gl_FragColor = vec4(fogged(c * lit + c * glow * (0.2 + uNight * 0.5)), 1.0);
     #include <tonemapping_fragment>
     #include <colorspace_fragment>
   }`;
@@ -428,7 +427,7 @@ export class SlimeWorld {
       uSun: { value: new THREE.Vector3(0.4, 0.8, 0.45).normalize() }, uSunCol: { value: new THREE.Color('#fff5e6') }, uSunI: { value: 2.6 },
       uSky: { value: new THREE.Color('#d0e6ff') }, uGnd: { value: new THREE.Color('#6c6658') }, uHor: { value: new THREE.Color('#d2e8fa') }, uTop: { value: new THREE.Color('#2c66c2') },
       uHemi: { value: 1.2 }, uNight: { value: 0 }, uFog: { value: new THREE.Color('#ffffff') }, uFogD: { value: 0 }, uBox: { value: 1 },
-      uScene: { value: null }, uRes: { value: new THREE.Vector2(1, 1) }, uProj: { value: 1 }, uHasScene: { value: 0 }, uMark: { value: 1 },
+      uScene: { value: null }, uRes: { value: new THREE.Vector2(1, 1) }, uProj: { value: 1 }, uHasScene: { value: 0 },
       ...ART_UNIFORMS,
     };
     this.drops = new Drops(scene);
@@ -897,8 +896,8 @@ export class Slime {
 
   // s: pos, vel, quat, hooks ([{p, t} ou null] por mão), onGround, flip, sit, wet, floor (altura do chão embaixo), sling, braced, hold, aim, visible
   // quadro sem simulação: o corpo só acompanha a posição, sem refazer a gelatina
-  follow(pos, shift) {
-    const g = this.group.position, dx = pos.x + (shift ? shift.x : 0) - g.x, dy = pos.y + (shift ? shift.y : 0) - g.y, dz = pos.z + (shift ? shift.z : 0) - g.z;
+  follow(pos) {
+    const g = this.group.position, dx = pos.x - g.x, dy = pos.y - g.y, dz = pos.z - g.z;
     g.x += dx; g.y += dy; g.z += dz;
     for (const h of this.hands) { h.x += dx; h.y += dy; h.z += dz; }
   }
@@ -1055,7 +1054,6 @@ export class Slime {
 
     this.deform(dt, dvx, dvy, dvz, s);
     this.group.position.copy(pos);
-    if (s.shift) this.group.position.add(s.shift);
     this.placeShadow(s, stretch);
     this.pp.copy(pos);
     this.seen = true;

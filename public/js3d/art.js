@@ -1,40 +1,18 @@
 // Estilos de arte: o jogo continua igual e só muda o jeito de desenhar. A cena vai pra uma textura, junto com a
 // profundidade, e um shader por estilo refaz a imagem. Com a profundidade dá pra saber a posição de cada pixel no mundo,
-// então pixel art, geleia e gibi valem pra tudo que aparece, sem mexer em nenhum material.
+// então pixel art, neon e ASCII valem pra tudo que aparece, sem mexer em nenhum material.
 import * as THREE from 'three';
 
 // ------------------------------------------------------------------ o que entorta o mundo (nos vértices)
 
 // valem pra todo material do jogo: o mesmo objeto de uniform fica ligado em todos, então trocar de estilo não recompila nada
 const U = {
-  uArtOn: { value: 0 }, uArtJelly: { value: 0 }, uArtTime: { value: 0 }, uArtBend: { value: 0 },
-  uArtEye: { value: new THREE.Vector3() }, uArtRip: { value: [0, 1, 2, 3].map(() => new THREE.Vector4(0, 0, -99, 0)) },
+  uArtOn: { value: 0 }, uArtBend: { value: 0 }, uArtEye: { value: new THREE.Vector3() },
 };
 export const ART_UNIFORMS = U;
-export const ART_VERT = `uniform float uArtOn, uArtJelly, uArtTime, uArtBend;
-  uniform vec3 uArtEye; uniform vec4 uArtRip[4];
+export const ART_VERT = `uniform float uArtOn, uArtBend;
+  uniform vec3 uArtEye;
   vec3 artWorld(vec3 w){
-    #ifndef ART_RIGID
-    if (uArtJelly > 0.0) {
-      // cada quarteirão balança no seu tempo; quanto mais alto, mais o topo vai e volta
-      vec2 lot = floor(w.xz / 52.0);
-      float ph = fract(sin(dot(lot, vec2(12.9898, 78.233))) * 43758.5453) * 6.283, h = max(w.y, 0.0);
-      vec2 sway = vec2(sin(uArtTime * 2.1 + ph), cos(uArtTime * 1.7 + ph * 1.3)) * h * 0.016;
-      float lift = 0.0;
-      for (int i = 0; i < 4; i++) {
-        // ondas de pancada que correm pelo chão e sacodem o que passam
-        vec4 R = uArtRip[i];
-        float age = uArtTime - R.z;
-        if (age < 0.0 || age > 5.0) continue;
-        vec2 to = w.xz - R.xy;
-        float d = length(to), front = d - age * 70.0, env = exp(-front * front / 1800.0) * exp(-age * 0.9) * R.w;
-        lift += sin(d * 0.14 - age * 10.0) * env * 3.2;
-        sway += to / max(d, 1.0) * env * h * 0.05;
-      }
-      w.xz += sway * uArtJelly;
-      w.y = w.y * (1.0 + 0.008 * uArtJelly * sin(uArtTime * 3.1 + ph * 2.0)) + lift * uArtJelly;
-    }
-    #endif
     if (uArtBend != 0.0) { vec2 d = w.xz - uArtEye.xz; w.y -= dot(d, d) * uArtBend; }
     return w;
   }`;
@@ -88,7 +66,6 @@ const BASE = `#include <packing>
     return mix(mix(hash(i), hash(i + vec2(1, 0)), f.x), mix(hash(i + vec2(0, 1)), hash(i + vec2(1, 1)), f.x), f.y); }
   float alphaAt(float a){ return a < 0.25 ? 0.0 : 1.0; }
   bool isSky(float d){ return d >= 0.99999; }
-  bool isFine(float a){ return a > 0.25 && a < 0.75; }
   vec3 hue(vec3 c, float a){ const vec3 k = vec3(0.57735); float s = sin(a), o = cos(a); return c * o + cross(k, c) * s + k * dot(k, c) * (1.0 - o); }
 
   // a normal sai da própria profundidade; de cada lado usa o vizinho mais perto, pra não pegar o que está atrás de uma borda
@@ -139,47 +116,6 @@ const PIXEL = `void main(){
     c = mix(c, c * vec3(0.26, 0.23, 0.36), outline * 0.94);
     c += (bayer(floor(vUv * uSize)) - 0.5) * 0.085;
     gl_FragColor = vec4(nearest(clamp(c, 0.0, 1.0)), alphaAt(s.a));
-  }`;
-
-// geleia: cada quarteirão de um sabor, com brilho molhado, borda mais clara e a imagem tremendo de leve, como vista por dentro
-const JELLY = `vec3 flavor(float k){
-    float i = floor(k * 6.0);
-    return i < 1.0 ? vec3(0.95, 0.12, 0.28) : i < 2.0 ? vec3(0.32, 0.86, 0.16) : i < 3.0 ? vec3(1.0, 0.56, 0.06) : i < 4.0 ? vec3(0.58, 0.2, 0.92) : i < 5.0 ? vec3(0.12, 0.56, 1.0) : vec3(1.0, 0.82, 0.12);
-  }
-  void main(){
-    vec2 uv = vUv + 0.0022 * vec2(sin(vUv.y * 38.0 + uTime * 2.3), sin(vUv.x * 31.0 + uTime * 1.9));
-    vec4 s = texture2D(tColor, uv);
-    float d = texture2D(tDepth, uv).x;
-    vec3 c = colorAt(uv);
-    if (isSky(d)) { gl_FragColor = vec4(mix(c, hue(c, -0.5) * vec3(1.1, 0.9, 1.05), 0.65), alphaAt(s.a)); return; }
-    vec3 P = viewAt(uv, d), Nv = normalAt(uv, P), W = (uCamWorld * vec4(P, 1.0)).xyz, N = normalize(mat3(uCamWorld) * Nv), V = normalize(uCam - W);
-    if (isFine(s.a)) { c = sat(c, 1.5); }
-    else {
-      vec2 lot = floor(W.xz / 52.0);
-      float high = smoothstep(0.5, 6.0, W.y);
-      vec3 f = mix(mix(vec3(1.0, 0.72, 0.8), c, 0.72), flavor(hash(lot)), high), candy = f * mix(1.15, 0.34 + 1.05 * luma(c), high);
-      float inner = 0.5 + 0.5 * sin(W.y * 0.12 - uTime * 1.2 + W.x * 0.05);
-      candy += f * inner * 0.1;
-      c = mix(c, candy, 0.86 * (0.25 + 0.75 * high));
-    }
-    float fr = pow(1.0 - max(dot(N, V), 0.0), 2.6);
-    c = mix(c, c * 0.5 + vec3(0.72, 0.8, 0.9) * (1.0 - uNight * 0.7), fr * 0.62);
-    c += pow(max(dot(reflect(-uSun, N), V), 0.0), 34.0) * vec3(1.0, 0.98, 0.94) * 0.9 * (1.0 - uNight * 0.8);
-    gl_FragColor = vec4(c, alphaAt(s.a));
-  }`;
-
-// gibi: cor chapada, retícula nas sombras e tinta preta em volta de tudo
-const COMIC = `void main(){
-    vec4 s = texture2D(tColor, vUv);
-    vec3 c = sat(colorAt(vUv), 1.7);
-    float l = luma(c), sky = step(uFar * 0.98, zAt(vUv));
-    c = floor(c * 4.0 + 0.5) / 4.0;
-    vec2 q = mat2(0.707, -0.707, 0.707, 0.707) * (vUv * uSize) / 6.5, f = fract(q) - 0.5;
-    float dot1 = smoothstep(0.08, -0.08, length(f) - (1.0 - l) * 0.5);
-    c = mix(c, c * 0.38, dot1 * smoothstep(0.55, 0.3, l));
-    c = mix(mix(c, vec3(1.0, 0.97, 0.88), 0.14), c, sky);
-    float ink = max(lineAt(vUv, 2.0, 0.012, 0.035), lineAt(vUv, 1.0, 0.012, 0.03)) * (1.0 - sky);
-    gl_FragColor = vec4(mix(c, vec3(0.05, 0.04, 0.08), ink), alphaAt(s.a));
   }`;
 
 // neon: mundo apagado, só as arestas acesas, e o chão vira a grade dos anos 80
@@ -246,78 +182,7 @@ const DREAM = `void main(){
 const hexes = list => list.map(h => new THREE.Vector3(parseInt(h.slice(0, 2), 16) / 255, parseInt(h.slice(2, 4), 16) / 255, parseInt(h.slice(4, 6), 16) / 255));
 // ENDESGA 32: paleta de 32 cores feita por quem desenha pixel art
 const ENDESGA = hexes('be4a2f d77643 ead4aa e4a672 b86f50 733e39 3e2731 a22633 e43b44 f77622 feae34 fee761 63c74d 3e8948 265c42 193c3e 124e89 0099db 2ce8f5 ffffff c0cbdc 8b9bb4 5a6988 3a4466 262b44 181425 ff0044 68386c b55088 f6757a e8b796 c28569'.split(' '));
-const SPRINGFIELD = hexes('fed90f f59db9 d1b271 8fc93a 5fa345 f28c28 d6432e 3b6fb6 70d1fe 8e5bb5 8a8a8e 4d4d54 d8d4c8 f7f4ec 8b5a2b 2a2a2e'.split(' '));
-const BIKINI_PAL = hexes('47c5d8 2e9e9b fff04d ffb7c9 ff8fb1 ff6b4a 9b6fd3 8fdc78 f5e6a8 e8a968 ffffff 4f7fd0 26588a'.split(' '));
 
-// lines = linhas de pixels na tela (desenho em baixa resolução); rope = grossura da teia, senão ela some nos pixels;
-// marks = gente, carro e boneco ficam marcados na imagem; step = quadros por segundo das poses do boneco;
-// mine = não passa por shader nenhum: a cidade vira blocos de verdade (mine.js)
-const SIMPSONS = `// Springfield: cor chapada de desenho, céu azul com nuvem branca, contorno fino e todo mundo amarelo
-  void main(){
-    vec4 s = texture2D(tColor, vUv);
-    float d = texture2D(tDepth, vUv).x;
-    vec3 c = colorAt(vUv);
-    if (isSky(d)) {
-      vec3 V = normalize(mat3(uCamWorld) * viewAt(vUv, 1.0));
-      vec2 q = V.xz / (abs(V.y) + 0.22) * 2.2 + uTime * 0.012;
-      float n = noise(q) * 0.62 + noise(q * 2.1) * 0.38, cloud = step(0.58, n);
-      gl_FragColor = vec4(mix(mix(vec3(0.44, 0.82, 0.99), vec3(0.2, 0.55, 0.95), clamp(V.y * 1.6, 0.0, 1.0)), vec3(1.0), cloud), alphaAt(s.a));
-      return;
-    }
-    if (isFine(s.a) && c.r > c.g && c.g > c.b && c.r - c.b > 0.14 && luma(c) > 0.3) c = vec3(1.0, 0.85, 0.06);
-    c = pow(c, vec3(0.66));
-    float l = luma(c);
-    c = nearest(sat(c, 1.9));
-    c *= l < 0.3 ? 0.82 : l > 0.7 ? 1.06 : 1.0;
-    float ink = max(lineAt(vUv, 1.0, 0.01, 0.03), lineAt(vUv, 1.6, 0.03, 0.08));
-    gl_FragColor = vec4(mix(c, vec3(0.06, 0.05, 0.05), ink), alphaAt(s.a));
-  }`;
-const BIKINI = `// Fenda do Biquíni: céu de água com flores, luz de piscina nas paredes, areia no chão e bolhas subindo
-  float flower(vec2 p){
-    float a = atan(p.y, p.x), r = length(p), petals = 0.5 + 0.28 * cos(a * 5.0);
-    return smoothstep(petals, petals - 0.05, r) * (1.0 - smoothstep(0.1, 0.13, r) * 0.0);
-  }
-  float bubbles(vec2 uv, float scale, float speed){
-    vec2 p = vec2(uv.x * uSize.x / uSize.y, uv.y) * scale;
-    p.y -= uTime * speed;
-    p.x += sin(p.y * 2.0 + uTime) * 0.12;
-    vec2 id = floor(p), f = fract(p) - 0.5;
-    if (hash(id) > 0.2) return 0.0;
-    vec2 c = (vec2(hash(id + 3.1), hash(id + 7.7)) - 0.5) * 0.5;
-    float r = 0.1 + hash(id + 1.9) * 0.16, d = length(f - c);
-    float ring = smoothstep(r, r - 0.015, d) * smoothstep(r - 0.05, r - 0.02, d);
-    return max(ring, smoothstep(0.035, 0.0, length(f - c - vec2(r * 0.4, r * 0.4))));
-  }
-  void main(){
-    vec2 uv = vUv + 0.0028 * vec2(sin(vUv.y * 17.0 + uTime * 1.4), cos(vUv.x * 13.0 + uTime * 1.1));
-    vec4 s = texture2D(tColor, uv);
-    float d = texture2D(tDepth, uv).x;
-    vec3 c = colorAt(uv), o;
-    if (isSky(d)) {
-      vec3 V = normalize(mat3(uCamWorld) * viewAt(uv, 1.0));
-      o = mix(vec3(0.34, 0.86, 0.9), vec3(0.1, 0.56, 0.82), clamp(V.y * 1.4, 0.0, 1.0));
-      vec2 q = V.xz / (abs(V.y) + 0.3) * 2.6 + uTime * 0.03, id = floor(q), f = fract(q) - 0.5;
-      f = mat2(cos(hash(id) * 6.0), -sin(hash(id) * 6.0), sin(hash(id) * 6.0), cos(hash(id) * 6.0)) * f;
-      vec3 pet = hash(id + 2.0) > 0.5 ? vec3(0.62, 0.96, 0.8) : vec3(0.72, 0.9, 1.0);
-      o = mix(o, pet, flower(f * 2.4) * 0.8 * step(0.35, hash(id + 5.0)));
-    } else {
-      vec3 P = viewAt(uv, d), W = (uCamWorld * vec4(P, 1.0)).xyz;
-      float l = luma(c);
-      o = nearest(sat(c, 2.0));
-      o *= l < 0.22 ? 0.74 : 1.0;
-      if (W.y < 0.7) {
-        float gr = noise(W.xz * 0.9) * 0.5 + noise(W.xz * 0.2) * 0.5;
-        o = mix(vec3(0.98, 0.9, 0.62), vec3(0.9, 0.78, 0.5), gr) * (0.55 + l * 0.75);
-      }
-      vec2 cw = W.xz * 0.06 + W.y * 0.04;
-      float ca = sin(cw.x * 7.0 + sin(cw.y * 5.0 + uTime) * 2.0 + uTime * 0.8) * sin(cw.y * 6.0 + sin(cw.x * 4.0 - uTime) * 2.0);
-      o += vec3(0.5, 0.9, 0.85) * smoothstep(0.55, 0.95, ca) * 0.26 * exp(P.z * 0.004);
-      o = mix(o, vec3(0.2, 0.68, 0.8), 1.0 - exp(P.z * 0.0022));
-      o = mix(o, vec3(0.07, 0.1, 0.16), max(lineAt(uv, 1.5, 0.012, 0.035), lineAt(uv, 1.0, 0.02, 0.06)));
-    }
-    o += (bubbles(vUv, 7.0, 0.11) + bubbles(vUv + 0.37, 12.0, 0.17) * 0.7) * vec3(0.86, 0.97, 1.0) * 0.62;
-    gl_FragColor = vec4(o, alphaAt(s.a));
-  }`;
 const VAPOR = `// vaporwave: pôr do sol rosa, sol listrado, cidade em tons pastel, faixas de TV velha e a cor escorrendo pros lados
   vec3 grade(float l){ return l < 0.5 ? mix(vec3(0.17, 0.05, 0.42), vec3(1.0, 0.27, 0.68), l * 2.0) : mix(vec3(1.0, 0.27, 0.68), vec3(0.45, 0.97, 1.0), (l - 0.5) * 2.0); }
   void main(){
@@ -349,14 +214,12 @@ const VAPOR = `// vaporwave: pôr do sol rosa, sol listrado, cidade em tons past
     gl_FragColor = vec4(o, alphaAt(s.a));
   }`;
 
+// lines = linhas de pixels na tela (desenho em baixa resolução); rope = grossura da teia, senão ela some nos pixels;
+// step = quadros por segundo das poses do boneco; mine = não passa por shader nenhum: a cidade vira blocos de verdade (mine.js)
 export const ART_STYLES = [
   { id: 'normal', label: 'Normal', icon: '🌆' },
   { id: 'pixel', label: 'Pixel Art', icon: '👾', frag: PIXEL, lines: 270, pal: ENDESGA, rope: 2.6, step: 12, glow: 0.35 },
   { id: 'blocos', label: 'Minecraft', icon: '⛏️', mine: true },
-  { id: 'geleia', label: 'Geleia', icon: '🍮', frag: JELLY, marks: true, jelly: true, rope: 1.4 },
-  { id: 'gibi', label: 'Gibi', icon: '💥', frag: COMIC, rope: 1.6, glow: 0.5 },
-  { id: 'simpsons', label: 'Simpsons', icon: '🍩', frag: SIMPSONS, pal: SPRINGFIELD, marks: true, rope: 1.5, glow: 0.4 },
-  { id: 'bob', label: 'Bob Esponja', icon: '🧽', frag: BIKINI, pal: BIKINI_PAL, rope: 1.5, glow: 0.4 },
   { id: 'neon', label: 'Neon', icon: '🌃', frag: NEON, rope: 1.5 },
   { id: 'vapor', label: 'Vaporwave', icon: '🌴', frag: VAPOR, rope: 1.4, glow: 0.5 },
   { id: 'ascii', label: 'ASCII', icon: '🔠', frag: ASCII, rope: 2 },
@@ -404,8 +267,6 @@ export class Art {
     this.rope = 1;
     this.glow = 1;
     this.bend = 0;
-    this.fine = [];
-    this.rips = 0;
     this.sun = new THREE.Vector3(0, 1, 0);
     this.night = 0;
     this.scene = new THREE.Scene();
@@ -427,16 +288,6 @@ export class Art {
   }
 
   get on() { return !!this.style.frag; }
-
-  // gente, carros e móveis: pecinhas menores, e a marca no alfa diz ao shader quem é quem
-  markFine(mat) {
-    mat.blending = THREE.CustomBlending;
-    mat.blendSrc = mat.blendSrcAlpha = THREE.OneFactor;
-    mat.blendDst = mat.blendDstAlpha = THREE.ZeroFactor;
-    this.fine.push(mat);
-  }
-  // quem acompanha o jogador (teia, boneco, item) não pode balançar com o quarteirão: pulava a cada esquina
-  rigid(mat) { mat.defines = { ...mat.defines, ART_RIGID: 1 }; return mat; }
 
   material(S) {
     if (S.frag && !this.mats.has(S.id)) this.mats.set(S.id, new THREE.ShaderMaterial({ vertexShader: QUAD_VERT, fragmentShader: `${BASE}\n${S.frag}`.replaceAll('texture2D(tColor,', 'sceneAt(').replace('vec3 fit(vec3 v)', `${SCENE_AT}\n  vec3 fit(vec3 v)`), uniforms: this.u, depthTest: false, depthWrite: false, toneMapped: false, blending: THREE.NoBlending }));
@@ -465,26 +316,15 @@ export class Art {
     if (S.id === 'ascii' && !this.u.tGlyph.value) this.u.tGlyph.value = glyphs();
     if (S.pal) { S.pal.forEach((c, i) => this.u.uPal.value[i].copy(c)); this.u.uPalN.value = S.pal.length; }
     this.rope = S.rope || 1;
-    U.uArtJelly.value = S.jelly ? 1 : 0;
-    for (const m of this.fine) m.opacity = S.marks ? 0.5 : 1;
-    this.world.u.uMark.value = S.marks ? 0.5 : 1;
     this.world.step = S.step || 0;
     this.glow = S.glow ?? 1;
     this.world.artOn = this.on;
-    this.syncOn();
     this.refit = true;
     document.body.dataset.art = S.id;
     this.renderer.domElement.style.imageRendering = S.lines ? 'pixelated' : '';
   }
 
-  syncOn() { U.uArtOn.value = this.style.jelly || this.bend ? 1 : 0; }
-  setBend(v) { this.bend = U.uArtBend.value = v; this.syncOn(); }
-
-  // pancada no chão (só aparece na geleia)
-  ripple(x, z, k) {
-    const r = U.uArtRip.value[this.rips++ % 4];
-    r.set(x, z, this.time, k);
-  }
+  setBend(v) { this.bend = U.uArtBend.value = v; U.uArtOn.value = v ? 1 : 0; }
 
   free() {
     for (const { rt, low } of this.kept.values()) {
@@ -520,25 +360,11 @@ export class Art {
     ({ rt: this.rt, low: this.low } = this.kept.get(key));
   }
 
-  // o relógio do mundo entortado anda sempre, mesmo no estilo normal: a geleia liga sem salto
   update(dt, camera, sun, night) {
     this.time += dt;
-    U.uArtTime.value = this.time;
     U.uArtEye.value.copy(camera.position);
     this.sun.copy(sun);
     this.night = night;
-  }
-
-  // mesma conta do vértice, pra ponta da teia acompanhar o prédio que balança
-  bent(p, out) {
-    out.copy(p);
-    if (U.uArtJelly.value) {
-      const a = Math.floor(p.x / 52), b = Math.floor(p.z / 52), f = Math.sin(a * 12.9898 + b * 78.233) * 43758.5453, ph = (f - Math.floor(f)) * 6.283, h = Math.max(p.y, 0), t = this.time;
-      out.x += Math.sin(t * 2.1 + ph) * h * 0.016;
-      out.z += Math.cos(t * 1.7 + ph * 1.3) * h * 0.016;
-      out.y *= 1 + 0.008 * Math.sin(t * 3.1 + ph * 2);
-    }
-    return out;
   }
 
   render(scene, camera) {

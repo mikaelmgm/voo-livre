@@ -33,7 +33,6 @@ export class Flyers {
     this.kinds = {};
     const add = (key, geo, max) => {
       const mat = new THREE.MeshLambertMaterial({ vertexColors: true });
-      mat.defines = { ART_RIGID: 1 };
       const m = new THREE.InstancedMesh(geo, mat, max);
       m.frustumCulled = false;
       m.count = 0;

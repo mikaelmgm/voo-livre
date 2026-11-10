@@ -2,12 +2,7 @@
 // Fica fora do jogo de propósito: mesmo com o jogo quebrado, este arquivo roda e o botão aparece no menu.
 (() => {
   const NOVIDADES = [
-    '🌊 Água pelo portal: um no mar e o outro num prédio, sai uma cachoeira do prédio. No chão vira chafariz, na Lua sobe alto',
-    '🌀 O jato carrega quem entra nele, e um redemoinho no mar puxa você pro portal: sai voando junto com a água',
-    '🏖️ O portal agora pega na areia da praia e na água (antes ficava enterrado)',
-    '🌙 Portal entre mundos: um na Lua e o outro na Terra. O buraco mostra a cor do outro lado e quem entra muda de mundo',
-    '👋 T leva até o amigo em qualquer mundo: ele na Lua, no inferno ou no fim e você na Terra. Com mais de um, cada T vai pro próximo',
-    '❤️ No Minecraft só se morre no fim. No resto a vida para em meio coração',
+    '🎥 A câmera não dá mais aquele pulo pra cima do nada enquanto você voa',
   ];
   const css = `
     .ver-box { display: flex; flex-direction: column; gap: 8px; }

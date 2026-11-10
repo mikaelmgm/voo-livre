@@ -65,7 +65,8 @@ VERSÃO 3D (TESTE)
   Mouse olha · W A S D anda/impulso (diagonais) · Espaço pulo/pulo duplo · Q cambalhota
   Shift PRESO NA CORDA = BOOST (prende, boosta rapidinho, solta e acumula velocidade)
   Shift solto no ar = mergulho (no chão corre) · E ou rodinha = corda · T ir até o amigo · R voltar ao início
-  A teia é elástica e encurta sozinha perto do chão. Segure S preso na teia pra descer de propósito.
+  A teia é elástica. Lá de cima ela é um pêndulo: fica do tamanho que saiu e só encolhe enquanto você desce, o bastante pra não raspar no chão.
+  Atirada da rua, ela puxa você pra cima de uma vez. Pra encurtar na hora é E ou a rodinha. Segure S preso na teia pra descer de propósito.
   PERSONAGEM: no Esc escolha a skin e o quanto ele é mole (0 = borracha, 100 = derretendo). Todo mundo vê.
     Aranha, Aranha preto e Simbionte usam teia. Bala de goma e Cachecol esticam o próprio braço.
   DUAS TEIAS: botão esquerdo numa mão, botão direito na outra.
@@ -93,8 +94,8 @@ VERSÃO 3D (TESTE)
     portal do mar um redemoinho puxa pra dentro: você sai voando junto com a água do outro lado.
   VELOCIDADE: não tem limite, mas acima de 360 km/h ela cai bem rápido.
   ESTILOS DE ARTE (aba Arte): tudo muda na hora e as mecânicas são as mesmas. B troca jogando.
-    Pixel Art, Minecraft, Geleia, Gibi, Simpsons, Bob Esponja, Neon, Vaporwave, ASCII, Noir e Sonho.
-    "Surpresa" troca sozinho a cada 25 s. Só você vê o seu estilo. Na Geleia, os pousos fortes viram ondas pela rua.
+    Pixel Art, Minecraft, Neon, Vaporwave, ASCII, Noir e Sonho.
+    "Surpresa" troca sozinho a cada 25 s. Só você vê o seu estilo.
   OUTROS MUNDOS (segredo): na Lua tem uma moldura antiga com 12 encaixes vazios. No Minecraft, a mochila (E) tem
     obsidiana, isqueiro e mesa de trabalho: monte uma moldura em pé e acenda com o isqueiro (botão direito) pra ir ao
     inferno. Lá, do outro lado do lago de lava, tem um baú. Na mesa de trabalho (botão direito nela): vara = 2 pós de

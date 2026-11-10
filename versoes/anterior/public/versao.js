@@ -2,10 +2,9 @@
 // Fica fora do jogo de propósito: mesmo com o jogo quebrado, este arquivo roda e o botão aparece no menu.
 (() => {
   const NOVIDADES = [
-    '🌀 O portal agora pega na areia da praia e na água (antes ficava enterrado)',
-    '🌙 Portal entre mundos: um na Lua e o outro na Terra. O buraco mostra a cor do outro lado e quem entra muda de mundo',
-    '👋 T leva até o amigo em qualquer mundo: ele na Lua, no inferno ou no fim e você na Terra. Com mais de um, cada T vai pro próximo',
-    '❤️ No Minecraft só se morre no fim. No resto a vida para em meio coração',
+    '🕸️ A teia agora é um pêndulo: lá do alto ela fica do tamanho que saiu e não te puxa mais de repente pro prédio',
+    '⌨️ Aba Jogar nova, com o desenho de cada tecla e o que ela faz do lado',
+    '🎨 Saíram os estilos Geleia, Gibi, Simpsons e Bob Esponja',
   ];
   const css = `
     .ver-box { display: flex; flex-direction: column; gap: 8px; }
