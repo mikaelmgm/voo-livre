@@ -69,6 +69,7 @@ VERSÃO 3D (TESTE)
   Atirada da rua, ela puxa você pra cima de uma vez. Pra encurtar na hora é E ou a rodinha. Segure S preso na teia pra descer de propósito.
   PERSONAGEM: no Esc escolha a skin e o quanto ele é mole (0 = borracha, 100 = derretendo). Todo mundo vê.
     Aranha, Aranha preto e Simbionte usam teia. Bala de goma e Cachecol esticam o próprio braço.
+    Também tem Astronauta (visor dourado que espelha), Robô, Neon (linhas de luz na sua cor), Magma, Ouro e Esqueleto.
   DUAS TEIAS: botão esquerdo numa mão, botão direito na outra.
   POUSO: no ar, aperte CTRL mirando num telhado ou no chão. As duas teias te levam até ali, embalado, e freiam só no fim.
     De baixo, mire a beirada do prédio. Espaço cancela. No chão o CTRL não pousa: finca o pé e puxa, como antes.
@@ -93,6 +94,8 @@ VERSÃO 3D (TESTE)
     prédio vira cachoeira, no chão vira chafariz, na Lua sobe alto. O jato carrega quem entra nele, e em volta do
     portal do mar um redemoinho puxa pra dentro: você sai voando junto com a água do outro lado.
   VELOCIDADE: não tem limite, mas acima de 360 km/h ela cai bem rápido.
+  LUZ DE CINEMA: nas qualidades Média e Alta a imagem é desenhada em HDR. O vidro reflete o céu, o que é luz brilha e vaza em volta,
+    os cantos ganham sombra de contato e o sol baixo risca raios entre os prédios. Na Baixa, na Mínima e no modo leve ela desliga sozinha.
   ESTILOS DE ARTE (aba Arte): tudo muda na hora e as mecânicas são as mesmas. B troca jogando.
     Pixel Art, Minecraft, Neon, Vaporwave, ASCII, Noir e Sonho.
     "Surpresa" troca sozinho a cada 25 s. Só você vê o seu estilo.

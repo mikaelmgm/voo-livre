@@ -2,7 +2,14 @@
 // Fica fora do jogo de propósito: mesmo com o jogo quebrado, este arquivo roda e o botão aparece no menu.
 (() => {
   const NOVIDADES = [
-    '🎥 A câmera não dá mais aquele pulo pra cima do nada enquanto você voa',
+    '✨ Visual novo: luz de cinema. Vidro que reflete o céu, janelas e postes que brilham de noite, sombra nos cantos e raios de sol entre os prédios',
+    '🌅 Céu refeito: sol e lua de verdade, nuvens com luz e sombra, via láctea, e o mar com ondas, espuma e o caminho de luz do sol',
+    '🧑‍🚀 Seis personagens novos na aba Boneco: Astronauta, Robô, Neon, Magma, Ouro e Esqueleto',
+    '🟢 O boneco agora fica na sombra dos prédios, reflete o céu e brilha de verdade',
+    '🌀 Portais com anel de energia e luz na parede em volta. Lua com relevo e um terço a menos de asteroides',
+    '🧱 Não dá mais pra atravessar parede voando rápido, nem as coisas em cima dos prédios',
+    '🦖 Gigante, o chão não some mais na neblina',
+    '🎥 A câmera não dá mais aquele pulo pra cima do nada',
   ];
   const css = `
     .ver-box { display: flex; flex-direction: column; gap: 8px; }
