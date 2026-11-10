@@ -190,18 +190,46 @@ function shopsAround(L, i, j, kit, x0, z0, x1, z1) {
   });
 }
 
-function roofJunk(L, i, j, kit) {
-  const P = kit.small;
-  const top = L.crown ? L.h + 0.8 + L.crown.h : L.h + 0.8;
+// O que fica em cima do telhado. A mesma lista serve pro desenho e pra colisão: antes dava pra atravessar tudo isso.
+function roofSpot(L) {
+  if (L.park || L.cinema || L.court || L.fun || L.beach || L.store || L.kind) return null;
+  if (!L.parts) return L;
+  const top = L.parts.reduce((a, b) => (b.y1 > a.y1 ? b : a));
+  return top.round ? null : { ...L, h: top.y1 - 0.2, cx: top.x, cz: top.z, w: top.w, d: top.d, crown: null, parts: null, hutless: true };
+}
+function roofItems(L, i, j) {
+  const top = L.crown ? L.h + 0.8 + L.crown.h : L.h + 0.8, out = [];
   const hw = (L.crown ? L.crown.w : L.w) / 2 - 1.6, hd = (L.crown ? L.crown.d : L.d) / 2 - 1.6;
+  if (!L.crown && !L.hutless && rnd(i, j, 9) > 0.45) out.push({ kind: 'hut', x: L.cx, z: L.cz, top });      // casa de máquinas
   for (let k = 0; k < 4; k++) {
     if (rnd(i, j + k, 23) < 0.35) continue;
-    const x = L.cx + (rnd(i, j + k, 24) * 2 - 1) * hw, z = L.cz + (rnd(i, j + k, 25) * 2 - 1) * hd;
-    const type = rnd(i, j + k, 26);
-    if (type < 0.4) {
+    const x = L.cx + (rnd(i, j + k, 24) * 2 - 1) * hw, z = L.cz + (rnd(i, j + k, 25) * 2 - 1) * hd, type = rnd(i, j + k, 26);
+    out.push({ kind: type < 0.4 ? 'ac' : type < 0.8 ? 'tank' : 'mast', x, z, top });
+  }
+  return out;
+}
+// caixas de colisão do telhado. As pequenas são "soft": seguram o corpo, mas não atrapalham a mira nem a câmera.
+export function roofBoxes(L, i, j) {
+  const S = roofSpot(L), out = [];
+  if (!S) return out;
+  for (const k of roofItems(S, i, j)) {
+    if (k.kind === 'hut') out.push([k.x - 2.5, k.top, k.z - 2, k.x + 2.5, k.top + 3, k.z + 2]);
+    else if (k.kind === 'ac') out.push(Object.assign([k.x - 0.8, k.top, k.z - 0.6, k.x + 0.8, k.top + 1.08, k.z + 0.6], { soft: true }));
+    else if (k.kind === 'tank') out.push(Object.assign([k.x - 0.9, k.top, k.z - 0.9, k.x + 0.9, k.top + 2.35, k.z + 0.9], { soft: true }));
+  }
+  return out;
+}
+function roofJunk(L, i, j, kit) {
+  const P = kit.small;
+  for (const { kind, x, z, top } of roofItems(L, i, j)) {
+    if (kind === 'hut') {
+      kit.plain.tint('#8c8a84').box(x - 2.5, top, z - 2, x + 2.5, top + 3, z + 2);
+      kit.plain.tint('#6e6c68').box(x - 2.7, top + 3, z - 2.2, x + 2.7, top + 3.18, z + 2.2);
+      P.tint('#3c4048').box(x - 0.55, top, z + 2, x + 0.55, top + 2.1, z + 2.06);       // porta
+    } else if (kind === 'ac') {
       P.tint('#9aa0a6').box(x - 0.8, top, z - 0.6, x + 0.8, top + 1, z + 0.6);       // ar condicionado
       P.tint('#55595f').box(x - 0.45, top + 1, z - 0.45, x + 0.45, top + 1.08, z + 0.45);
-    } else if (type < 0.8) {
+    } else if (kind === 'tank') {
       P.tint('#6a6a6a').box(x - 0.9, top, z - 0.9, x + 0.9, top + 0.6, z + 0.9);
       P.tint('#2f6cae').prism(x, top + 0.6, top + 2.1, z, 0.95, 10);                 // caixa d'água
       P.tint('#265c98').prism(x, top + 2.1, top + 2.35, z, 0.75, 10);
@@ -316,7 +344,8 @@ function dressParts(L, i, j, kit) {
   }
   const base = L.parts[0], top = L.parts.reduce((a, b) => (b.y1 > a.y1 ? b : a));
   if (!base.round) shopsAround(L, i, j, kit, base.x - base.w / 2, base.z - base.d / 2, base.x + base.w / 2, base.z + base.d / 2);
-  if (!top.round) roofJunk({ ...L, h: top.y1 - 0.2, cx: top.x, cz: top.z, w: top.w, d: top.d, crown: null }, i, j, kit);
+  const S = roofSpot(L);
+  if (S) roofJunk(S, i, j, kit);
 }
 function dressHouses(L, i, j, kit) {
   const P = kit.plain, Q = kit.small, walls = ['#e8d8b8', '#c8d8e0', '#e0c0b0', '#d0dcc0', '#f0e8dc'], roofs = ['#8a3a2c', '#5a5a64', '#6a3e2a'];
@@ -391,7 +420,6 @@ export function dressLot(L, i, j, kit) {
   } else {
     shopsAround(L, i, j, kit, x0, z0, x1, z1);
   }
-  if (rnd(i, j, 9) > 0.45 && !L.crown) P.tint('#8c8a84').box(L.cx - 2.5, L.h + 0.8, L.cz - 2, L.cx + 2.5, L.h + 3.8, L.cz + 2);
   roofJunk(L, i, j, kit);
   dressSidewalk(L, i, j, kit);
 }

@@ -8,7 +8,7 @@ import { Sound } from '../js/audio.js';
 import { Voice } from '../js/voice.js';
 import { clamp, rnd, Boxes, solid, softDot } from './lib3d.js';
 import { DayCycle, hourLabel } from './daycycle.js';
-import { CELL, styleLot, cityMaterials, lightCity, newKit, dressLot, kitMeshes, Crowd, Traffic } from './street.js';
+import { CELL, styleLot, roofBoxes, cityMaterials, lightCity, newKit, dressLot, kitMeshes, Crowd, Traffic } from './street.js';
 import { groundTexture } from './textures.js';
 import { roofLayout, courtLayout, groundLift, buildRoof, buildCourt } from './roof.js';
 import { Skyline } from './skyline.js';
@@ -159,6 +159,7 @@ function lotRaw(i, j) {
   L = { cx, cz, w, d, h, park, low, anchors, boxes, mark: mark && mark.tower };
   if (L.mark) styleLot(L, mark.ci, mark.cj);       // gêmeas de verdade: a mesma fachada e a mesma coroa
   else styleLot(L, i, j);
+  L.boxes.push(...roofBoxes(L, i, j));
   // torre alta: pontos de teia também no meio da altura, senão de baixo não dá pra subir nela
   if (!park && !L.low && L.h > 150 && !L.kind) {
     for (let y = 95, n = 0; y < L.h - 40; y += 95, n++) {
@@ -991,7 +992,14 @@ function collide() {
     }
     let n;
     if (d2 > 1e-8) { const d = Math.sqrt(d2); n = new V3(dx / d, dy / d, dz / d); me.pos.set(qx + n.x * R, qy + n.y * R, qz + n.z * R); }
-    else { n = new V3(0, 1, 0); me.pos.y = b[4] + R; }
+    else {
+      // o centro entrou na caixa: sai pela face mais perto. Antes saía sempre por cima, e isso jogava você no topo do prédio.
+      const gap = [me.pos.x - b[0], b[3] - me.pos.x, b[1] > land + 1 ? me.pos.y - b[1] : 1e9, b[4] - me.pos.y, me.pos.z - b[2], b[5] - me.pos.z];
+      let f = 3;
+      for (let k = 0; k < 6; k++) if (gap[k] < gap[f]) f = k;
+      n = new V3(f === 0 ? -1 : f === 1 ? 1 : 0, f === 2 ? -1 : f === 3 ? 1 : 0, f === 4 ? -1 : f === 5 ? 1 : 0);
+      me.pos.addScaledVector(n, gap[f] + R);
+    }
     const vn = me.vel.dot(n);
     if (vn < 0) {
       const s0 = me.vel.length();
@@ -1215,8 +1223,14 @@ function step(dt) {
   const inJet = water.jets.size ? water.push(me.pos, me.vel, dt, me.where, R) : false;      // jato de água de portal e redemoinho
   if (inJet && !me.inJet) sound.splash();
   me.inJet = inJet;
-  me.pos.addScaledVector(me.vel, dt);
-  portalCross();
+  // Voando rápido, um quadro anda vários metros. O caminho é conferido aos pedaços, cada um menor que o corpo:
+  // sem isso dava pra atravessar uma parede fina, ou entrar num prédio, entre um quadro e o outro.
+  const hops = clamp(Math.ceil(me.vel.length() * dt / (Math.min(R, 2) * 0.7)), 1, 24);
+  for (let k = 1; k <= hops; k++) {
+    me.pos.addScaledVector(me.vel, dt / hops);
+    portalCross();
+    if (k < hops) collide();
+  }
 
   if (!braced) for (const h of me.hooks) if (h) ropePull(h, dt);
   if (me.tug) {
@@ -1899,14 +1913,14 @@ function renderTime() {
 const lastMoment = { what: '', at: -1e9 };
 const moment = what => { lastMoment.what = what; lastMoment.at = performance.now(); };
 
-let qLevel = 3;
+let qLevel = 3, shadowWide = 1;      // shadowWide: o gigante precisa de sombra numa área maior
 const perf = { sum: 0, n: 0, worst: 0, fps: 0, shownWorst: 0, hold: performance.now() + 8000, good: 0, raisedAt: -1e9, ceiling: 3, show: false, drew: 0 };
 const qualSeg = $('#opt-quality');
 function applyQuality(level) {
   qLevel = level;
   Q = QUALITY[level];
   renderer.setPixelRatio(Q.pr * Math.min(window.devicePixelRatio || 1, 1.25));
-  day.setShadow(Q.shadow, Q.range);
+  day.setShadow(Q.shadow, Q.range * shadowWide);
   day.setClouds(Q.clouds);
   slimes.refract = Q.pr >= 0.85;
   roofFx.setLamps(Q.lamps);
@@ -2437,6 +2451,9 @@ function growBody(dt) {
   if (Math.abs(want - me.size) < 1e-3) return;
   me.size += (want - me.size) * Math.min(1, dt * 5);
   R = R0 * me.size;
+  // a área com sombra cresce junto, em degraus (refazer o mapa a cada quadro custaria caro)
+  const wide = Math.pow(2, Math.round(Math.log2(Math.max(1, Math.pow(me.size, 0.9)))));
+  if (wide !== shadowWide) { shadowWide = wide; day.setShadow(Q.shadow, Q.range * wide); }
   me.mesh.userData.slime.setSize(me.size);
 }
 
@@ -3291,6 +3308,7 @@ function updateCamera(dt) {
     camera.position.x += (Math.random() - 0.5) * k;
     camera.position.y += (Math.random() - 0.5) * k;
   }
+  camera.near = 0.25 * clamp(view.dist / 40, 1, 80);       // de longe, o plano de perto afasta: sobra precisão pro chão não piscar
   const fovWant = 72 + 6 * sstep(15, 75, speed / big()) + (me.boosting ? 3 : 0) + speedK * (34 + 7 * view.fp);
   fov += (fovWant - fov) * (1 - Math.exp(-dt * (fovWant > fov ? 2.5 : 8)));
   camera.fov = fov;
@@ -3516,6 +3534,8 @@ function simulate(now, dt) {
   const T = ((Date.now() + clockOffset) / 1000) % 86400;
   worldT = worldT === null ? T : worldT + (worldStopped ? 0 : dt * GOD.pace);
   day.update(hourNow(), T, me.pos);
+  // gigante, a câmera fica a centenas de metros de tudo: a neblina, que é medida pra quem está na rua, apagava o chão
+  if (view.dist > 24) scene.fog.density *= 24 / view.dist;
   if (me.where !== 'city') { scene.fog.density = 0; day.light.intensity = me.where === 'back' ? 0.4 : 2.2; }
   if (inSpace()) {
     skyInSpace();
