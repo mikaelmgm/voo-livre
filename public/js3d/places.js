@@ -228,7 +228,7 @@ export class FunPark {
     b.tint('#d8402c').box(FX1 - 1.6, 0, FCZ - 7, FX1 - 0.4, 11, FCZ - 5.6);
     b.box(FX1 - 1.6, 0, FCZ + 5.6, FX1 - 0.4, 11, FCZ + 7);
     b.tint('#f0c030').box(FX1 - 1.4, 9, FCZ - 7, FX1 - 0.6, 11.4, FCZ + 7);
-    const m = new THREE.Mesh(b.build(), new THREE.MeshLambertMaterial({ vertexColors: true }));
+    const m = new THREE.Mesh(b.build(), new THREE.MeshStandardMaterial({ vertexColors: true }));
     m.receiveShadow = true;
     this.group.add(m);
     const sign = canvasTex(512, 96, (g, w, h) => {
@@ -245,7 +245,7 @@ export class FunPark {
 
   buildWheel() {
     const { wheel: C } = this.spot, R = 34, hub = R + 6, n = 16;
-    const metal = new THREE.MeshLambertMaterial({ color: '#d8dce2' });
+    const metal = new THREE.MeshStandardMaterial({ color: '#d8dce2' });
     const rot = this.wheel = new THREE.Group();
     rot.position.set(C.x, hub, C.z);
     for (const z of [-2.4, 2.4]) {
@@ -269,7 +269,7 @@ export class FunPark {
     box.box(-1.2, -1.8, 1.28, -1.08, -0.5, 1.4);
     box.box(1.08, -1.8, 1.28, 1.2, -0.5, 1.4);
     box.box(-1.45, -0.5, -1.65, 1.45, -0.28, 1.65);
-    this.cabins = new THREE.InstancedMesh(box.build(), new THREE.MeshLambertMaterial({ vertexColors: true }), n);
+    this.cabins = new THREE.InstancedMesh(box.build(), new THREE.MeshStandardMaterial({ vertexColors: true }), n);
     this.cabins.frustumCulled = false;
     this.cabins.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     const palette = ['#e8483a', '#f0c030', '#3c9ae8', '#3cc87a', '#d868c8', '#ff8a3a'], c = new THREE.Color();
@@ -309,10 +309,10 @@ export class FunPark {
     this.trackL = curve.getLength();
     const side = i => { const t = P[(i + 1) % N].clone().sub(P[(i + N - 1) % N]).normalize(); return new THREE.Vector3(-t.z, 0, t.x).normalize(); };
     const rail = s => new THREE.CatmullRomCurve3(P.filter((_, i) => i % 6 === 0).map((p, k) => p.clone().addScaledVector(side(k * 6), s)), true);
-    const steel = new THREE.MeshLambertMaterial({ color: '#e84a3a' });
+    const steel = new THREE.MeshStandardMaterial({ color: '#e84a3a' });
     this.group.add(new THREE.Mesh(new THREE.TubeGeometry(rail(-0.62), 500, 0.1, 5, true), steel), new THREE.Mesh(new THREE.TubeGeometry(rail(0.62), 500, 0.1, 5, true), steel));
-    const ties = new THREE.InstancedMesh(new THREE.BoxGeometry(1.5, 0.1, 0.28), new THREE.MeshLambertMaterial({ color: '#70747c' }), 170);
-    const posts = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.2, 0.26, 1, 7).translate(0, 0.5, 0), new THREE.MeshLambertMaterial({ color: '#f0ece0' }), 44);
+    const ties = new THREE.InstancedMesh(new THREE.BoxGeometry(1.5, 0.1, 0.28), new THREE.MeshStandardMaterial({ color: '#70747c' }), 170);
+    const posts = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.2, 0.26, 1, 7).translate(0, 0.5, 0), new THREE.MeshStandardMaterial({ color: '#f0ece0' }), 44);
     const d = new THREE.Object3D();
     for (let k = 0; k < 170; k++) {
       const i = Math.floor(k / 170 * N), s = side(i);
@@ -336,7 +336,7 @@ export class FunPark {
     car.rgb(1, 1, 1).box(-0.8, 0, -1.3, 0.8, 0.7, 1.3);
     car.rgb(0.12, 0.12, 0.14).box(-0.65, 0.4, -0.9, 0.65, 0.74, 0.9);
     car.rgb(0.9, 0.9, 0.9).prism(0, 0.7, 1.05, 1.3, 0.3, 6, 0.12);
-    this.train = new THREE.InstancedMesh(car.build(), new THREE.MeshLambertMaterial({ vertexColors: true }), 3);
+    this.train = new THREE.InstancedMesh(car.build(), new THREE.MeshStandardMaterial({ vertexColors: true }), 3);
     this.train.frustumCulled = false;
     this.train.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     const col = new THREE.Color();
@@ -351,7 +351,7 @@ export class FunPark {
     st.tint('#c8b08c').box(c.x - 15, 0, c.z + 2.2, c.x + 16, 5.4, c.z + 7);
     st.tint('#8a5a34').box(c.x - 16, 10, c.z - 3, c.x + 17, 10.5, c.z + 8);
     for (const x of [-15, 16]) for (const z of [-2.6, 7.4]) st.tint('#7a4a2c').box(c.x + x - 0.2, 0, c.z + z - 0.2, c.x + x + 0.2, 10, c.z + z + 0.2);
-    this.group.add(new THREE.Mesh(st.build(), new THREE.MeshLambertMaterial({ vertexColors: true })));
+    this.group.add(new THREE.Mesh(st.build(), new THREE.MeshStandardMaterial({ vertexColors: true })));
   }
 
   trackAt(s, out, tan) {
@@ -364,11 +364,11 @@ export class FunPark {
   buildCarousel() {
     const C = this.spot.carousel, top = new THREE.Group();
     top.position.set(C.x, 0, C.z);
-    const roof = new THREE.Mesh(new THREE.ConeGeometry(11.5, 4.4, 24), new THREE.MeshLambertMaterial({ map: stripes('#e8483a', '#fff0d8', 24) }));
+    const roof = new THREE.Mesh(new THREE.ConeGeometry(11.5, 4.4, 24), new THREE.MeshStandardMaterial({ map: stripes('#e8483a', '#fff0d8', 24) }));
     roof.position.y = 8.2;
-    const floor = new THREE.Mesh(new THREE.CylinderGeometry(10.4, 10.8, 0.7, 24), new THREE.MeshLambertMaterial({ color: '#e8c070' }));
+    const floor = new THREE.Mesh(new THREE.CylinderGeometry(10.4, 10.8, 0.7, 24), new THREE.MeshStandardMaterial({ color: '#e8c070' }));
     floor.position.y = 0.35;
-    const mid = new THREE.Mesh(new THREE.CylinderGeometry(1.6, 1.6, 6, 12), new THREE.MeshLambertMaterial({ color: '#f0c030' }));
+    const mid = new THREE.Mesh(new THREE.CylinderGeometry(1.6, 1.6, 6, 12), new THREE.MeshStandardMaterial({ color: '#f0c030' }));
     mid.position.y = 3.4;
     top.add(roof, floor, mid);
     const horse = new Boxes();
@@ -377,7 +377,7 @@ export class FunPark {
     horse.box(-0.17, 1.8, 1.05, 0.17, 2.05, 1.5);
     for (const sx of [-1, 1]) for (const sz of [-1, 1]) horse.box(sx * 0.2 - 0.08, 0.1, sz * 0.62 - 0.08, sx * 0.2 + 0.08, 0.8, sz * 0.62 + 0.08);
     horse.rgb(0.75, 0.62, 0.3).box(-0.04, -0.3, -0.04, 0.04, 5.4, 0.04);
-    this.horses = new THREE.InstancedMesh(horse.build(), new THREE.MeshLambertMaterial({ vertexColors: true }), 12);
+    this.horses = new THREE.InstancedMesh(horse.build(), new THREE.MeshStandardMaterial({ vertexColors: true }), 12);
     this.horses.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     this.horses.frustumCulled = false;
     const c = new THREE.Color();
@@ -396,14 +396,14 @@ export class FunPark {
       b.tint('#ffe9a8').box(x - 2.6, 1.3, z + 2.42, x + 2.6, 2.4, z + 2.44);
       roofs.push([x, z]);
     });
-    this.group.add(new THREE.Mesh(b.build(), new THREE.MeshLambertMaterial({ vertexColors: true })));
+    this.group.add(new THREE.Mesh(b.build(), new THREE.MeshStandardMaterial({ vertexColors: true })));
     const roofGeo = new THREE.ConeGeometry(4.6, 2.5, 16).translate(0, 1.25, 0);
-    const mat = new THREE.MeshLambertMaterial({ map: stripes('#3c9ae8', '#ffffff', 16) });
+    const mat = new THREE.MeshStandardMaterial({ map: stripes('#3c9ae8', '#ffffff', 16) });
     const inst = new THREE.InstancedMesh(roofGeo, mat, roofs.length), m = new THREE.Matrix4();
     roofs.forEach(([x, z], k) => { m.makeTranslation(x, 2.8, z); inst.setMatrixAt(k, m); });
     this.group.add(inst);
     // bolas de encher amarradas nas barracas
-    const balloons = new THREE.InstancedMesh(new THREE.SphereGeometry(0.42, 10, 8), new THREE.MeshLambertMaterial(), 12), c = new THREE.Color();
+    const balloons = new THREE.InstancedMesh(new THREE.SphereGeometry(0.42, 10, 8), new THREE.MeshStandardMaterial(), 12), c = new THREE.Color();
     for (let k = 0; k < 12; k++) {
       const [x, z] = spots[k % spots.length];
       m.makeTranslation(x + Math.cos(k * 2.4) * 3.2, 5.6 + (k % 3) * 0.6, z + Math.sin(k * 2.4) * 3.2);
@@ -624,7 +624,7 @@ export class Beach {
     geo.setIndex(I);
     geo.computeVertexNormals();
     if (geo.attributes.normal.getY(0) < 0) { geo.index.array.reverse(); geo.computeVertexNormals(); }
-    this.sand = new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ map: tex }));
+    this.sand = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ map: tex }));
     this.sand.receiveShadow = true;
     this.sand.frustumCulled = false;
     this.group.add(this.sand);
@@ -635,16 +635,16 @@ export class Beach {
     for (const [x, z] of boards) walk.box(x - 3.2, 4.6, z - 3.2, x + 3.2, 4.72, z + 3.2);
     walk.tint('#fff').box(-30, 4.6, SAND_Z + 54, -26, 8.6, SAND_Z + 58);
     walk.tint('#e8483a').box(-30.5, 8.6, SAND_Z + 53.5, -25.5, 9, SAND_Z + 58.5);
-    this.walk = new THREE.Mesh(walk.build(), new THREE.MeshLambertMaterial({ vertexColors: true }));
+    this.walk = new THREE.Mesh(walk.build(), new THREE.MeshStandardMaterial({ vertexColors: true }));
     this.group.add(this.walk);
     const palms = aroundIsle(80, 22), umbs = aroundIsle(54, 64);
-    this.palms = new THREE.InstancedMesh(palmGeo(), new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide }), palms.length);
+    this.palms = new THREE.InstancedMesh(palmGeo(), new THREE.MeshStandardMaterial({ vertexColors: true, side: THREE.DoubleSide }), palms.length);
     this.palms.castShadow = true;
     const umb = new Boxes();
     umb.tint('#d8d8d0').box(-0.05, 0, -0.05, 0.05, 2.3, 0.05);
     umb.rgb(1, 1, 1).prism(0, 2.15, 2.65, 0, 1.9, 8, 0.08);
     umb.tint('#f0e8e0').box(-0.45, 0.02, 0.6, 0.45, 0.06, 2.4);
-    this.umbs = new THREE.InstancedMesh(umb.build(), new THREE.MeshLambertMaterial({ vertexColors: true }), umbs.length);
+    this.umbs = new THREE.InstancedMesh(umb.build(), new THREE.MeshStandardMaterial({ vertexColors: true }), umbs.length);
     this.palms.frustumCulled = this.umbs.frustumCulled = false;
     const m = new THREE.Matrix4(), c = new THREE.Color();
     palms.forEach(([x, z], k) => {
@@ -674,7 +674,7 @@ export class Beach {
     ig.setAttribute('color', new THREE.Float32BufferAttribute(IC, 3));
     ig.setIndex(II);
     ig.computeVertexNormals();
-    this.islet = new THREE.Mesh(ig, new THREE.MeshLambertMaterial({ vertexColors: true }));
+    this.islet = new THREE.Mesh(ig, new THREE.MeshStandardMaterial({ vertexColors: true }));
     this.islet.receiveShadow = true;
     this.islet.frustumCulled = false;
     const ipalms = new THREE.InstancedMesh(this.palms.geometry, this.palms.material, 14);

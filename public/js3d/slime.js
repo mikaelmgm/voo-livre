@@ -14,6 +14,12 @@ export const SLIME_SKINS = {
   simb: { label: 'Simbionte', kind: 2, a: '#0b0b12', b: '#0b0b12', line: '#f2f4ff', tintA: '#3a3a50', tintB: '#3a3a50' },
   gummy: { label: 'Bala de goma', kind: 3, arm: true },
   scarf: { label: 'Cachecol', kind: 4, a: '#2a2740', b: '#2a2740', tintA: '#6a64a8', tintB: '#6a64a8', arm: true },
+  astro: { label: 'Astronauta', kind: 5, a: '#eef1f5', b: '#ff7a1a', tintA: '#e4ecf8', tintB: '#ffc9a0' },
+  robo: { label: 'Robô', kind: 6, a: '#6a7684', b: '#19d8ff', tintA: '#9fb2c8', tintB: '#9fb2c8' },
+  neon: { label: 'Neon', kind: 7, tintA: '#20222c', tintB: '#20222c' },
+  magma: { label: 'Magma', kind: 8, a: '#1a1210', b: '#ff5a10', tintA: '#ff7a30', tintB: '#5a2a1a' },
+  ouro: { label: 'Ouro', kind: 9, a: '#ffc247', b: '#ffc247', tintA: '#ffe6a8', tintB: '#ffe6a8' },
+  osso: { label: 'Esqueleto', kind: 10, a: '#08080c', b: '#ece8d8', tintA: '#3a3a48', tintB: '#3a3a48' },
 };
 
 // ------------------------------------------------------------------ esqueleto em repouso (metros, pé em y = -0.6)
@@ -250,13 +256,14 @@ const VERT = `attribute vec3 aRest; attribute float aMix, aThick;
     gl_Position = projectionMatrix * mv;
   }`;
 
-const LIGHTS = `uniform vec3 uSun, uSunCol, uSky, uGnd, uHor, uTop, uFog; uniform float uSunI, uHemi, uNight, uFogD;
+const LIGHTS = `uniform vec3 uSun, uSunCol, uSky, uGnd, uHor, uTop, uFog; uniform float uSunI, uHemi, uNight, uFogD, uShade, uTime;
   varying vec3 vN, vV, vNV, vRest; varying float vMix, vThick, vDist;
   vec3 fogged(vec3 c){ float f = uFogD * vDist; return mix(c, uFog, 1.0 - exp(-f * f)); }`;
 
 // o miolo: aqui mora o traje, desenhado a partir da posição de repouso, então ele estica junto com o corpo
 const SUIT_FRAG = `${LIGHTS}
   uniform vec3 uA, uB, uLine; uniform float uKind, uEye;
+  float gMetal, gRough;      // o material de cada pedaço do traje: quanto é metal e o quanto é liso
   float stroke(float d, float w, float aa){ return 1.0 - smoothstep(w - aa, w + aa, abs(d)); }
   float seg(vec2 p, vec2 a, vec2 b){ vec2 pa = p - a, ba = b - a; return length(pa - ba * clamp(dot(pa, ba) / dot(ba, ba), 0.0, 1.0)); }
   float web(vec2 q, float n, float dr, float w){
@@ -279,8 +286,144 @@ const SUIT_FRAG = `${LIGHTS}
     d = min(d, seg(q, vec2(0.01, -0.03), vec2(0.1, -0.13)) - 0.008);
     return d * k;
   }
+  float box2(vec2 p, vec2 b, float r){ vec2 q = abs(p) - b + r; return length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - r; }
+  float h1(float n){ return fract(sin(n) * 43758.5453); }
+  float n3(vec3 p){
+    vec3 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
+    float n = dot(i, vec3(1.0, 57.0, 113.0));
+    return mix(mix(mix(h1(n), h1(n + 1.0), f.x), mix(h1(n + 57.0), h1(n + 58.0), f.x), f.y), mix(mix(h1(n + 113.0), h1(n + 114.0), f.x), mix(h1(n + 170.0), h1(n + 171.0), f.x), f.y), f.z);
+  }
+  // Os personagens novos. Cada um é desenhado direto na posição de repouso do corpo, então estica junto com ele.
+  // reg: 0 cabeça, 1 pernas, 2 braços, 3 tronco. IN = dentro de uma forma (distância negativa), já com a borda alisada.
+  vec3 suit2(vec3 p, out float glow){
+    glow = 0.0;
+    float ax = abs(p.x), kind = uKind, aa = fwidth(p.y) + 0.002;
+    #define IN(d) (1.0 - smoothstep(-aa, aa, d))
+    int reg = p.y > 0.63 ? 0 : (p.y < -0.2 || (ax > 0.13 && p.y < -0.12)) ? 1 : ax > 0.44 ? 2 : 3;
+    vec3 h = p - vec3(0.0, 0.96, 0.0), c = uA;
+    float face = step(p.z, 0.0);
+    if (kind < 5.5) {
+      // ---- astronauta: traje branco, visor dourado que espelha, painel no peito com luzinhas
+      gRough = 0.5;
+      vec3 grey = vec3(0.3, 0.32, 0.36);
+      if (reg == 0) {
+        float d = box2(vec2(ax, h.y - 0.02), vec2(0.27, 0.15), 0.12), v = IN(d) * step(p.z, 0.04);
+        c = mix(c, grey, IN(abs(d - 0.022) - 0.016) * step(p.z, 0.04));
+        c = mix(c, vec3(1.0, 0.7, 0.26), v); gMetal = v; gRough = mix(gRough, 0.06, v);
+        c = mix(c, uB, IN(ax - 0.035) * step(0.2, h.y) * (1.0 - v));
+      } else if (reg == 3) {
+        c = mix(c, grey, step(0.55, p.y));
+        float pn = IN(box2(vec2(p.x, p.y - 0.36), vec2(0.16, 0.085), 0.02)) * face;
+        c = mix(c, vec3(0.1, 0.11, 0.14), pn);
+        for (int i = 0; i < 3; i++) {
+          float l = IN(length(vec2(p.x + 0.085 - 0.085 * float(i), p.y - 0.37)) - 0.022) * face;
+          c = mix(c, i == 0 ? vec3(1.0, 0.15, 0.1) : i == 1 ? vec3(0.2, 1.0, 0.35) : vec3(0.35, 0.7, 1.0), l);
+          glow = max(glow, l * 3.0);
+        }
+        c = mix(c, uB, IN(abs(ax - 0.33) - 0.018) * (1.0 - pn));
+        c = mix(c, grey, IN(abs(p.y + 0.02) - 0.035));
+      } else if (reg == 2) {
+        c = mix(c, uB, IN(abs(ax - 0.6) - 0.03));
+        c = mix(c, grey, smoothstep(0.82, 0.84, ax));
+      } else {
+        c = mix(c, uB, IN(abs(p.y + 0.31) - 0.025));
+        c = mix(c, grey, 1.0 - smoothstep(-0.45, -0.43, p.y));
+      }
+    } else if (kind < 6.5) {
+      // ---- robô: metal escovado em placas, visor preto com olhos acesos e um núcleo pulsando no peito
+      gMetal = 0.88; gRough = 0.36;
+      float seam = 0.0, dark = 0.0;
+      if (reg == 0) {
+        float band = IN(abs(h.y - 0.04) - 0.09) * step(p.z, 0.06);
+        dark = band;
+        float e = IN(box2(vec2(ax - 0.17, h.y - 0.04), vec2(0.08, 0.034) * uEye, 0.03)) * face;
+        c = mix(mix(c, vec3(0.012, 0.015, 0.022), band), uB, e);
+        glow = e * 3.6;
+        seam = IN(abs(h.y - 0.25) - 0.006);
+      } else if (reg == 3) {
+        seam = max(IN(abs(ax - 0.21) - 0.005), IN(abs(p.y - 0.2) - 0.005));
+        float r = length(vec2(p.x, p.y - 0.38));
+        dark = max(IN(abs(r - 0.105) - 0.014) * face, IN(abs(p.y - 0.01) - 0.05));
+        c = mix(c, vec3(0.03), dark);
+        float k = IN(r - 0.078) * face;
+        c = mix(c, uB, k);
+        glow = k * 3.4 * (0.72 + 0.28 * sin(uTime * 3.0));
+      } else if (reg == 2) {
+        dark = IN(abs(ax - 0.66) - 0.04);
+        c = mix(c, vec3(0.03), dark);
+        float g = IN(abs(ax - 0.53) - 0.012);
+        c = mix(c, uB, g); glow = g * 2.6;
+        c = mix(c, c * 0.5, smoothstep(0.86, 0.88, ax));
+      } else {
+        dark = IN(abs(p.y + 0.3) - 0.04);
+        c = mix(c, vec3(0.03), dark);
+        c = mix(c, c * 0.5, 1.0 - smoothstep(-0.47, -0.45, p.y));
+      }
+      gMetal *= 1.0 - dark * 0.8; gRough = mix(gRough, 0.12, dark * step(0.5, float(reg == 0)));
+      c = mix(c, c * 0.22, seam);
+    } else if (kind < 7.5) {
+      // ---- neon: corpo preto com linhas de luz na sua cor
+      c = vec3(0.012, 0.014, 0.02); gRough = 0.28;
+      float L = 0.0, w = 0.011;
+      if (reg == 0) L = max(IN(abs(box2(vec2(ax, h.y - 0.03), vec2(0.24, 0.1), 0.09)) - w) * face, IN(ax - w * 0.8) * step(0.15, h.y));
+      else if (reg == 3) {
+        L = max(IN(abs(ax - 0.1 - max(p.y - 0.3, 0.0) * 0.55) - w), IN(abs(p.y - 0.1) - w));
+        L = max(L, IN(abs(length(vec2(p.x, p.y - 0.4)) - 0.065) - w) * face);
+      } else if (reg == 2) L = IN(abs(fract(ax / 0.2 + 0.2) - 0.5) * 0.2 - w);
+      else L = max(IN(abs(fract(p.y / 0.16) - 0.5) * 0.16 - w), IN(abs(ax - 0.22) - w * 0.8) * step(0.0, p.z));
+      c = mix(c, uB, L); glow = L * 4.2;
+    } else if (kind < 8.5) {
+      // ---- magma: pedra escura rachada, com lava acesa pulsando nas rachaduras
+      float n = n3(p * 4.2 + 3.0) * 0.62 + n3(p * 9.0) * 0.38, crack = 1.0 - smoothstep(0.0, 0.065, abs(n - 0.5));
+      vec3 rock = mix(vec3(0.045, 0.032, 0.028), vec3(0.17, 0.12, 0.1), n3(p * 15.0));
+      c = mix(rock, mix(vec3(1.0, 0.16, 0.02), vec3(1.0, 0.78, 0.22), crack * crack), crack);
+      glow = crack * 4.0 * (0.72 + 0.28 * sin(uTime * 1.7 + p.y * 5.0));
+      gRough = 0.9;
+      if (reg == 0) {
+        float e = IN(box2(vec2(ax - 0.17, h.y - 0.05 - (ax - 0.17) * 0.3), vec2(0.075, 0.024) * uEye, 0.02)) * face;
+        c = mix(c, vec3(1.0, 0.9, 0.5), e); glow = max(glow, e * 5.0);
+      }
+    } else if (kind < 9.5) {
+      // ---- ouro: estátua polida, que espelha o céu
+      gMetal = 1.0; gRough = 0.2;
+      float eng = 0.0;
+      if (reg == 0) eng = IN(box2(vec2(ax - 0.17, h.y - 0.04), vec2(0.07, 0.036) * uEye, 0.035)) * face;
+      else if (reg == 3) eng = max(IN(ax + abs(p.y - 0.38) * 0.8 - 0.075) * face, IN(abs(p.y + 0.0) - 0.012));
+      else if (reg == 2) eng = IN(abs(ax - 0.82) - 0.01);
+      else eng = IN(abs(p.y + 0.44) - 0.01);
+      c = mix(c, c * 0.16, eng); gRough = mix(gRough, 0.55, eng);
+    } else {
+      // ---- esqueleto: malha preta com os ossos desenhados
+      gRough = 0.55;
+      float B = 0.0;
+      vec2 q = vec2(ax, p.y);
+      if (reg == 0) {
+        B = 1.0;
+        B *= 1.0 - IN(length(vec2(ax - 0.17, (h.y - 0.05) * 1.1)) - 0.088 * uEye) * face;
+        B *= 1.0 - IN(box2(vec2(ax, h.y + 0.075), vec2(0.026, 0.036), 0.02)) * face;
+        float jaw = step(h.y, -0.14) * step(-0.24, h.y) * step(ax, 0.17) * face;
+        B *= 1.0 - jaw * max(IN(abs(fract(ax / 0.05) - 0.5) * 0.05 - 0.006), IN(abs(h.y + 0.19) - 0.006));
+      } else if (reg == 3) {
+        B = IN(ax - 0.032);
+        B = max(B, IN(abs(fract((p.y - ax * 0.4 - 0.02) / 0.088) - 0.5) * 0.088 - 0.019) * step(0.13, p.y) * step(p.y, 0.52) * step(ax, 0.25 + (p.y - 0.13) * 0.2));
+        B = max(B, IN(length(vec2(ax - 0.1, (p.y + 0.03) * 1.5)) - 0.1) * (1.0 - IN(length(vec2(ax - 0.1, (p.y + 0.03) * 1.5)) - 0.045)));
+        B = max(B, IN(seg(q, vec2(0.06, 0.53), vec2(0.38, 0.5)) - 0.024));
+      } else if (reg == 2) {
+        B = IN(min(seg(q, vec2(0.42, 0.46), vec2(0.63, 0.32)), seg(q, vec2(0.69, 0.28), vec2(0.89, 0.12))) - 0.03);
+        B = max(B, IN(min(length(q - vec2(0.66, 0.3)), min(length(q - vec2(0.4, 0.47)), length(q - vec2(0.91, 0.1)))) - 0.046));
+        B = max(B, smoothstep(0.93, 0.95, ax));
+      } else {
+        B = IN(min(seg(q, vec2(0.2, -0.12), vec2(0.225, -0.27)), seg(q, vec2(0.232, -0.33), vec2(0.24, -0.47))) - 0.032);
+        B = max(B, IN(min(length(q - vec2(0.228, -0.3)), length(q - vec2(0.2, -0.1))) - 0.048));
+        B = max(B, 1.0 - smoothstep(-0.53, -0.51, p.y));
+      }
+      c = mix(c, uB, B);
+    }
+    return c;
+  }
   vec3 suit(vec3 p, out float glow){
     glow = 0.0;
+    if (uKind > 4.5) return suit2(p, glow);
     float ax = abs(p.x), kind = uKind;
     bool spider = kind < 1.5;
     vec3 c = uA, limb = kind > 3.5 ? uA : uB; float lines = 0.0;
@@ -344,20 +487,30 @@ const SUIT_FRAG = `${LIGHTS}
     return mix(c, uLine, lines);
   }
   void main(){
-    vec3 N = normalize(vN);
+    vec3 N = normalize(vN), V = normalize(vV);
     float glow;
+    gMetal = 0.0; gRough = 0.6;
     vec3 c = suit(vRest, glow);
-    float ndl = dot(N, uSun), wrap = clamp(ndl * 0.55 + 0.45, 0.0, 1.0);
-    vec3 amb = mix(uGnd, uSky, 0.5 + 0.5 * N.y) * uHemi;
-    vec3 lit = amb * 0.62 + uSunCol * uSunI * wrap * 0.34 + vec3(0.1 + uNight * 0.16);
-    gl_FragColor = vec4(fogged(c * lit + c * glow * (0.2 + uNight * 0.5)), 1.0);
+    float nv = clamp(dot(N, V), 0.0, 1.0), ndl = dot(N, uSun), wrap = clamp(ndl * 0.55 + 0.45, 0.0, 1.0);
+    vec3 amb = mix(uGnd, uSky, 0.5 + 0.5 * N.y) * uHemi, sun = uSunCol * uSunI * (1.0 - uShade * 0.88);
+    vec3 col = c * (1.0 - gMetal) * (amb * 0.62 + sun * wrap * 0.34 + vec3(0.1 + uNight * 0.16));
+    // o céu em três faixas (chão, horizonte, alto) refletido, e o brilho do sol
+    vec3 R = reflect(-V, N);
+    float up = clamp(R.y * 0.5 + 0.5, 0.0, 1.0);
+    vec3 env = mix(uGnd, mix(uHor, uTop, smoothstep(0.5, 1.0, up)), smoothstep(0.34, 0.56, up)) * max(uHemi, 0.6) + vec3(uNight * 0.05);
+    vec3 F0 = mix(vec3(0.04), c, gMetal), Fr = F0 + (1.0 - F0) * pow(1.0 - nv, 5.0);
+    vec3 H = normalize(uSun + V);
+    float nh = clamp(dot(N, H), 0.0, 1.0), a2 = gRough * gRough * gRough * gRough + 1e-4, dn = nh * nh * (a2 - 1.0) + 1.0;
+    col += (env * (1.0 - gRough * 0.55) + sun * min(a2 / (3.14159 * dn * dn), 30.0) * 0.3 * max(ndl, 0.0)) * Fr * (0.3 + 0.7 * gMetal);
+    col += c * glow * (uKind > 4.5 ? 0.6 + uNight * 0.4 : 0.2 + uNight * 0.5);
+    gl_FragColor = vec4(fogged(col), 1.0);
     #include <tonemapping_fragment>
     #include <colorspace_fragment>
   }`;
 
 // a casca: refrata o que já foi desenhado (a cidade e o miolo), tinge pela espessura e leva os reflexos de estúdio
 const SHELL_FRAG = `${LIGHTS}
-  uniform sampler2D uScene; uniform vec2 uRes; uniform float uProj, uHasScene, uBox; uniform vec3 uTintA, uTintB;
+  uniform sampler2D uScene; uniform vec2 uRes; uniform float uProj, uHasScene, uBox, uLinear; uniform vec3 uTintA, uTintB;
   float hash(vec3 p){ return fract(sin(dot(p, vec3(127.1, 311.7, 74.7))) * 43758.5453); }
   float softbox(vec3 R, vec3 K, vec2 size){
     vec3 T = normalize(cross(vec3(0.0, 1.0, 0.0), K)), B = cross(K, T);
@@ -373,13 +526,14 @@ const SHELL_FRAG = `${LIGHTS}
     float nv = clamp(dot(N, V), 0.0, 1.0), core = 1.0 - pow(1.0 - nv, 2.6), th = core * vThick;
     vec3 tint = mix(uTintA, uTintB, smoothstep(0.3, 0.7, vMix));
     float ndl = dot(N, uSun), back = pow(clamp(0.5 - 0.5 * ndl, 0.0, 1.0), 1.5);
-    vec3 amb = mix(uGnd, uSky, 0.5 + 0.5 * N.y) * uHemi, sun = uSunCol * uSunI;
+    vec3 amb = mix(uGnd, uSky, 0.5 + 0.5 * N.y) * uHemi, sun = uSunCol * uSunI * (1.0 - uShade * 0.88);
     vec3 scatter = tint * (amb * 0.34 + sun * (0.11 * max(ndl * 0.6 + 0.4, 0.0) + 0.17 * back) + uNight * 0.3);
     vec3 col; float alpha = 1.0;
     if (uHasScene > 0.5) {
       vec2 uv = gl_FragCoord.xy / uRes, off = -NV.xy * (0.05 + 0.2 * th) * uProj / max(vDist, 0.6);
       vec3 sc = vec3(texture2D(uScene, uv + off * 1.1).r, texture2D(uScene, uv + off).g, texture2D(uScene, uv + off * 0.9).b);
-      sc = pow(sc, vec3(2.2));
+      if (uLinear < 0.5) sc = pow(sc, vec3(2.2));
+      else sc = min(sc, vec3(6.0));
       col = sc * exp(-(1.0 - tint) * (0.22 + 1.0 * th)) + scatter * (0.16 + 0.42 * th);
     } else {
       col = scatter * 1.4;
@@ -427,7 +581,7 @@ export class SlimeWorld {
       uSun: { value: new THREE.Vector3(0.4, 0.8, 0.45).normalize() }, uSunCol: { value: new THREE.Color('#fff5e6') }, uSunI: { value: 2.6 },
       uSky: { value: new THREE.Color('#d0e6ff') }, uGnd: { value: new THREE.Color('#6c6658') }, uHor: { value: new THREE.Color('#d2e8fa') }, uTop: { value: new THREE.Color('#2c66c2') },
       uHemi: { value: 1.2 }, uNight: { value: 0 }, uFog: { value: new THREE.Color('#ffffff') }, uFogD: { value: 0 }, uBox: { value: 1 },
-      uScene: { value: null }, uRes: { value: new THREE.Vector2(1, 1) }, uProj: { value: 1 }, uHasScene: { value: 0 },
+      uScene: { value: null }, uRes: { value: new THREE.Vector2(1, 1) }, uProj: { value: 1 }, uHasScene: { value: 0 }, uLinear: { value: 0 }, uTime: { value: 0 },
       ...ART_UNIFORMS,
     };
     this.drops = new Drops(scene);
@@ -451,19 +605,52 @@ export class SlimeWorld {
       u.uSunCol.value.copy(d.light.color);
       u.uSunI.value = d.light.intensity;
       u.uSky.value.copy(d.cur.sky); u.uGnd.value.copy(d.cur.gnd); u.uHor.value.copy(d.cur.hor); u.uTop.value.copy(d.cur.mid);
-      u.uHemi.value = d.hemi.intensity;
+      u.uHemi.value = d.hemiFull ?? d.hemi.intensity;
       u.uNight.value = d.night;
       u.uFog.value.copy(d.cur.fog); u.uFogD.value = this.scene.fog.density;
       u.uBox.value = lerp(1, 0.4, d.night);
     }
     if (camera) u.uProj.value = camera.projectionMatrix.elements[5] * 0.5;
-    u.uHasScene.value = this.refract && !this.artOn && this.renderer.capabilities.isWebGL2 ? 1 : 0;   // com arte, a imagem ainda não está na tela pra ser copiada
+    // Nos estilos de arte a imagem ainda não está na tela pra ser copiada. Na luz de cinema dá: a cena está numa imagem HDR
+    // (hdrRT), e a casca copia dela no meio do quadro, depois da cidade e do miolo, do mesmo jeito que copiava da tela.
+    const src = this.artOn ? this.hdrRT : null, R = this.renderer;
+    u.uHasScene.value = this.refract && (!this.artOn || src) && R.capabilities.isWebGL2 ? 1 : 0;
+    u.uLinear.value = src ? 1 : 0;
+    if (src) {
+      let g = this.hdrCopy;
+      if (!g || g.width !== src.width || g.height !== src.height) {
+        g?.dispose();
+        g = this.hdrCopy = new THREE.WebGLRenderTarget(src.width, src.height, { type: THREE.HalfFloatType, minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter, depthBuffer: false, generateMipmaps: false });
+        const was = R.getRenderTarget();
+        R.setRenderTarget(g);          // só pra placa criar a imagem agora, fora do desenho
+        R.setRenderTarget(was);
+      }
+      if (u.uScene.value !== g.texture) { if (u.uScene.value && !u.uScene.value.isRenderTargetTexture) this.screenCopy = u.uScene.value; u.uScene.value = g.texture; }
+      u.uRes.value.set(g.width, g.height);
+    } else if (u.uScene.value && u.uScene.value.isRenderTargetTexture) {
+      u.uScene.value = this.screenCopy || null;
+      if (this.screenCopy) u.uRes.value.set(this.screenCopy.image.width, this.screenCopy.image.height);
+    }
+    u.uTime.value += dt;
     this.drops.update(dt);
   }
 
   // a casca é transparente, então desenha depois de tudo: aí o quadro já tem a cidade e o miolo pra ser refratado
   grab(renderer) {
     if (!this.u.uHasScene.value || this.grabbed === renderer.info.render.frame) return;
+    if (this.u.uLinear.value) {
+      // copia a imagem HDR como ela está agora (resolvendo o MSAA) pra uma imagem comum, direto na placa
+      const src = this.hdrRT, g = this.hdrCopy;
+      if (!src || !g || renderer.getRenderTarget() !== src) return;          // desenhando outra coisa (a visão de um portal): fica com a cópia que tem
+      this.grabbed = renderer.info.render.frame;
+      const gl = renderer.getContext(), a = renderer.properties.get(src), from = a.__webglMultisampledFramebuffer || a.__webglFramebuffer, to = renderer.properties.get(g).__webglFramebuffer;
+      if (!from || !to) return;
+      gl.bindFramebuffer(gl.READ_FRAMEBUFFER, from);
+      gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER, to);
+      gl.blitFramebuffer(0, 0, src.width, src.height, 0, 0, g.width, g.height, gl.COLOR_BUFFER_BIT, gl.NEAREST);
+      gl.bindFramebuffer(gl.FRAMEBUFFER, from);
+      return;
+    }
     this.grabbed = renderer.info.render.frame;
     renderer.getDrawingBufferSize(this.size);
     let t = this.u.uScene.value;
@@ -545,9 +732,10 @@ export class Slime {
     this.geo.setIndex(T.index);
     const u = world.u;
     this.look = { uA: { value: new THREE.Color() }, uB: { value: new THREE.Color() }, uLine: { value: new THREE.Color() }, uKind: { value: 0 }, uEye: { value: 1 } };
+    this.shadeU = { uShade: { value: 0 } };      // 1 = na sombra de um prédio: o sol não chega
     this.tint = { uTintA: { value: new THREE.Color() }, uTintB: { value: new THREE.Color() } };
-    this.coreMat = new THREE.ShaderMaterial({ vertexShader: VERT, fragmentShader: SUIT_FRAG, uniforms: { ...u, ...this.look, uInset: { value: 0.3 } } });
-    this.shellMat = new THREE.ShaderMaterial({ vertexShader: VERT, fragmentShader: SHELL_FRAG, uniforms: { ...u, ...this.tint, uInset: { value: 0 } }, transparent: true, toneMapped: false, blending: THREE.CustomBlending, blendSrc: THREE.SrcAlphaFactor, blendDst: THREE.OneMinusSrcAlphaFactor, blendSrcAlpha: THREE.ZeroFactor, blendDstAlpha: THREE.OneFactor });
+    this.coreMat = new THREE.ShaderMaterial({ vertexShader: VERT, fragmentShader: SUIT_FRAG, uniforms: { ...u, ...this.look, ...this.shadeU, uInset: { value: 0.3 } } });
+    this.shellMat = new THREE.ShaderMaterial({ vertexShader: VERT, fragmentShader: SHELL_FRAG, uniforms: { ...u, ...this.tint, ...this.shadeU, uInset: { value: 0 } }, transparent: true, toneMapped: false, blending: THREE.CustomBlending, blendSrc: THREE.SrcAlphaFactor, blendDst: THREE.OneMinusSrcAlphaFactor, blendSrcAlpha: THREE.ZeroFactor, blendDstAlpha: THREE.OneFactor });
     this.core = new THREE.Mesh(this.geo, this.coreMat);
     this.shell = new THREE.Mesh(this.geo, this.shellMat);
     this.core.frustumCulled = this.shell.frustumCulled = false;
@@ -614,15 +802,18 @@ export class Slime {
     this.skin = skin;
     this.color = color;
     this.armOnly = !!s.arm;
-    const a = s.a || color, b = s.kind === 4 ? color : s.b || color;
+    const a = s.a || color, b = s.kind === 4 || s.kind === 7 ? color : s.b || color;
     this.look.uA.value.set(a); this.look.uB.value.set(b);
     this.look.uLine.value.set(s.line || '#000000');
     this.look.uKind.value = s.kind;
     this.tint.uTintA.value.set(s.tintA || color);
     this.tint.uTintB.value.set(s.tintB || color);
     this.dropColor = s.tintA || color;
-    this.shadow.material.color.set(this.dropColor).multiplyScalar(0.45);
+    this.shadow.material.color.set(this.dropColor).multiplyScalar(0.07);       // sombra de contato, só com um fio da cor do boneco
   }
+
+  // vai devagar pra sombra e volta: entrar atrás de um prédio não pisca
+  shade(want, dt) { const u = this.shadeU.uShade; u.value += (want - u.value) * Math.min(1, dt * 7); }
 
   // 0 = quase borracha, 100 = geleca
   setAmount(v) {

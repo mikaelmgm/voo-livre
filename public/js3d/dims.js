@@ -123,7 +123,7 @@ export class Nether extends VoxWorld {
     this.chest = new THREE.Vector3(38.5, 21, -34.5);
     this.opened = false;
     // o baú: madeira, tampa e fecho
-    const wood = new THREE.MeshLambertMaterial({ color: '#8a5a28' }), dark = new THREE.MeshLambertMaterial({ color: '#4a2e12' }), metal = new THREE.MeshLambertMaterial({ color: '#c8c8c8' });
+    const wood = new THREE.MeshStandardMaterial({ color: '#8a5a28' }), dark = new THREE.MeshStandardMaterial({ color: '#4a2e12' }), metal = new THREE.MeshStandardMaterial({ color: '#c8c8c8' });
     const g = new THREE.Group();
     const base = new THREE.Mesh(new THREE.BoxGeometry(0.88, 0.62, 0.88), wood);
     base.position.y = 0.31;
@@ -309,8 +309,8 @@ export class Dragon {
     this.group = new THREE.Group();
     this.group.visible = false;
     scene.add(this.group);
-    const hide = new THREE.MeshLambertMaterial({ color: '#3c3450' }), plate = new THREE.MeshLambertMaterial({ color: '#564a70' }), spine = new THREE.MeshLambertMaterial({ color: '#9a84c0' });
-    const wing = new THREE.MeshLambertMaterial({ color: '#6a5490', side: THREE.DoubleSide }), eye = new THREE.MeshBasicMaterial({ color: '#ff5ad8' });
+    const hide = new THREE.MeshStandardMaterial({ color: '#3c3450' }), plate = new THREE.MeshStandardMaterial({ color: '#564a70' }), spine = new THREE.MeshStandardMaterial({ color: '#9a84c0' });
+    const wing = new THREE.MeshStandardMaterial({ color: '#6a5490', side: THREE.DoubleSide }), eye = new THREE.MeshBasicMaterial({ color: '#ff5ad8' });
     this.mats = [hide, plate, spine, wing];
     for (const m of this.mats) m.emissive.setRGB(0.07, 0.04, 0.12);     // um brilho de leve: no céu preto do fim ele não some
     this.flash = 0;
@@ -481,7 +481,7 @@ export class MoonFrame {
     this.group = new THREE.Group();
     this.group.visible = false;
     scene.add(this.group);
-    const side = new THREE.MeshLambertMaterial({ map: FRAME_TEX }), stone = new THREE.MeshLambertMaterial({ color: '#c8c8bc' }), eyeMat = new THREE.MeshLambertMaterial({ color: '#2f8a3a', emissive: '#103a14' });
+    const side = new THREE.MeshStandardMaterial({ map: FRAME_TEX }), stone = new THREE.MeshStandardMaterial({ color: '#c8c8bc' }), eyeMat = new THREE.MeshStandardMaterial({ color: '#2f8a3a', emissive: '#103a14' });
     // plataforma de pedra com degrau, os 12 blocos da moldura em volta de um vão de 3x3
     this.base = [box(9, 5, 9, stone, 0, -2, 0), box(11, 4.5, 11, stone, 0, -2, 0)];
     this.group.add(...this.base);
@@ -502,7 +502,7 @@ export class MoonFrame {
     }));
     this.pool.position.y = 1.3;
     this.pool.visible = false;
-    this.group.add(this.pool, box(3, 0.2, 3, new THREE.MeshLambertMaterial({ color: '#141414' }), 0, 1.05, 0));
+    this.group.add(this.pool, box(3, 0.2, 3, new THREE.MeshStandardMaterial({ color: '#141414' }), 0, 1.05, 0));
     this.filled = 0;
     this.placed = false;
   }

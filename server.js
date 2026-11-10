@@ -38,7 +38,7 @@ const MIME = {
 // Semente do mundo: todos os jogadores conectados geram exatamente o mesmo percurso.
 const SEED = crypto.randomBytes(4).readUInt32LE(0);
 const SKINS = ['scarf', 'spider', 'miles'];
-const SKINS3 = ['spider', 'miles', 'simb', 'gummy', 'scarf'];
+const SKINS3 = ['spider', 'miles', 'simb', 'gummy', 'scarf', 'astro', 'robo', 'neon', 'magma', 'ouro', 'osso'];
 
 // Configurações da party, iguais pra todo mundo: PVP, mapa, música do YouTube, vídeo do telão do cinema (3D),
 // rádio da laje (YouTube ou Spotify) e o horário do dia (3D).

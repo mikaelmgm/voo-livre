@@ -115,7 +115,7 @@ function face(skin, zombie) {
     }
   });
 }
-const plain = (c, tex) => new THREE.MeshLambertMaterial({ color: tex ? '#ffffff' : c, map: tex || null });
+const plain = (c, tex) => new THREE.MeshStandardMaterial({ color: tex ? '#ffffff' : c, map: tex || null });
 
 export class BlockBody {
   constructor(scene, skin, color) {
@@ -270,7 +270,7 @@ export class Mine {
     const q = 90000;
     this.tp = new Float32Array(q * 12); this.tu = new Float32Array(q * 8); this.ts = new Float32Array(q * 4); this.ti = new Uint32Array(q * 6);
     // o chão que falta além dos blocos carregados
-    this.far = new THREE.Mesh(new THREE.RingGeometry(RAD * CH - 10, 3400, 48).rotateX(-Math.PI / 2), new THREE.MeshLambertMaterial({ color: '#57575a' }));
+    this.far = new THREE.Mesh(new THREE.RingGeometry(RAD * CH - 10, 3400, 48).rotateX(-Math.PI / 2), new THREE.MeshStandardMaterial({ color: '#57575a' }));
     this.far.position.y = -0.04;
     this.group.add(this.far);
     // destaque do bloco na mira e as rachaduras

@@ -17,29 +17,61 @@ function grain(g, w, h, seed, amount = 0.05) {
   }
 }
 
+// Relevo: transforma um desenho de altura (claro = pra fora) no mapa de normais que a luz usa.
+function normalMap(height, strength) {
+  const w = height.width, h = height.height, src = height.getContext('2d').getImageData(0, 0, w, h).data;
+  const out = document.createElement('canvas');
+  out.width = w; out.height = h;
+  const g = out.getContext('2d'), img = g.createImageData(w, h), d = img.data;
+  const at = (x, y) => src[(((y + h) % h) * w + ((x + w) % w)) * 4] / 255;
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    const dx = (at(x + 1, y) - at(x - 1, y)) * strength, dy = (at(x, y + 1) - at(x, y - 1)) * strength, l = Math.hypot(dx, dy, 1), i = (y * w + x) * 4;
+    d[i] = (-dx / l * 0.5 + 0.5) * 255; d[i + 1] = (dy / l * 0.5 + 0.5) * 255; d[i + 2] = (1 / l * 0.5 + 0.5) * 255; d[i + 3] = 255;
+  }
+  g.putImageData(img, 0, 0);
+  return out;
+}
+const dataTex = (canvas, aniso = 8) => {
+  const t = new THREE.CanvasTexture(canvas);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  t.colorSpace = THREE.NoColorSpace;
+  t.anisotropy = aniso;
+  return t;
+};
+// aspereza e metal vão numa textura só: verde = aspereza (0 espelho, 1 fosco), azul = metal
+const orm = (rough, metal = 0) => `rgb(255,${Math.round(rough * 255)},${Math.round(metal * 255)})`;
+
 // Fachada: 8 colunas x 16 andares que se repetem. Paredes claras: a cor do prédio vem do `tint`.
+// Sai em quatro desenhos: a cor, as janelas acesas, o material (vidro liso que reflete, parede fosca) e o relevo.
+const HD = 2;      // desenhada no dobro do tamanho: de perto a janela não vira borrão
 function facade(style, seed) {
   const W = 256, H = 512, cw = W / 8, ch = H / 16;
-  const a = document.createElement('canvas'), b = document.createElement('canvas');
-  a.width = b.width = W; a.height = b.height = H;
-  const g = a.getContext('2d'), e = b.getContext('2d');
+  const mk = () => { const c = document.createElement('canvas'); c.width = W * HD; c.height = H * HD; const x = c.getContext('2d'); x.scale(HD, HD); return [c, x]; };
+  const [a, g] = mk(), [b, e] = mk(), [o, r] = mk(), [hc, z] = mk();
   e.fillStyle = '#000'; e.fillRect(0, 0, W, H);
-  const R = prng(seed);
+  const R = prng(seed), R2 = prng(seed + 7);
   g.fillStyle = style.wall; g.fillRect(0, 0, W, H);
+  r.fillStyle = orm(style.shiny ? 0.55 : 0.88); r.fillRect(0, 0, W, H);
+  z.fillStyle = '#909090'; z.fillRect(0, 0, W, H);
   grain(g, W, H, seed + 1);
+  grain(z, W, H, seed + 2, 0.06);
   if (style.bricks) {
-    g.fillStyle = 'rgba(0,0,0,0.13)';
-    for (let y = 0; y < H; y += 6) g.fillRect(0, y, W, 1);
-    for (let y = 0; y < H; y += 6) for (let x = (y / 6) % 2 ? 0 : 7; x < W; x += 14) g.fillRect(x, y, 1, 6);
+    g.fillStyle = 'rgba(0,0,0,0.13)'; z.fillStyle = 'rgba(0,0,0,0.3)';
+    for (let y = 0; y < H; y += 6) { g.fillRect(0, y, W, 1); z.fillRect(0, y, W, 1); }
+    for (let y = 0; y < H; y += 6) for (let x = (y / 6) % 2 ? 0 : 7; x < W; x += 14) { g.fillRect(x, y, 1, 6); z.fillRect(x, y, 1, 6); }
   }
   if (style.bands) {
-    g.fillStyle = style.bands;
-    for (let y = 0; y < 16; y++) g.fillRect(0, y * ch, W, 3);
+    g.fillStyle = style.bands; r.fillStyle = orm(0.38, 0.7); z.fillStyle = '#b8b8b8';
+    for (let y = 0; y < 16; y++) { g.fillRect(0, y * ch, W, 3); r.fillRect(0, y * ch, W, 3); z.fillRect(0, y * ch, W, 3); }
   }
   for (let y = 0; y < 16; y++) {
     for (let x = 0; x < 8; x++) {
       const px = x * cw + style.mx, py = y * ch + style.my, pw = cw - style.mx * 2, ph = ch - style.my * 2;
-      if (style.frame) { g.fillStyle = style.frame; g.fillRect(px - 2, py - 2, pw + 4, ph + 4); }
+      if (style.frame) {
+        g.fillStyle = style.frame; g.fillRect(px - 2, py - 2, pw + 4, ph + 4);
+        r.fillStyle = orm(0.6); r.fillRect(px - 2, py - 2, pw + 4, ph + 4);
+        z.fillStyle = '#c8c8c8'; z.fillRect(px - 2, py - 2, pw + 4, ph + 4);
+      }
       const glass = g.createLinearGradient(px, py, px, py + ph);
       const tone = 0.75 + R() * 0.25;
       glass.addColorStop(0, style.glass[0]);
@@ -48,13 +80,18 @@ function facade(style, seed) {
       g.fillRect(px, py, pw, ph);
       g.fillStyle = `rgba(0,0,0,${(1 - tone) * 1.2})`;
       g.fillRect(px, py, pw, ph);
+      // o vidro: liso e quase espelho (cada janela um pouco diferente), afundado na parede
+      r.fillStyle = orm(0.04 + R2() * 0.12, style.shiny ? 0.94 : 0.72); r.fillRect(px, py, pw, ph);
+      z.fillStyle = '#3c3c3c'; z.fillRect(px, py, pw, ph);
       if (R() < 0.4) {   // reflexo do céu em alguns vidros
         g.fillStyle = 'rgba(255,255,255,0.12)';
         g.beginPath(); g.moveTo(px, py + ph); g.lineTo(px + pw, py); g.lineTo(px + pw, py + ph * 0.4); g.lineTo(px + pw * 0.4, py + ph); g.fill();
       }
       if (R() < 0.45) {  // cortina meio fechada: uma janela não é igual à outra
+        const k = 0.2 + R() * 0.5;
         g.fillStyle = 'rgba(236,226,206,0.32)';
-        g.fillRect(px, py, pw, ph * (0.2 + R() * 0.5));
+        g.fillRect(px, py, pw, ph * k);
+        r.fillStyle = orm(0.5, 0.25); r.fillRect(px, py, pw, ph * k);
       }
       if (R() < style.lit) {
         const c = LIT[(R() * LIT.length) | 0];
@@ -64,22 +101,25 @@ function facade(style, seed) {
         e.fillStyle = 'rgba(0,0,0,0.42)';
         e.fillRect(px, py, pw, ph * R() * 0.5);
       }
-      if (style.sill) { g.fillStyle = 'rgba(0,0,0,0.28)'; g.fillRect(px - 2, py + ph + 2, pw + 4, 2); }
+      if (style.sill) {
+        g.fillStyle = 'rgba(0,0,0,0.28)'; g.fillRect(px - 2, py + ph + 2, pw + 4, 2);
+        z.fillStyle = '#dcdcdc'; z.fillRect(px - 2, py + ph, pw + 4, 3);
+      }
       if (style.balcony && y % 2 === 0 && x % 3 === 1) {
-        g.fillStyle = 'rgba(40,40,46,0.75)';
-        g.fillRect(px - 3, py + ph - 8, pw + 6, 2);
-        for (let k = 0; k < 6; k++) g.fillRect(px - 3 + k * (pw + 6) / 5, py + ph - 8, 1, 8);
+        g.fillStyle = 'rgba(40,40,46,0.75)'; z.fillStyle = '#ececec'; r.fillStyle = orm(0.45, 0.6);
+        g.fillRect(px - 3, py + ph - 8, pw + 6, 2); z.fillRect(px - 3, py + ph - 8, pw + 6, 2); r.fillRect(px - 3, py + ph - 8, pw + 6, 2);
+        for (let k = 0; k < 6; k++) { g.fillRect(px - 3 + k * (pw + 6) / 5, py + ph - 8, 1, 8); z.fillRect(px - 3 + k * (pw + 6) / 5, py + ph - 8, 1, 8); }
       }
     }
   }
-  const out = [a, b].map((c, i) => {
+  const out = [a, b].map((c) => {
     const t = new THREE.CanvasTexture(c);
     t.wrapS = t.wrapT = THREE.RepeatWrapping;
     t.colorSpace = THREE.SRGBColorSpace;
-    t.anisotropy = 6;
+    t.anisotropy = 8;
     return t;
   });
-  return out;
+  return [...out, dataTex(o), dataTex(normalMap(hc, 2.4))];
 }
 
 const STYLES = [
@@ -103,9 +143,8 @@ export const TINTS = [
 
 export function makeFacades() {
   return STYLES.map((s, i) => {
-    const [map, glow] = facade(s, 1009 + i * 37);
-    const Mat = s.shiny ? THREE.MeshPhongMaterial : THREE.MeshLambertMaterial;
-    return new Mat({ map, emissiveMap: glow, emissive: 0xffffff, emissiveIntensity: 1, vertexColors: true, ...(s.shiny ? { shininess: 70, specular: 0x8899aa } : {}) });
+    const [map, glow, mat, normal] = facade(s, 1009 + i * 37);
+    return new THREE.MeshStandardMaterial({ map, emissiveMap: glow, emissive: 0xffffff, emissiveIntensity: 1, vertexColors: true, roughnessMap: mat, metalnessMap: mat, roughness: 1, metalness: 1, normalMap: normal, normalScale: new THREE.Vector2(0.9, 0.9) });
   });
 }
 
@@ -197,7 +236,7 @@ export function makeShops() {
   };
   paint();
   document.fonts?.ready.then(paint);
-  const mat = new THREE.MeshLambertMaterial({ map: tex[0], emissiveMap: tex[1], emissive: 0xffffff, emissiveIntensity: 1 });
+  const mat = new THREE.MeshStandardMaterial({ map: tex[0], emissiveMap: tex[1], emissive: 0xffffff, emissiveIntensity: 1, roughness: 0.58, metalness: 0.08 });
   mat.shopColors = SHOPS.map(s => s[1]);
   return mat;
 }
@@ -205,76 +244,100 @@ export function makeShops() {
 // ---- chão: um quarteirão (1024 px = 52 m) com asfalto, faixas e calçada
 export function groundTexture() {
   const S = 1024, road = 128;   // meia largura da rua em px (6,5 m)
-  return canvasTex(S, S, (g) => {
-    const R = prng(5);
-    g.fillStyle = '#4a4a50'; g.fillRect(0, 0, S, S);
-    for (let i = 0; i < 26000; i++) {
-      const v = 58 + R() * 34 | 0;
-      g.fillStyle = `rgba(${v},${v},${v + 4},0.5)`;
-      g.fillRect(R() * S, R() * S, 2.5, 2.5);
+  const mk = () => { const c = document.createElement('canvas'); c.width = c.height = S; return [c, c.getContext('2d')]; };
+  const [ca, g] = mk(), [cr, r] = mk(), [chh, z] = mk();
+  const R = prng(5);
+  g.fillStyle = '#4a4a50'; g.fillRect(0, 0, S, S);
+  r.fillStyle = orm(0.9); r.fillRect(0, 0, S, S);
+  z.fillStyle = '#5c5c5c'; z.fillRect(0, 0, S, S);
+  for (let i = 0; i < 26000; i++) {
+    const v = 58 + R() * 34 | 0, x = R() * S, y = R() * S;
+    g.fillStyle = `rgba(${v},${v},${v + 4},0.5)`;
+    g.fillRect(x, y, 2.5, 2.5);
+    z.fillStyle = v > 75 ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.12)';
+    z.fillRect(x, y, 2.5, 2.5);
+  }
+  // remendos de asfalto: piche novo, mais escuro e mais liso
+  for (let i = 0; i < 16; i++) {
+    const al = 0.14 + R() * 0.16, edge = R() < 0.5, x = edge ? R() * S : R() * road, y = edge ? R() * road : R() * S, w = 30 + R() * 110, h = 24 + R() * 60;
+    g.fillStyle = `rgba(30,30,34,${al})`; g.fillRect(x, y, w, h);
+    r.fillStyle = orm(0.5); r.fillRect(x, y, w, h);
+  }
+  // calçada
+  g.fillStyle = '#a6a29a'; g.fillRect(road, road, S - road * 2, S - road * 2);
+  r.fillStyle = orm(0.84); r.fillRect(road, road, S - road * 2, S - road * 2);
+  z.fillStyle = '#7c7c7c'; z.fillRect(road, road, S - road * 2, S - road * 2);
+  g.strokeStyle = 'rgba(70,66,60,0.32)'; z.strokeStyle = 'rgba(0,0,0,0.55)';
+  g.lineWidth = z.lineWidth = 2;
+  for (let k = road; k < S - road; k += 30) {
+    for (const c of [g, z]) {
+      c.beginPath(); c.moveTo(k, road); c.lineTo(k, S - road); c.stroke();
+      c.beginPath(); c.moveTo(road, k); c.lineTo(S - road, k); c.stroke();
     }
-    // remendos de asfalto
-    for (let i = 0; i < 16; i++) {
-      g.fillStyle = `rgba(30,30,34,${0.14 + R() * 0.16})`;
-      const edge = R() < 0.5;
-      g.fillRect(edge ? R() * S : R() * road, edge ? R() * road : R() * S, 30 + R() * 110, 24 + R() * 60);
-    }
-    // calçada
-    g.fillStyle = '#a6a29a'; g.fillRect(road, road, S - road * 2, S - road * 2);
-    g.strokeStyle = 'rgba(70,66,60,0.32)';
-    g.lineWidth = 2;
-    for (let k = road; k < S - road; k += 30) {
-      g.beginPath(); g.moveTo(k, road); g.lineTo(k, S - road); g.stroke();
-      g.beginPath(); g.moveTo(road, k); g.lineTo(S - road, k); g.stroke();
-    }
-    for (let i = 0; i < 9000; i++) {
-      g.fillStyle = R() < 0.5 ? 'rgba(0,0,0,0.05)' : 'rgba(255,255,255,0.05)';
-      g.fillRect(road + R() * (S - road * 2), road + R() * (S - road * 2), 3, 3);
-    }
-    // faixa de pedra portuguesa em ondas junto do meio-fio
-    const bandIn = road + 28, bandOut = road + 86;
-    g.save();
-    g.beginPath(); g.rect(road + 8, road + 8, S - road * 2 - 16, S - road * 2 - 16);
-    g.rect(bandOut + 8, bandOut + 8, S - (bandOut + 8) * 2, S - (bandOut + 8) * 2);
-    g.clip('evenodd');
-    g.fillStyle = '#e6e2d8'; g.fillRect(road, road, S - road * 2, S - road * 2);
-    g.strokeStyle = '#26262a';
-    g.lineWidth = 12;
+  }
+  for (let i = 0; i < 9000; i++) {
+    g.fillStyle = R() < 0.5 ? 'rgba(0,0,0,0.05)' : 'rgba(255,255,255,0.05)';
+    g.fillRect(road + R() * (S - road * 2), road + R() * (S - road * 2), 3, 3);
+  }
+  // faixa de pedra portuguesa em ondas junto do meio-fio
+  const bandIn = road + 28, bandOut = road + 86;
+  for (const c of [g, r]) {
+    c.save();
+    c.beginPath(); c.rect(road + 8, road + 8, S - road * 2 - 16, S - road * 2 - 16);
+    c.rect(bandOut + 8, bandOut + 8, S - (bandOut + 8) * 2, S - (bandOut + 8) * 2);
+    c.clip('evenodd');
+    c.fillStyle = c === g ? '#e6e2d8' : orm(0.4); c.fillRect(road, road, S - road * 2, S - road * 2);
+    c.strokeStyle = c === g ? '#26262a' : orm(0.3);
+    c.lineWidth = 12;
     const wave = (horizontal, at) => {
-      g.beginPath();
+      c.beginPath();
       for (let t = road; t <= S - road; t += 8) {
         const o = Math.sin(t / 36) * 20;
-        if (horizontal) g.lineTo(t, at + o); else g.lineTo(at + o, t);
+        if (horizontal) c.lineTo(t, at + o); else c.lineTo(at + o, t);
       }
-      g.stroke();
+      c.stroke();
     };
     for (const at of [bandIn + 2, bandIn + 30]) { wave(true, at); wave(true, S - at); wave(false, at); wave(false, S - at); }
-    g.restore();
-    // meio-fio
-    g.strokeStyle = '#d8d4cc'; g.lineWidth = 8;
-    g.strokeRect(road + 4, road + 4, S - road * 2 - 8, S - road * 2 - 8);
-    g.strokeStyle = 'rgba(0,0,0,0.35)'; g.lineWidth = 3;
-    g.strokeRect(road, road, S - road * 2, S - road * 2);
-    // linha central tracejada e faixas de pedestre
-    g.fillStyle = '#e8c850';
-    for (let k = road + 90; k < S - road - 90; k += 58) {
-      g.fillRect(k, 0, 34, 4); g.fillRect(k, S - 4, 34, 4);
-      g.fillRect(0, k, 4, 34); g.fillRect(S - 4, k, 4, 34);
+    c.restore();
+  }
+  // meio-fio
+  g.strokeStyle = '#d8d4cc'; g.lineWidth = 8;
+  g.strokeRect(road + 4, road + 4, S - road * 2 - 8, S - road * 2 - 8);
+  z.strokeStyle = '#b4b4b4'; z.lineWidth = 8;
+  z.strokeRect(road + 4, road + 4, S - road * 2 - 8, S - road * 2 - 8);
+  g.strokeStyle = 'rgba(0,0,0,0.35)'; g.lineWidth = 3;
+  g.strokeRect(road, road, S - road * 2, S - road * 2);
+  // linha central tracejada e faixas de pedestre: tinta, mais lisa que o asfalto
+  r.fillStyle = orm(0.48);
+  const paint = (x, y, w, h) => { g.fillRect(x, y, w, h); r.fillRect(x, y, w, h); };
+  g.fillStyle = '#e8c850';
+  for (let k = road + 90; k < S - road - 90; k += 58) {
+    paint(k, 0, 34, 4); paint(k, S - 4, 34, 4);
+    paint(0, k, 4, 34); paint(S - 4, k, 4, 34);
+  }
+  g.fillStyle = '#e4e4de';
+  for (let k = -road + 12; k < road; k += 34) {
+    for (const at of [road + 16, S - road - 76]) {
+      const p = ((k % S) + S) % S;
+      paint(at, p, 60, 20);
+      paint(p, at, 20, 60);
     }
-    g.fillStyle = '#e4e4de';
-    for (let k = -road + 12; k < road; k += 34) {
-      for (const at of [road + 16, S - road - 76]) {
-        const p = ((k % S) + S) % S;
-        g.fillRect(at, p, 60, 20);
-        g.fillRect(p, at, 20, 60);
-      }
-    }
-    // cantos pra faixa fechar certo na emenda
-    for (let k = 12; k < road; k += 34) for (const at of [road + 16, S - road - 76]) {
-      g.fillRect(at, S - k - 20, 60, 20);
-      g.fillRect(S - k - 20, at, 20, 60);
-    }
-  }, { repeat: [120, 120], aniso: 8 });
+  }
+  // cantos pra faixa fechar certo na emenda
+  for (let k = 12; k < road; k += 34) for (const at of [road + 16, S - road - 76]) {
+    paint(at, S - k - 20, 60, 20);
+    paint(S - k - 20, at, 20, 60);
+  }
+  const tex = new THREE.CanvasTexture(ca);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  tex.anisotropy = 8;
+  tex.repeat.set(120, 120);
+  // o material e o relevo acompanham a cor: quem muda a repetição muda nos três (tex.userData.maps)
+  tex.userData.rough = dataTex(cr);
+  tex.userData.normal = dataTex(normalMap(chh, 2.2));
+  tex.userData.maps = [tex, tex.userData.rough, tex.userData.normal];
+  return tex;
 }
 
 export function grassTexture() {

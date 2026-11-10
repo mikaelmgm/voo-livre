@@ -121,12 +121,12 @@ export class Bridge {
     b.tint('#3a3a40').prism(L.x, base + L.h + 4.4, base + L.h + 6.4, L.z, 3.2, 16, 0.4);
     b.tint('#f0ece0').box(L.x - 16, base, L.z + 6, L.x - 6, base + 4.5, L.z + 14);
     b.tint('#8a3a2c').gable(L.x - 16.4, L.z + 5.6, L.x - 5.6, L.z + 14.4, base + 4.5, 2.6);
-    this.mesh = new THREE.Mesh(b.build(), new THREE.MeshLambertMaterial({ vertexColors: true }));
+    this.mesh = new THREE.Mesh(b.build(), new THREE.MeshStandardMaterial({ vertexColors: true }));
     this.mesh.castShadow = true;
     this.mesh.receiveShadow = true;
     this.group.add(this.mesh);
     // cabos principais: tubos lisos pela curva
-    const cableMat = new THREE.MeshLambertMaterial({ color: RED });
+    const cableMat = new THREE.MeshStandardMaterial({ color: RED });
     for (const s of [-1, 1]) {
       const pts = [];
       for (let x = XD0; x <= XD1; x += 10) pts.push(new THREE.Vector3(x, cableY(x), ZB + s * LEG_Z));

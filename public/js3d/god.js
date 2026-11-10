@@ -32,7 +32,7 @@ export class Flyers {
     this.items = [];
     this.kinds = {};
     const add = (key, geo, max) => {
-      const mat = new THREE.MeshLambertMaterial({ vertexColors: true });
+      const mat = new THREE.MeshStandardMaterial({ vertexColors: true });
       const m = new THREE.InstancedMesh(geo, mat, max);
       m.frustumCulled = false;
       m.count = 0;
@@ -160,34 +160,55 @@ function rockGeo() {
   return geo;
 }
 const SEA_VERT = 'varying vec3 vW; void main(){ vec4 w = modelMatrix * vec4(position, 1.0); vW = w.xyz; gl_Position = projectionMatrix * viewMatrix * w; }';
-const SEA_FRAG = `varying vec3 vW; uniform vec3 uSun, uHor, uDeep; uniform float uTime, uNight, uFogD, uShore, uIsleR; uniform vec4 uIsle; uniform vec3 uIslet;
-  float hash(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+const SEA_FRAG = `varying vec3 vW; uniform vec3 uSun, uSunCol, uHor, uTop, uDeep; uniform float uTime, uNight, uFogD, uShore, uIsleR; uniform vec4 uIsle; uniform vec3 uIslet;
+  // a praia fica a quilômetros da origem: o sorteio por seno virava quadradinhos lá. Este não usa seno e se repete a cada 289 casas.
+  float hash(vec2 p){ vec3 q = fract(vec3(mod(p, 289.0).xyx) * 0.1031); q += dot(q, q.yzx + 33.33); return fract((q.x + q.y) * q.z); }
   float noise(vec2 p){ vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
     return mix(mix(hash(i), hash(i + vec2(1, 0)), f.x), mix(hash(i + vec2(0, 1)), hash(i + vec2(1, 1)), f.x), f.y); }
-  float wave(vec2 p){ return noise(p * 0.11 + uTime * 0.25) + 0.5 * noise(p * 0.31 - uTime * 0.4) + 0.25 * noise(p * 0.9 + uTime * 0.7); }
+  // Quatro trens de onda cruzados dão a forma do mar. Devolve a inclinação (x, z) e a altura.
+  vec3 wave1(vec2 d, float k, float a, float w, vec2 p){ float ph = dot(d, p) * k + uTime * w; return vec3(d * (k * a * cos(ph)), a * sin(ph)); }
+  vec3 swell(vec2 p){
+    return wave1(vec2(0.8, 0.6), 0.045, 0.55, 0.9, p) + wave1(vec2(-0.35, 0.94), 0.083, 0.3, 1.25, p) + wave1(vec2(0.95, -0.3), 0.17, 0.14, 1.7, p) + wave1(vec2(-0.6, -0.8), 0.31, 0.07, 2.3, p);
+  }
   void main(){
     vec2 p = vW.xz;
-    float h = wave(p), e = 0.8;
-    vec3 N = normalize(vec3(h - wave(p + vec2(e, 0.0)), 1.1, h - wave(p + vec2(0.0, e))));
+    float d = distance(vW, cameraPosition), near = 1.0 / (1.0 + d * 0.022);
+    vec3 s = swell(p);
+    // o encrespado fino some com a distância, senão vira chuvisco
+    vec2 rip = vec2(noise(p * 0.9 + uTime * 0.7) - 0.5, noise(p * 0.9 - uTime * 0.6 + 40.0) - 0.5) * 0.34 + (vec2(noise(p * 2.7 + uTime), noise(p * 2.7 - uTime + 9.0)) - 0.5) * 0.2;
+    vec3 N = normalize(vec3(-(s.x + rip.x * near), 1.0, -(s.y + rip.y * near)));
     vec3 V = normalize(cameraPosition - vW);
     if (V.y < 0.0) N = -N;
-    float fr = pow(1.0 - max(dot(N, V), 0.0), 3.0), sp = pow(max(dot(reflect(-uSun, N), V), 0.0), 120.0);
-    vec3 c = mix(uDeep, uHor, 0.15 + fr * 0.8) + vec3(1.0, 0.95, 0.85) * sp * (1.0 - uNight * 0.85) * 1.6;
-    float d = distance(vW, cameraPosition);
-    float alpha = 0.72 + fr * 0.26;
+    float nv = max(dot(N, V), 0.0), fr = 0.02 + 0.98 * pow(1.0 - nv, 5.0), dayK = 1.0 - uNight * 0.86;
+    // o céu refletido, o caminho de luz do sol e as faíscas
+    vec3 R = reflect(-V, N);
+    vec3 sky = mix(uHor, uTop, pow(clamp(abs(R.y), 0.0, 1.0), 0.4)) * vec3(0.8, 0.93, 1.0);
+    float nh = max(dot(N, normalize(uSun + V)), 0.0);
+    vec3 glint = uSunCol * (pow(nh, 1100.0) * 16.0 + pow(nh, 140.0) * 0.55);
+    // a água: funda e escura, e verde clara onde a crista fica fina contra a luz
+    float crest = smoothstep(0.15, 0.95, s.z);
+    vec3 body = uDeep * dayK * (0.95 + 0.45 * crest) + vec3(0.03, 0.3, 0.26) * crest * dayK * pow(max(dot(V, -uSun) * 0.5 + 0.5, 0.0), 2.0) * 0.5;
+    vec3 c = mix(body, sky, fr * 0.85) + glint;
+    float alpha = 0.78 + fr * 0.22;
+    vec3 white = vec3(0.92, 0.95, 1.0) * (0.25 + 0.75 * dayK);
     if (uShore > 0.0) {
       // na beira a água é rasa e clara, e a espuma vai e volta
       // distância até a beira da ilha (retângulo de cantos redondos); dentro da ilha não tem mar
       float z = min(length(max(max(uIsle.xy - p, p - uIsle.zw), 0.0)) - uIsleR - uShore, length(p - uIslet.xy) - uIslet.z);
       if (z < -3.0) discard;
       float beat = sin(uTime * 0.7 + p.x * 0.02) * 4.0, off = z - beat + (noise(p * 0.08) - 0.5) * 7.0;
-      c = mix(mix(vec3(0.3, 0.8, 0.78), c, smoothstep(0.0, 70.0, z)), c, 0.15);
+      vec3 shallow = mix(vec3(0.16, 0.74, 0.7) * dayK, sky, fr * 0.6);
+      c = mix(shallow + glint, c, smoothstep(0.0, 75.0, z) * 0.9 + 0.1);
       float foam = smoothstep(4.0, 1.0, abs(off - 6.0)) * smoothstep(0.35, 0.7, noise(p * 0.5 + uTime * 0.3));
-      c = mix(c, vec3(0.96, 0.98, 1.0), foam * 0.92);
+      foam = max(foam, smoothstep(5.0, 0.5, abs(off - 19.0)) * smoothstep(0.5, 0.8, noise(p * 0.4 - uTime * 0.2)) * 0.6);
+      c = mix(c, white, foam * 0.92);
       alpha = mix(0.5 + foam * 0.5, 1.0, smoothstep(10.0, 120.0, z));
     }
+    // carneirinhos nas cristas mais altas
+    c = mix(c, white, smoothstep(0.7, 1.0, s.z + (noise(p * 0.35 + uTime * 0.2) - 0.5) * 0.7) * 0.4 * near);
     c = mix(c, uHor, 1.0 - exp(-uFogD * uFogD * d * d));
     gl_FragColor = vec4(c, alpha);
+    #include <tonemapping_fragment>
     #include <colorspace_fragment>
   }`;
 
@@ -197,7 +218,7 @@ export class Sea {
   constructor(scene, sun, isle = null, shore = 0, islet = [0, 0, -1e6]) {
     this.shore = isle ? shore : 0;
     const box = isle || [0, 0, 0, 0, 0];
-    this.u = { uSun: { value: sun }, uHor: { value: new THREE.Color() }, uDeep: { value: new THREE.Color('#0b4f78') }, uTime: { value: 0 }, uNight: { value: 0 }, uFogD: { value: 0 }, uShore: { value: this.shore },
+    this.u = { uSun: { value: sun }, uSunCol: { value: new THREE.Color() }, uTop: { value: new THREE.Color() }, uHor: { value: new THREE.Color() }, uDeep: { value: new THREE.Color('#0b4f78') }, uTime: { value: 0 }, uNight: { value: 0 }, uFogD: { value: 0 }, uShore: { value: this.shore },
       uIsle: { value: new THREE.Vector4(box[0], box[1], box[2], box[3]) }, uIsleR: { value: box[4] }, uIslet: { value: new THREE.Vector3(...islet) } };
     this.mesh = new THREE.Mesh(new THREE.PlaneGeometry(isle ? 16000 : 9000, isle ? 16000 : 9000).rotateX(-Math.PI / 2), new THREE.ShaderMaterial({ vertexShader: SEA_VERT, fragmentShader: SEA_FRAG, uniforms: this.u, transparent: true, side: THREE.DoubleSide, toneMapped: false }));
     this.mesh.frustumCulled = false;
@@ -211,6 +232,8 @@ export class Sea {
     this.mesh.position.set(camera.position.x, level, camera.position.z);
     this.u.uTime.value = t;
     this.u.uHor.value.copy(day.cur.hor);
+    this.u.uTop.value.copy(day.cur.mid);
+    this.u.uSunCol.value.copy(day.light.color).multiplyScalar(Math.min(1.3, day.light.intensity * 0.42));
     this.u.uNight.value = day.night;
     this.u.uFogD.value = day.scene.fog.density;
   }

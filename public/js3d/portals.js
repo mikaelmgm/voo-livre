@@ -24,16 +24,35 @@ const FRAG = `uniform sampler2D uView; uniform vec2 uRes; uniform vec3 uCol; uni
     float wobble = 0.018 * sin(a * 7.0 + uTime * 3.0) + 0.012 * sin(a * 13.0 - uTime * 4.0);
     float e = r / (uOpen * (1.0 + wobble));
     if (e > 1.0) discard;
+    float edge = smoothstep(0.55, 1.0, e);
     vec3 c;
-    if (uLinked > 0.5) c = texture2D(uView, gl_FragCoord.xy / uRes).rgb;
-    else {
-      float s = noise(vec2(a * 2.0 + uTime * 0.6 + r * 3.0, r * 5.0 - uTime * 1.3));
-      c = uCol * (0.12 + 0.5 * s * s);
+    if (uLinked > 0.5) {
+      // perto da borda a imagem do outro lado entorta e as cores se separam, como numa lente
+      vec2 uv = gl_FragCoord.xy / uRes, pull = normalize(q + 1e-4) * edge * edge * (0.03 + 0.012 * sin(a * 9.0 + uTime * 5.0));
+      c = vec3(texture2D(uView, uv - pull * 1.3).r, texture2D(uView, uv - pull).g, texture2D(uView, uv - pull * 0.7).b);
+    } else {
+      float s = noise(vec2(a * 2.0 + uTime * 0.6 + r * 3.0, r * 5.0 - uTime * 1.3)), arm = 0.5 + 0.5 * sin(a * 2.0 + r * 9.0 - uTime * 2.2);
+      c = uCol * (0.1 + 0.5 * s * s + 0.35 * arm * arm * (1.0 - r));
       if (uAway.w > 0.5) c = mix(uAway.rgb * (0.45 + 0.8 * s), uCol, 0.15 + 0.3 * s * s);     // o outro lado é outro mundo
     }
-    float rim = smoothstep(0.9, 0.97, e), halo = smoothstep(0.78, 0.95, e);
-    c = mix(c + uCol * halo * 0.16, uCol * (2.4 + 0.9 * noise(vec2(a * 9.0 - uTime * 5.0, 1.0))), rim);
+    // o anel: plasma correndo pela borda, bem mais claro que o branco da tela (é isso que faz a luz vazar em volta)
+    float flame = noise(vec2(a * 9.0 - uTime * 5.0, e * 6.0 + uTime * 2.0)) * 0.6 + noise(vec2(a * 21.0 + uTime * 7.0, e * 14.0)) * 0.4;
+    float rim = smoothstep(0.9 - flame * 0.09, 0.985, e), halo = smoothstep(0.5, 0.97, e);
+    c += uCol * halo * halo * 0.55;
+    c = mix(c, mix(uCol, vec3(1.0), 0.3 * flame) * (2.6 + 4.2 * flame), rim);
     gl_FragColor = vec4(c, 1.0);
+    #include <tonemapping_fragment>
+    #include <colorspace_fragment>
+  }`;
+// a luz do portal na parede (ou no chão) em volta dele: um quadro maior, somado por cima
+const GLOW = 1.7;
+const GLOW_FRAG = `uniform vec3 uCol; uniform float uOpen, uTime; varying vec2 vUv;
+  void main(){
+    vec2 q = (vUv * 2.0 - 1.0) * ${GLOW.toFixed(1)};
+    float a = atan(q.y, q.x), out1 = max(length(q) / max(uOpen, 0.05) - 0.96, 0.0);
+    float g = (exp(-out1 * 4.6) * 0.8 + exp(-out1 * 15.0) * 1.5) * (0.82 + 0.18 * sin(a * 5.0 - uTime * 2.4));
+    g *= smoothstep(1.0, 0.7, length(vUv * 2.0 - 1.0)) * smoothstep(0.02, 0.3, uOpen);
+    gl_FragColor = vec4(uCol * g, 1.0);
     #include <tonemapping_fragment>
     #include <colorspace_fragment>
   }`;
@@ -82,8 +101,14 @@ export class Portals {
     mesh.matrixAutoUpdate = false;
     mesh.matrix.copy(M).scale(new THREE.Vector3(PORTAL_W * 2, PORTAL_H * 2, 1));
     mesh.frustumCulled = false;
-    this.scene.add(mesh);
-    const p = { owner, color, c, n, u, r, M, Mi: M.clone().invert(), where: data.where, mesh, open: 0 };
+    const un = mesh.material.uniforms;
+    const glow = new THREE.Mesh(this.geo, new THREE.ShaderMaterial({ vertexShader: VERT, fragmentShader: GLOW_FRAG, uniforms: { uBend: this.uBend, uCol: un.uCol, uOpen: un.uOpen, uTime: un.uTime }, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }));
+    glow.matrixAutoUpdate = false;
+    glow.matrix.copy(M).scale(new THREE.Vector3(PORTAL_W * 2 * GLOW, PORTAL_H * 2 * GLOW, 1));
+    glow.frustumCulled = false;
+    glow.renderOrder = 1;
+    this.scene.add(mesh, glow);
+    const p = { owner, color, c, n, u, r, M, Mi: M.clone().invert(), where: data.where, mesh, glow, open: 0 };
     this.list.push(p);
     return p;
   }
@@ -91,8 +116,9 @@ export class Portals {
   clear(owner, color) {
     this.list = this.list.filter(p => {
       if (p.owner !== owner || (color !== undefined && p.color !== color)) return true;
-      this.scene.remove(p.mesh);
+      this.scene.remove(p.mesh, p.glow);
       p.mesh.material.dispose();
+      p.glow.material.dispose();
       return false;
     });
   }
@@ -129,7 +155,7 @@ export class Portals {
       const u = p.mesh.material.uniforms;
       u.uOpen.value = p.open * (2 - p.open);
       u.uTime.value = this.time;
-      p.mesh.visible = p.where === where;
+      p.mesh.visible = p.glow.visible = p.where === where;
       const q = this.partner(p), far = q && q.where !== p.where;
       if (far) u.uAway.value.set(...new THREE.Color(AWAY[q.where] || '#ffffff').toArray(), 1);
       else u.uAway.value.w = 0;

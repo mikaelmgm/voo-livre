@@ -37,10 +37,10 @@ const CHUNK = 4;              // lotes por pedaço de cidade: pequeno pra montar
 // Níveis de qualidade. view = pedaços de cidade de verdade em volta; detail = até onde vão árvores, carros e mobília;
 // far = alcance do horizonte simulado; shadow = tamanho do mapa de sombra (0 desliga), refeito a cada `every` quadros.
 const QUALITY = [
-  { name: 'Mínima', pr: 0.5, view: 1, detail: 110, far: 900, shadow: 0, range: 0, every: 1, crowd: 45, cars: 16, clouds: false, lamps: false },
-  { name: 'Baixa', pr: 0.7, view: 2, detail: 160, far: 1100, shadow: 0, range: 0, every: 1, crowd: 70, cars: 30, clouds: false, lamps: false },
-  { name: 'Média', pr: 0.85, view: 2, detail: 230, far: 1300, shadow: 1024, range: 90, every: 4, crowd: 110, cars: 50, clouds: true, lamps: true },
-  { name: 'Alta', pr: 1, view: 3, detail: 330, far: 1500, shadow: 2048, range: 140, every: 3, crowd: 150, cars: 76, clouds: true, lamps: true },
+  { name: 'Mínima', pr: 0.5, view: 1, detail: 110, far: 900, shadow: 0, range: 0, every: 1, crowd: 45, cars: 16, clouds: false, lamps: false, fx: 0 },
+  { name: 'Baixa', pr: 0.7, view: 2, detail: 160, far: 1100, shadow: 0, range: 0, every: 1, crowd: 70, cars: 30, clouds: false, lamps: false, fx: 0 },
+  { name: 'Média', pr: 0.85, view: 2, detail: 230, far: 1300, shadow: 1024, range: 90, every: 4, crowd: 110, cars: 50, clouds: true, lamps: true, fx: 1 },
+  { name: 'Alta', pr: 1, view: 3, detail: 330, far: 1500, shadow: 2048, range: 140, every: 3, crowd: 150, cars: 76, clouds: true, lamps: true, fx: 2 },
 ];
 let Q = QUALITY[3];
 const G = 26;
@@ -283,11 +283,11 @@ scene.add(city);
 const camera = new THREE.PerspectiveCamera(72, 1, 0.25, 4500);
 camera.rotation.order = 'YXZ';
 
-const day = new DayCycle(scene, renderer);
+const day = new DayCycle(scene, renderer, { ibl: !LEVE && !SOFTWARE });
 const mats = cityMaterials();
 const orbGeo = new THREE.SphereGeometry(0.75, 14, 10);
 orbGeo.userData.shared = true;
-const orbMat = new THREE.MeshBasicMaterial({ color: 0xbffbff });
+const orbMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(0xbffbff).multiplyScalar(2.4) });
 // brilho suave em volta dos pontos (sprites de pontos com textura radial)
 const glowMat = new THREE.PointsMaterial({
   size: 9, sizeAttenuation: true, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
@@ -298,8 +298,8 @@ const glowMat = new THREE.PointsMaterial({
 // a ilha tem tamanho certo: o chão cobre só os lotes dela, e a areia em volta cobre as beiradas
 const ISLE_W = (ISLE.i1 - ISLE.i0 + 1) * CELL, ISLE_D = (ISLE.j1 - ISLE.j0 + 1) * CELL;
 const groundTex = groundTexture();
-groundTex.repeat.set(ISLE.i1 - ISLE.i0 + 1, ISLE.j1 - ISLE.j0 + 1);
-const ground = new THREE.Mesh(new THREE.PlaneGeometry(ISLE_W, ISLE_D), new THREE.MeshLambertMaterial({ map: groundTex }));
+for (const t of groundTex.userData.maps) t.repeat.set(ISLE.i1 - ISLE.i0 + 1, ISLE.j1 - ISLE.j0 + 1);
+const ground = new THREE.Mesh(new THREE.PlaneGeometry(ISLE_W, ISLE_D), new THREE.MeshStandardMaterial({ map: groundTex, roughnessMap: groundTex.userData.rough, normalMap: groundTex.userData.normal, normalScale: new THREE.Vector2(0.8, 0.8), roughness: 1, metalness: 0 }));
 ground.rotation.x = -Math.PI / 2;
 ground.position.set(ISLE.i0 * CELL + ISLE_W / 2, 0, ISLE.j0 * CELL + ISLE_D / 2);
 ground.receiveShadow = true;
@@ -311,9 +311,9 @@ const flatGround = () => (MAP.infinite ? infFlat || (infFlat = new THREE.PlaneGe
 const denseGround = () => (MAP.infinite ? infDense || (infDense = new THREE.PlaneGeometry(GROUND_INF, GROUND_INF, 300, 300)) : isleDense || (isleDense = new THREE.PlaneGeometry(ISLE_W, ISLE_D, 240, 240)));
 
 // ---- o prédio do cinema
-const hallMat = new THREE.MeshLambertMaterial({ color: '#3a2147' });
-const carpetMat = new THREE.MeshLambertMaterial({ color: '#521130' });
-const seatMat = new THREE.MeshLambertMaterial({ color: '#b3182f' });
+const hallMat = new THREE.MeshStandardMaterial({ color: '#3a2147' });
+const carpetMat = new THREE.MeshStandardMaterial({ color: '#521130' });
+const seatMat = new THREE.MeshStandardMaterial({ color: '#b3182f' });
 const frameMat = new THREE.MeshBasicMaterial({ color: '#050409' });
 const lampMat = new THREE.MeshBasicMaterial({ color: '#ffb85c', toneMapped: false });
 // escreve alfa 0 no canvas: abre a janela por onde o vídeo aparece (e ainda esconde o vídeo atrás de quem passa na frente)
@@ -504,7 +504,7 @@ function setMap(infinite) {
   lots.clear();
   dropChunks();
   if (mine.active) { for (const c of mine.chunks.values()) mine.drop(c); mine.chunks.clear(); mine.at = null; }
-  groundTex.repeat.set(infinite ? 120 : ISLE.i1 - ISLE.i0 + 1, infinite ? 120 : ISLE.j1 - ISLE.j0 + 1);
+  for (const t of groundTex.userData.maps) t.repeat.set(infinite ? 120 : ISLE.i1 - ISLE.i0 + 1, infinite ? 120 : ISLE.j1 - ISLE.j0 + 1);
   ground.geometry = GOD.bend ? denseGround() : flatGround();
   if (infinite) ground.position.set(Math.round(me.pos.x / CELL) * CELL, 0, Math.round(me.pos.z / CELL) * CELL);
   else ground.position.set(ISLE.i0 * CELL + ISLE_W / 2, 0, ISLE.j0 * CELL + ISLE_D / 2);
@@ -537,7 +537,7 @@ const speedFx = new SpeedFx(renderer);
 // a arma de portais: ela aponta pra +z do grupo
 function makeGun() {
   const g = new THREE.Group();
-  const shell = new THREE.MeshLambertMaterial({ color: '#e9edf2' }), dark = new THREE.MeshLambertMaterial({ color: '#23262e' });
+  const shell = new THREE.MeshStandardMaterial({ color: '#e9edf2' }), dark = new THREE.MeshStandardMaterial({ color: '#23262e' });
   const add = (geo, mat, x, y, z) => { const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); g.add(m); return m; };
   add(new THREE.BoxGeometry(0.2, 0.2, 0.5), shell, 0, 0.03, 0.08);
   add(new THREE.BoxGeometry(0.12, 0.24, 0.13), dark, 0, -0.14, -0.04);
@@ -1922,6 +1922,7 @@ function applyQuality(level) {
   renderer.setPixelRatio(Q.pr * Math.min(window.devicePixelRatio || 1, 1.25));
   day.setShadow(Q.shadow, Q.range * shadowWide);
   day.setClouds(Q.clouds);
+  art.setFx(LEVE || SOFTWARE ? 0 : Q.fx);
   slimes.refract = Q.pr >= 0.85;
   roofFx.setLamps(Q.lamps);
   courtFx.setLamps(Q.lamps);
@@ -2057,6 +2058,7 @@ function setWhere(w) {
   slimes.override = w === 'back' ? BACK_LIGHT : w === 'nether' ? NETHER_LIGHT : w === 'end' ? END_LIGHT : out ? SPACE_LIGHT : null;
   sound.hum(w === 'back');
   art.setBend(w === 'city' ? GOD.bend * 1.5e-5 : 0);
+  day.setMood(out ? w : null);
   if (mine) syncMine();
 }
 
@@ -2523,7 +2525,7 @@ function eatStep(now) {
 // o prédio desaba no lugar: uma caixa da cor dele afunda no chão
 const bites = [];
 function biteLot(L) {
-  const m = new THREE.Mesh(new THREE.BoxGeometry(L.w, L.h, L.d), new THREE.MeshLambertMaterial({ color: L.tint || '#b0a898' }));
+  const m = new THREE.Mesh(new THREE.BoxGeometry(L.w, L.h, L.d), new THREE.MeshStandardMaterial({ color: L.tint || '#b0a898' }));
   m.position.set(L.cx, L.h / 2, L.cz);
   scene.add(m);
   bites.push({ m, t: 0, h: L.h });
@@ -2863,7 +2865,7 @@ function hurtEnd(n, dir) {
 const arrowGeo = (() => {
   const g = new THREE.BoxGeometry(0.07, 0.07, 1.3);
   return g;
-})(), arrowMat = new THREE.MeshLambertMaterial({ color: '#a07040' }), tipMat = new THREE.MeshLambertMaterial({ color: '#c8c8c8' }), featherMat = new THREE.MeshLambertMaterial({ color: '#f0f0f0' });
+})(), arrowMat = new THREE.MeshStandardMaterial({ color: '#a07040' }), tipMat = new THREE.MeshStandardMaterial({ color: '#c8c8c8' }), featherMat = new THREE.MeshStandardMaterial({ color: '#f0f0f0' });
 function shootArrow() {
   if (quest.arrowT > 0 || quest.credits) return;
   quest.arrowT = 0.45;
@@ -3526,7 +3528,16 @@ function simulate(now, dt) {
 
   for (const r of remotes.values()) r.update(dt);
   // o halo dos bonecos só faz sentido no escuro
-  const halo = me.where === 'city' ? 0.1 + day.night * 0.4 : 0.05;
+  // o boneco atrás de um prédio fica na sombra dele: um raio até o sol, de vez em quando, pra cada jogador
+  if (perf.drew % 5 === 0) {
+    const lit = p => !(me.where === 'city' && !voxels() && day.light.intensity > 0.05 && sweep(p, day.lightDir, 420, 0));
+    me.shadeWant = lit(me.pos) ? 0 : 1;
+    for (const r of remotes.values()) r.shadeWant = r.pos && here(r) && !lit(r.pos) ? 1 : 0;
+  }
+  me.mesh.userData.slime.shade(me.shadeWant || 0, dt);
+  for (const r of remotes.values()) r.mesh.userData.slime.shade(r.shadeWant || 0, dt);
+  const halo = art.filmic ? 0 : me.where === 'city' ? 0.1 + day.night * 0.4 : 0.05;      // com o brilho de verdade, o halo falso sai
+  glowMat.opacity = art.glow * (art.filmic ? 0.4 : 1);
   me.mesh.userData.glow.material.opacity = halo;
   for (const r of remotes.values()) r.mesh.userData.glow.material.opacity = halo;
 
@@ -3559,6 +3570,7 @@ function simulate(now, dt) {
   if (stage && !locked) stage.frame(dt);
   if (me.where === 'city') {
     lightCity(mats, day);
+    if (art.filmic) mats.glow.opacity *= 0.4;       // o clarão do poste agora vem do brilho da imagem
     streetT += dt;
     if (streetT >= STREET_STEP) {
       streetT = 0;
@@ -3626,6 +3638,17 @@ function simulate(now, dt) {
   }
   if (water.loud || sound.waterV) sound.water(water.loud);
   renderer.shadowMap.needsUpdate = Q.shadow > 0 && perf.drew++ % Q.every === 0;
+  if (art.filmic) {
+    // o clima da imagem em cada mundo: raios com o sol baixo, luz vazando mais de noite, sem sombra de contato no espaço
+    const L = art.cine.look, inCity = me.where === 'city', low = 1 - clamp(day.sunDir.y * 2.4, 0, 1);
+    L.sunDir.copy(slimes.u.uSun.value);
+    L.sunCol.copy(slimes.u.uSunCol.value);
+    L.rays = inCity ? (day.sunDir.y > -0.02 ? day.uniforms.sunUp.value * (0.3 + 0.8 * low) : day.uniforms.moonUp.value * 0.18) : me.where === 'moon' || inSpace() ? 0.3 : 0;
+    L.bloom = inCity ? 0.55 + 0.35 * day.night : 0.7;
+    L.ao = inSpace() ? 0 : 0.72;
+    const nt = inCity ? day.night : 0;
+    L.tint.setRGB(1 - 0.07 * nt, 1 + 0.03 * nt, 1 + 0.05 * nt);
+  }
   art.update(dt, camera, slimes.u.uSun.value, me.where === 'city' ? day.night : 0);
   art.render(scene, camera);
   if (flipping) { camera.quaternion.copy(straightView); camera.updateMatrixWorld(); }
@@ -3800,6 +3823,8 @@ function enter() {
     day, setTime, hourNow, board, sinuca, pong, basket, voice, renderer, enterAct, leaveAct, nearbyAction, chunks, crowd, traffic, net,
     setRadio, radioYt, radioSp, inPool, COURT, sweep, goWorld, goFriend, groundRay, goThrough, water, waterLevel, waterHit, sound,
     get act() { return act; },
+    get stage() { return stage; },
+    portals, space,
     get timeState() { return timeState; },
     get cineState() { return cineState; },
     setLook: (y, p) => { yaw = y; pitch = p; },

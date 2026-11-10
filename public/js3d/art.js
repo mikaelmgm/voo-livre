@@ -2,6 +2,7 @@
 // profundidade, e um shader por estilo refaz a imagem. Com a profundidade dá pra saber a posição de cada pixel no mundo,
 // então pixel art, neon e ASCII valem pra tudo que aparece, sem mexer em nenhum material.
 import * as THREE from 'three';
+import { Cine } from './cine.js';
 
 // ------------------------------------------------------------------ o que entorta o mundo (nos vértices)
 
@@ -285,9 +286,19 @@ export class Art {
     this.rt = null;
     this.low = null;
     this.kept = new Map();        // imagens já criadas, por tamanho: trocar de estilo não reserva a memória de novo
+    this.cine = new Cine(renderer);     // a luz de cinema do estilo normal (e do Minecraft)
   }
 
-  get on() { return !!this.style.frag; }
+  // a imagem passa por aqui antes da tela: nos estilos de arte, e no normal quando a luz de cinema está ligada
+  get on() { return !!this.style.frag || this.cine.level > 0; }
+  get filmic() { return !this.style.frag && this.cine.level > 0; }
+  setFx(level) {
+    if (level === this.cine.level) return;
+    this.cine.level = level;
+    if (!level) this.cine.free();
+    this.world.artOn = this.on;
+    this.refit = true;
+  }
 
   material(S) {
     if (S.frag && !this.mats.has(S.id)) this.mats.set(S.id, new THREE.ShaderMaterial({ vertexShader: QUAD_VERT, fragmentShader: `${BASE}\n${S.frag}`.replaceAll('texture2D(tColor,', 'sceneAt(').replace('vec3 fit(vec3 v)', `${SCENE_AT}\n  vec3 fit(vec3 v)`), uniforms: this.u, depthTest: false, depthWrite: false, toneMapped: false, blending: THREE.NoBlending }));
@@ -298,7 +309,7 @@ export class Art {
   async warmUp() {
     const R = this.renderer, rt = new THREE.WebGLRenderTarget(4, 4), keep = this.quad.material;
     for (const S of ART_STYLES) this.material(S);
-    for (const m of [...this.mats.values(), this.blit]) {
+    for (const m of [...this.mats.values(), this.blit, ...this.cine.passes]) {
       this.quad.material = m;
       await R.compileAsync(this.scene, this.cam);
       R.setRenderTarget(rt);
@@ -335,9 +346,9 @@ export class Art {
     this.kept.clear();
   }
 
-  images(w, h, lines) {
+  images(w, h, lines, samples = 0) {
     const filter = lines ? THREE.NearestFilter : THREE.LinearFilter;
-    const rt = new THREE.WebGLRenderTarget(w, h, { type: THREE.HalfFloatType, minFilter: filter, magFilter: filter, depthBuffer: true, generateMipmaps: false });
+    const rt = new THREE.WebGLRenderTarget(w, h, { type: THREE.HalfFloatType, minFilter: filter, magFilter: filter, depthBuffer: true, generateMipmaps: false, samples });
     rt.depthTexture = new THREE.DepthTexture(w, h);
     rt.depthTexture.minFilter = rt.depthTexture.magFilter = THREE.NearestFilter;
     return { rt, low: lines ? new THREE.WebGLRenderTarget(w, h, { minFilter: filter, magFilter: filter, depthBuffer: false, generateMipmaps: false }) : null };
@@ -352,16 +363,17 @@ export class Art {
     this.refit = false;
     this.div = div;
     this.size.set(w, h);
-    const key = `${w}x${h}${S.lines ? 'p' : ''}`;
+    const samples = this.filmic && this.cine.level >= 2 ? 4 : 0, key = `${w}x${h}${S.lines ? 'p' : ''}${samples ? 'm' : ''}`;
     if (!this.kept.has(key)) {
       if (this.kept.size >= 6) this.free();         // a janela mudou de tamanho: as antigas não servem mais
-      this.kept.set(key, this.images(w, h, S.lines));
+      this.kept.set(key, this.images(w, h, S.lines, samples));
     }
     ({ rt: this.rt, low: this.low } = this.kept.get(key));
   }
 
   update(dt, camera, sun, night) {
     this.time += dt;
+    this.dt = dt;
     U.uArtEye.value.copy(camera.position);
     this.sun.copy(sun);
     this.night = night;
@@ -371,8 +383,10 @@ export class Art {
     const R = this.renderer;
     if (!this.on) { R.render(scene, camera); return; }
     this.fit();
+    this.world.hdrRT = this.filmic ? this.rt : null;      // a casca do boneco copia daqui pra refratar a cena
     R.setRenderTarget(this.rt);
     R.render(scene, camera);
+    if (!this.style.frag) { this.cine.render(this.rt, camera, this.dt); return; }
     const u = this.u;
     u.tColor.value = this.rt.texture;
     u.tDepth.value = this.rt.depthTexture;

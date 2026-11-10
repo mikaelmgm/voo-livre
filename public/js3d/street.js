@@ -104,28 +104,30 @@ function styleLow(L, i, j) {
 export function cityMaterials() {
   const facades = makeFacades();
   const dot = softDot();
-  const grass = new THREE.MeshLambertMaterial({ map: grassTexture(), vertexColors: true });
+  const grass = new THREE.MeshStandardMaterial({ map: grassTexture(), vertexColors: true });
   return {
     facades, grass,
     shops: makeShops(),
-    plain: new THREE.MeshLambertMaterial({ vertexColors: true }),
-    small: new THREE.MeshLambertMaterial({ vertexColors: true }),
-    glowBox: new THREE.MeshBasicMaterial({ vertexColors: true, toneMapped: false }),
+    plain: new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.9 }),
+    small: new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.55, metalness: 0.3 }),
+    // o que acende sozinho passa do branco: é o que faz a luz vazar em volta
+    glowBox: new THREE.MeshBasicMaterial({ vertexColors: true, color: new THREE.Color(2.4, 2.4, 2.4) }),
     signs: storeSigns(),
-    heads: new THREE.MeshBasicMaterial({ color: 0xffe2b0, toneMapped: false }),
-    canopy: new THREE.MeshLambertMaterial({ flatShading: true }),
-    pool: new THREE.MeshBasicMaterial({ map: dot, color: 0xffb468, transparent: true, depthWrite: false, opacity: 0, blending: THREE.AdditiveBlending, fog: false }),
+    heads: new THREE.MeshBasicMaterial({ color: 0xffe2b0 }),
+    canopy: new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.86 }),
+    pool: new THREE.MeshBasicMaterial({ map: dot, color: new THREE.Color(0xffb468).multiplyScalar(1.7), transparent: true, depthWrite: false, opacity: 0, blending: THREE.AdditiveBlending, fog: false }),
     glow: new THREE.PointsMaterial({ map: dot, size: 7, sizeAttenuation: true, color: 0xffd090, transparent: true, depthWrite: false, opacity: 0, blending: THREE.AdditiveBlending }),
   };
 }
 
-const headDay = new THREE.Color(0x6a6a60), headNight = new THREE.Color(0xffe2b0);
+const headDay = new THREE.Color(0x6a6a60), headNight = new THREE.Color(0xffe2b0).multiplyScalar(5);
 export function lightCity(mats, env) {
-  for (const m of mats.facades) m.emissiveIntensity = env.win;
-  mats.shops.emissiveIntensity = env.win * 0.62;
+  for (const m of mats.facades) m.emissiveIntensity = env.win * 2.6;
+  mats.shops.emissiveIntensity = env.win * 1.5;
   mats.pool.opacity = env.night * 0.55;
   mats.glow.opacity = env.night * 0.9;
   mats.heads.color.copy(headDay).lerp(headNight, env.night);
+  mats.glowBox.color.setScalar(0.95 + 1.7 * env.night);       // vitrine e janela acesa: de dia só clara, de noite brilha
 }
 
 export function newKit(mats) {
@@ -425,7 +427,21 @@ export function dressLot(L, i, j, kit) {
 }
 
 // Monta as malhas de um pedaço de cidade.
-const canopyGeo = new THREE.IcosahedronGeometry(1, 1);
+// A copa: uma bola amassada, mais escura por baixo (a luz vem de cima), no lugar do icosaedro de cantos vivos.
+const canopyGeo = (() => {
+  const g = new THREE.IcosahedronGeometry(1, 3), p = g.attributes.position, n = g.attributes.normal, col = new Float32Array(p.count * 3), v = new THREE.Vector3();
+  const lump = (x, y, z) => Math.sin(x * 3.1 + 1.3) * Math.sin(y * 2.7 + 0.4) * Math.sin(z * 3.3 + 2.1);
+  for (let i = 0; i < p.count; i++) {
+    v.fromBufferAttribute(p, i).normalize();
+    const k = 1 + 0.2 * lump(v.x, v.y, v.z) + 0.1 * lump(v.x * 2.3 + 5, v.y * 2.3, v.z * 2.3 + 1);
+    const shade = 0.5 + 0.55 * Math.min(1, Math.max(0, v.y * 0.6 + 0.5)) + 0.12 * lump(v.x * 4, v.y * 4, v.z * 4);
+    p.setXYZ(i, v.x * k, v.y * k * 0.94, v.z * k);
+    n.setXYZ(i, v.x, v.y, v.z);
+    col[i * 3] = shade * 0.96; col[i * 3 + 1] = shade; col[i * 3 + 2] = shade * 0.9;
+  }
+  g.setAttribute('color', new THREE.BufferAttribute(col, 3));
+  return g;
+})();
 const poolGeo = new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2);
 canopyGeo.userData.shared = poolGeo.userData.shared = true;
 export function kitMeshes(kit, group) {
@@ -455,7 +471,7 @@ export function kitMeshes(kit, group) {
   }
   if (kit.lamps.length) {
     const inst = new THREE.InstancedMesh(poolGeo, mats.pool, kit.lamps.length);
-    kit.lamps.forEach(([x, z], k) => { m.makeScale(15, 1, 15).setPosition(x, 0.1, z); inst.setMatrixAt(k, m); });
+    kit.lamps.forEach(([x, z], k) => { m.makeScale(19, 1, 19).setPosition(x, 0.1, z); inst.setMatrixAt(k, m); });
     inst.computeBoundingSphere();
     inst.renderOrder = 1;
     group.add(inst, new THREE.Points(new THREE.BufferGeometry().setFromPoints(kit.lamps.map(([x, z]) => new THREE.Vector3(x, 7.3, z))), mats.glow));
@@ -475,7 +491,7 @@ export class Crowd {
   constructor(scene, count = 320) {
     this.spanBlocks = 8;
     this.range = 150;
-    const mat = new THREE.MeshLambertMaterial();
+    const mat = new THREE.MeshStandardMaterial();
     const inst = (geo, n) => {
       const m = new THREE.InstancedMesh(geo, mat, n);
       m.frustumCulled = false;
@@ -498,7 +514,7 @@ export class Crowd {
     dog.box(-0.08, 0.36, 0.24, 0.08, 0.5, 0.44);
     dog.box(-0.03, 0.36, -0.42, 0.03, 0.42, -0.26);
     for (const sx of [-1, 1]) for (const sz of [-1, 1]) dog.box(sx * 0.07 - 0.03, 0, sz * 0.2 - 0.03, sx * 0.07 + 0.03, 0.24, sz * 0.2 + 0.03);
-    const hatMat = new THREE.MeshLambertMaterial({ vertexColors: true });
+    const hatMat = new THREE.MeshStandardMaterial({ vertexColors: true });
     const extra = (geo, n, material = mat) => {
       const m = new THREE.InstancedMesh(geo, material, n);
       m.frustumCulled = false;
@@ -667,7 +683,7 @@ const VEHICLES = [
 
 export class Traffic {
   constructor(scene, count = 76) {
-    this.mat = new THREE.MeshLambertMaterial({ vertexColors: true });
+    this.mat = new THREE.MeshStandardMaterial({ vertexColors: true });
     this.geos = VEHICLES.map(make => make());
     this.bodies = this.geos.map(g => new THREE.InstancedMesh(g, this.mat, count));
     const l = new Boxes();
