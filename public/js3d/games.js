@@ -62,7 +62,7 @@ export class Sinuca {
     b.box(-2.05, TOP - 0.02, -HY, -HX, TOP + 0.06, HY);
     b.box(HX, TOP - 0.02, -HY, 2.05, TOP + 0.06, HY);
     g.add(solid(b.build(), ctx.mats.plain));
-    const felt = new THREE.Mesh(new THREE.PlaneGeometry(HX * 2, HY * 2).rotateX(-Math.PI / 2), new THREE.MeshLambertMaterial({ color: '#16784a' }));
+    const felt = new THREE.Mesh(new THREE.PlaneGeometry(HX * 2, HY * 2).rotateX(-Math.PI / 2), new THREE.MeshStandardMaterial({ color: '#16784a' }));
     felt.position.y = TOP;
     felt.receiveShadow = true;
     g.add(felt);
@@ -73,13 +73,13 @@ export class Sinuca {
     }
     const geo = new THREE.SphereGeometry(BALL, 16, 12);
     this.meshes = this.balls.map((_, k) => {
-      const m = new THREE.Mesh(geo, new THREE.MeshPhongMaterial({ map: ballTexture(k), shininess: 90, specular: 0x666666 }));
+      const m = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ roughness: 0.22, map: ballTexture(k) }));
       m.castShadow = true;
       g.add(m);
       return m;
     });
     // taco e linha de mira, só pra quem está jogando
-    this.cue = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.024, 2.3, 8).rotateZ(-Math.PI / 2), new THREE.MeshLambertMaterial({ color: '#c89a60' }));
+    this.cue = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.024, 2.3, 8).rotateZ(-Math.PI / 2), new THREE.MeshStandardMaterial({ color: '#c89a60' }));
     this.cue.visible = false;
     g.add(this.cue);
     this.line = new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3(1, 0, 0)]), new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.55 }));
@@ -263,13 +263,13 @@ export class Pong {
     const net = new THREE.Mesh(new THREE.PlaneGeometry(PW * 2 + 0.2, 0.16), new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.55, side: THREE.DoubleSide, wireframe: false }));
     net.position.set(0, PT + 0.08, 0);
     g.add(net);
-    this.ballMesh = new THREE.Mesh(new THREE.SphereGeometry(PBALL, 10, 8), new THREE.MeshLambertMaterial({ color: '#ffffff', emissive: '#555555' }));
+    this.ballMesh = new THREE.Mesh(new THREE.SphereGeometry(PBALL, 10, 8), new THREE.MeshStandardMaterial({ color: '#ffffff', emissive: '#555555' }));
     this.ballMesh.castShadow = true;
     this.ballMesh.visible = false;
     g.add(this.ballMesh);
     const padGeo = new THREE.CylinderGeometry(0.2, 0.2, 0.03, 18).rotateX(Math.PI / 2);
     this.padMesh = [0, 1].map(k => {
-      const m = new THREE.Mesh(padGeo, new THREE.MeshLambertMaterial({ color: k ? '#d8302c' : '#1f9a4a' }));
+      const m = new THREE.Mesh(padGeo, new THREE.MeshStandardMaterial({ color: k ? '#d8302c' : '#1f9a4a' }));
       m.visible = false;
       g.add(m);
       return m;
@@ -436,7 +436,7 @@ export class Basket {
       for (const x of [0, w / 4, w / 2, w * 0.75]) { g.beginPath(); g.moveTo(x, 0); g.lineTo(x, h); g.stroke(); }
       g.beginPath(); g.moveTo(0, h / 2); g.lineTo(w, h / 2); g.stroke();
     });
-    this.mesh = new THREE.Mesh(new THREE.SphereGeometry(BR, 18, 14), new THREE.MeshLambertMaterial({ map: tex }));
+    this.mesh = new THREE.Mesh(new THREE.SphereGeometry(BR, 18, 14), new THREE.MeshStandardMaterial({ map: tex }));
     this.mesh.castShadow = true;
     ctx.scene.add(this.mesh);
     this.mesh.position.copy(this.p);

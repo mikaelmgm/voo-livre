@@ -13,6 +13,8 @@ const dns = require('dns');
 const { loadCert } = require('./cert.js');
 
 const PORT = Number(process.argv[2] || process.env.PORT || 3000);
+// Na nuvem (Render) o jogo tem um link fixo, que o próprio Render informa. Aí o convite mostra ele no lugar dos IPs da rede.
+const SITE = (process.env.SITE_URL || process.env.RENDER_EXTERNAL_URL || '').replace(/\/+$/, '');
 const PUBLIC = path.join(__dirname, 'public');
 // "Última atualização" do menu: dá pra servir o jogo guardado em versoes/anterior no lugar do atual, pra todo mundo.
 const OLD = path.join(__dirname, 'versoes', 'anterior');
@@ -38,11 +40,11 @@ const MIME = {
 // Semente do mundo: todos os jogadores conectados geram exatamente o mesmo percurso.
 const SEED = crypto.randomBytes(4).readUInt32LE(0);
 const SKINS = ['scarf', 'spider', 'miles'];
-const SKINS3 = ['spider', 'miles', 'simb', 'gummy', 'scarf'];
+const SKINS3 = ['spider', 'miles', 'simb', 'gummy', 'scarf', 'astro', 'robo', 'neon', 'magma', 'ouro', 'osso'];
 
 // Configurações da party, iguais pra todo mundo: PVP, mapa, música do YouTube, vídeo do telão do cinema (3D),
 // rádio da laje (YouTube ou Spotify) e o horário do dia (3D).
-const party = { pvp: false, mode: 'course', music: null, cinema: null, radio: null, time: { locked: false, hour: 15, at: Date.now() }, god: { grav: 1, sea: 0, bend: 0, pace: 1 } };
+const party = { pvp: false, mode: 'course', music: null, cinema: null, radio: null, time: { locked: false, hour: 15, at: Date.now() }, god: { grav: 1, sea: 0, bend: 0, pace: 1, map: 'ilha' } };
 // prédios comidos ou destruídos no 3D, pra quem chegar depois ver a cidade do mesmo jeito
 const eaten = new Set();
 // blocos quebrados e colocados no modo Minecraft
@@ -101,7 +103,7 @@ function serve(req, res) {
   }
   if (url.pathname === '/api/info') {
     res.writeHead(200, { 'Content-Type': MIME['.json'], 'Cache-Control': 'no-store' });
-    res.end(JSON.stringify({ port: PORT, ips: lanAddresses(), https: true, players: [...clients.values()].filter(c => c.joined).length }));
+    res.end(JSON.stringify({ port: PORT, site: SITE || null, ips: SITE ? [] : lanAddresses(), https: true, players: [...clients.values()].filter(c => c.joined).length }));
     return;
   }
   if (url.pathname === '/api/versao') {
@@ -344,7 +346,7 @@ class Client {
         if ('radio' in m) { party.radio = radioState(m.radio, this.name); changed.push('radio'); }
         if (m.god && typeof m.god === 'object') {
           const num = (v, lo, hi, d) => (Number.isFinite(v) ? Math.max(lo, Math.min(hi, v)) : d);
-          party.god = { grav: num(m.god.grav, -1, 3, 1), sea: num(m.god.sea, 0, 220, 0), bend: num(m.god.bend, -100, 100, 0), pace: num(m.god.pace, 0, 4, 1) };
+          party.god = { grav: num(m.god.grav, -1, 3, 1), sea: num(m.god.sea, 0, 220, 0), bend: num(m.god.bend, -100, 100, 0), pace: num(m.god.pace, 0, 4, 1), map: m.god.map === 'inf' ? 'inf' : 'ilha' };
           changed.push('god');
         }
         if (m.time && typeof m.time === 'object' && Number.isFinite(m.time.hour)) {
@@ -410,9 +412,13 @@ server.on('error', err => {
 });
 
 server.listen(PORT, '0.0.0.0', () => {
+  const line = '  ' + '─'.repeat(54);
+  if (SITE) {
+    console.log(`\n   VOO LIVRE — servidor ligado na nuvem: ${SITE}\n`);
+    return;
+  }
   const ips = lanAddresses();
   for (const ip of ips) dns.lookup(ip.host, { family: 4 }, (err, address) => { if (!err && address === ip.address) namesOk.add(ip.address); });
-  const line = '  ' + '─'.repeat(54);
   console.log('\n' + line);
   console.log('   VOO LIVRE — servidor ligado');
   console.log(line);

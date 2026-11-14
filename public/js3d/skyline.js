@@ -88,7 +88,7 @@ export class Skyline {
     u.sky.value.copy(day.cur.sky);
     u.gnd.value.copy(day.cur.gnd);
     u.lightI.value = day.light.intensity;
-    u.hemiI.value = day.hemi.intensity;
+    u.hemiI.value = day.hemiFull ?? day.hemi.intensity;
     u.win.value = day.win;
     u.fogD.value = day.scene.fog.density;
     const f = {};

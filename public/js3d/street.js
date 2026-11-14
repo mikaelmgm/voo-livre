@@ -3,7 +3,8 @@
 import * as THREE from 'three';
 import { Boxes, rnd, solid, softDot } from './lib3d.js';
 import { TINTS, makeFacades, makeShops, grassTexture } from './textures.js';
-import { storeLayout, dressStore, storeSigns, inFun, BEACH_J } from './places.js';
+import { storeLayout, dressStore, storeSigns, inFun, onLand } from './places.js';
+import { onBridgeFoot } from './bridge.js';
 
 export const CELL = 52;       // lote + rua
 const WALK_MIN = 15.6;        // calçada por onde a gente anda (distância do centro do lote)
@@ -17,7 +18,7 @@ export function styleLot(L, i, j) {
   if (L.park) return;
   const { cx, cz, w, d, h } = L;
   if (L.low) { styleLow(L, i, j); return; }
-  if (!(i === 0 && j === 0) && styleShape(L, i, j)) return;
+  if (!(i === 0 && j === 0) && !L.mark && styleShape(L, i, j)) return;
   if (!L.low && h > 30 && rnd(i, j, 16) < 0.38) {
     const m = Math.min(3, 15 - w / 2, 15 - d / 2);
     if (m > 1) {
@@ -81,7 +82,11 @@ function styleLow(L, i, j) {
     for (let m = 0; m < n; m++) parts.push({ x: x - w / 2 + hw * (m + 0.5), z, w: hw - 0.3, d: d * 0.7, y0: 0, y1: h, house: m });
     L.kind = 'casas';
     setParts(L, i, j, parts, []);
-    L.anchors = [];
+    // postes altos nas esquinas do lote: no bairro de casas a teia pega neles
+    L.anchors = [[1, 1], [-1, -1]].map(([sx, sz], k) => {
+      const px = x + sx * 18.8, pz = z + sz * 18.8;
+      return { x: px, y: 14, z: pz, bx: px, bz: pz, roof: 0, id: (i * 4099 + j) * 2 + k + 5000000 };
+    });
   } else if (k < 0.86) {
     const nave = { x, z: z + d * 0.08, w: w * 0.46, d: d * 0.72, y0: 0, y1: 11 }, tw = { x, z: z - d * 0.37, w: 5.6, d: 5.6, y0: 0, y1: 30 };
     L.kind = 'igreja';
@@ -99,28 +104,30 @@ function styleLow(L, i, j) {
 export function cityMaterials() {
   const facades = makeFacades();
   const dot = softDot();
-  const grass = new THREE.MeshLambertMaterial({ map: grassTexture(), vertexColors: true });
+  const grass = new THREE.MeshStandardMaterial({ map: grassTexture(), vertexColors: true });
   return {
     facades, grass,
     shops: makeShops(),
-    plain: new THREE.MeshLambertMaterial({ vertexColors: true }),
-    small: new THREE.MeshLambertMaterial({ vertexColors: true }),
-    glowBox: new THREE.MeshBasicMaterial({ vertexColors: true, toneMapped: false }),
+    plain: new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.9 }),
+    small: new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.55, metalness: 0.3 }),
+    // o que acende sozinho passa do branco: é o que faz a luz vazar em volta
+    glowBox: new THREE.MeshBasicMaterial({ vertexColors: true, color: new THREE.Color(2.4, 2.4, 2.4) }),
     signs: storeSigns(),
-    heads: new THREE.MeshBasicMaterial({ color: 0xffe2b0, toneMapped: false }),
-    canopy: new THREE.MeshLambertMaterial({ flatShading: true }),
-    pool: new THREE.MeshBasicMaterial({ map: dot, color: 0xffb468, transparent: true, depthWrite: false, opacity: 0, blending: THREE.AdditiveBlending, fog: false }),
+    heads: new THREE.MeshBasicMaterial({ color: 0xffe2b0 }),
+    canopy: new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.86 }),
+    pool: new THREE.MeshBasicMaterial({ map: dot, color: new THREE.Color(0xffb468).multiplyScalar(1.7), transparent: true, depthWrite: false, opacity: 0, blending: THREE.AdditiveBlending, fog: false }),
     glow: new THREE.PointsMaterial({ map: dot, size: 7, sizeAttenuation: true, color: 0xffd090, transparent: true, depthWrite: false, opacity: 0, blending: THREE.AdditiveBlending }),
   };
 }
 
-const headDay = new THREE.Color(0x6a6a60), headNight = new THREE.Color(0xffe2b0);
+const headDay = new THREE.Color(0x6a6a60), headNight = new THREE.Color(0xffe2b0).multiplyScalar(5);
 export function lightCity(mats, env) {
-  for (const m of mats.facades) m.emissiveIntensity = env.win;
-  mats.shops.emissiveIntensity = env.win * 0.62;
+  for (const m of mats.facades) m.emissiveIntensity = env.win * 2.6;
+  mats.shops.emissiveIntensity = env.win * 1.5;
   mats.pool.opacity = env.night * 0.55;
   mats.glow.opacity = env.night * 0.9;
   mats.heads.color.copy(headDay).lerp(headNight, env.night);
+  mats.glowBox.color.setScalar(0.95 + 1.7 * env.night);       // vitrine e janela acesa: de dia só clara, de noite brilha
 }
 
 export function newKit(mats) {
@@ -185,18 +192,46 @@ function shopsAround(L, i, j, kit, x0, z0, x1, z1) {
   });
 }
 
-function roofJunk(L, i, j, kit) {
-  const P = kit.small;
-  const top = L.crown ? L.h + 0.8 + L.crown.h : L.h + 0.8;
+// O que fica em cima do telhado. A mesma lista serve pro desenho e pra colisão: antes dava pra atravessar tudo isso.
+function roofSpot(L) {
+  if (L.park || L.cinema || L.court || L.fun || L.beach || L.store || L.kind) return null;
+  if (!L.parts) return L;
+  const top = L.parts.reduce((a, b) => (b.y1 > a.y1 ? b : a));
+  return top.round ? null : { ...L, h: top.y1 - 0.2, cx: top.x, cz: top.z, w: top.w, d: top.d, crown: null, parts: null, hutless: true };
+}
+function roofItems(L, i, j) {
+  const top = L.crown ? L.h + 0.8 + L.crown.h : L.h + 0.8, out = [];
   const hw = (L.crown ? L.crown.w : L.w) / 2 - 1.6, hd = (L.crown ? L.crown.d : L.d) / 2 - 1.6;
+  if (!L.crown && !L.hutless && rnd(i, j, 9) > 0.45) out.push({ kind: 'hut', x: L.cx, z: L.cz, top });      // casa de máquinas
   for (let k = 0; k < 4; k++) {
     if (rnd(i, j + k, 23) < 0.35) continue;
-    const x = L.cx + (rnd(i, j + k, 24) * 2 - 1) * hw, z = L.cz + (rnd(i, j + k, 25) * 2 - 1) * hd;
-    const type = rnd(i, j + k, 26);
-    if (type < 0.4) {
+    const x = L.cx + (rnd(i, j + k, 24) * 2 - 1) * hw, z = L.cz + (rnd(i, j + k, 25) * 2 - 1) * hd, type = rnd(i, j + k, 26);
+    out.push({ kind: type < 0.4 ? 'ac' : type < 0.8 ? 'tank' : 'mast', x, z, top });
+  }
+  return out;
+}
+// caixas de colisão do telhado. As pequenas são "soft": seguram o corpo, mas não atrapalham a mira nem a câmera.
+export function roofBoxes(L, i, j) {
+  const S = roofSpot(L), out = [];
+  if (!S) return out;
+  for (const k of roofItems(S, i, j)) {
+    if (k.kind === 'hut') out.push([k.x - 2.5, k.top, k.z - 2, k.x + 2.5, k.top + 3, k.z + 2]);
+    else if (k.kind === 'ac') out.push(Object.assign([k.x - 0.8, k.top, k.z - 0.6, k.x + 0.8, k.top + 1.08, k.z + 0.6], { soft: true }));
+    else if (k.kind === 'tank') out.push(Object.assign([k.x - 0.9, k.top, k.z - 0.9, k.x + 0.9, k.top + 2.35, k.z + 0.9], { soft: true }));
+  }
+  return out;
+}
+function roofJunk(L, i, j, kit) {
+  const P = kit.small;
+  for (const { kind, x, z, top } of roofItems(L, i, j)) {
+    if (kind === 'hut') {
+      kit.plain.tint('#8c8a84').box(x - 2.5, top, z - 2, x + 2.5, top + 3, z + 2);
+      kit.plain.tint('#6e6c68').box(x - 2.7, top + 3, z - 2.2, x + 2.7, top + 3.18, z + 2.2);
+      P.tint('#3c4048').box(x - 0.55, top, z + 2, x + 0.55, top + 2.1, z + 2.06);       // porta
+    } else if (kind === 'ac') {
       P.tint('#9aa0a6').box(x - 0.8, top, z - 0.6, x + 0.8, top + 1, z + 0.6);       // ar condicionado
       P.tint('#55595f').box(x - 0.45, top + 1, z - 0.45, x + 0.45, top + 1.08, z + 0.45);
-    } else if (type < 0.8) {
+    } else if (kind === 'tank') {
       P.tint('#6a6a6a').box(x - 0.9, top, z - 0.9, x + 0.9, top + 0.6, z + 0.9);
       P.tint('#2f6cae').prism(x, top + 0.6, top + 2.1, z, 0.95, 10);                 // caixa d'água
       P.tint('#265c98').prism(x, top + 2.1, top + 2.35, z, 0.75, 10);
@@ -311,7 +346,8 @@ function dressParts(L, i, j, kit) {
   }
   const base = L.parts[0], top = L.parts.reduce((a, b) => (b.y1 > a.y1 ? b : a));
   if (!base.round) shopsAround(L, i, j, kit, base.x - base.w / 2, base.z - base.d / 2, base.x + base.w / 2, base.z + base.d / 2);
-  if (!top.round) roofJunk({ ...L, h: top.y1 - 0.2, cx: top.x, cz: top.z, w: top.w, d: top.d, crown: null }, i, j, kit);
+  const S = roofSpot(L);
+  if (S) roofJunk(S, i, j, kit);
 }
 function dressHouses(L, i, j, kit) {
   const P = kit.plain, Q = kit.small, walls = ['#e8d8b8', '#c8d8e0', '#e0c0b0', '#d0dcc0', '#f0e8dc'], roofs = ['#8a3a2c', '#5a5a64', '#6a3e2a'];
@@ -386,13 +422,26 @@ export function dressLot(L, i, j, kit) {
   } else {
     shopsAround(L, i, j, kit, x0, z0, x1, z1);
   }
-  if (rnd(i, j, 9) > 0.45 && !L.crown) P.tint('#8c8a84').box(L.cx - 2.5, L.h + 0.8, L.cz - 2, L.cx + 2.5, L.h + 3.8, L.cz + 2);
   roofJunk(L, i, j, kit);
   dressSidewalk(L, i, j, kit);
 }
 
 // Monta as malhas de um pedaço de cidade.
-const canopyGeo = new THREE.IcosahedronGeometry(1, 1);
+// A copa: uma bola amassada, mais escura por baixo (a luz vem de cima), no lugar do icosaedro de cantos vivos.
+const canopyGeo = (() => {
+  const g = new THREE.IcosahedronGeometry(1, 3), p = g.attributes.position, n = g.attributes.normal, col = new Float32Array(p.count * 3), v = new THREE.Vector3();
+  const lump = (x, y, z) => Math.sin(x * 3.1 + 1.3) * Math.sin(y * 2.7 + 0.4) * Math.sin(z * 3.3 + 2.1);
+  for (let i = 0; i < p.count; i++) {
+    v.fromBufferAttribute(p, i).normalize();
+    const k = 1 + 0.2 * lump(v.x, v.y, v.z) + 0.1 * lump(v.x * 2.3 + 5, v.y * 2.3, v.z * 2.3 + 1);
+    const shade = 0.5 + 0.55 * Math.min(1, Math.max(0, v.y * 0.6 + 0.5)) + 0.12 * lump(v.x * 4, v.y * 4, v.z * 4);
+    p.setXYZ(i, v.x * k, v.y * k * 0.94, v.z * k);
+    n.setXYZ(i, v.x, v.y, v.z);
+    col[i * 3] = shade * 0.96; col[i * 3 + 1] = shade; col[i * 3 + 2] = shade * 0.9;
+  }
+  g.setAttribute('color', new THREE.BufferAttribute(col, 3));
+  return g;
+})();
 const poolGeo = new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2);
 canopyGeo.userData.shared = poolGeo.userData.shared = true;
 export function kitMeshes(kit, group) {
@@ -422,7 +471,7 @@ export function kitMeshes(kit, group) {
   }
   if (kit.lamps.length) {
     const inst = new THREE.InstancedMesh(poolGeo, mats.pool, kit.lamps.length);
-    kit.lamps.forEach(([x, z], k) => { m.makeScale(15, 1, 15).setPosition(x, 0.1, z); inst.setMatrixAt(k, m); });
+    kit.lamps.forEach(([x, z], k) => { m.makeScale(19, 1, 19).setPosition(x, 0.1, z); inst.setMatrixAt(k, m); });
     inst.computeBoundingSphere();
     inst.renderOrder = 1;
     group.add(inst, new THREE.Points(new THREE.BufferGeometry().setFromPoints(kit.lamps.map(([x, z]) => new THREE.Vector3(x, 7.3, z))), mats.glow));
@@ -442,7 +491,7 @@ export class Crowd {
   constructor(scene, count = 320) {
     this.spanBlocks = 8;
     this.range = 150;
-    const mat = new THREE.MeshLambertMaterial();
+    const mat = new THREE.MeshStandardMaterial();
     const inst = (geo, n) => {
       const m = new THREE.InstancedMesh(geo, mat, n);
       m.frustumCulled = false;
@@ -465,7 +514,7 @@ export class Crowd {
     dog.box(-0.08, 0.36, 0.24, 0.08, 0.5, 0.44);
     dog.box(-0.03, 0.36, -0.42, 0.03, 0.42, -0.26);
     for (const sx of [-1, 1]) for (const sz of [-1, 1]) dog.box(sx * 0.07 - 0.03, 0, sz * 0.2 - 0.03, sx * 0.07 + 0.03, 0.24, sz * 0.2 + 0.03);
-    const hatMat = new THREE.MeshLambertMaterial({ vertexColors: true });
+    const hatMat = new THREE.MeshStandardMaterial({ vertexColors: true });
     const extra = (geo, n, material = mat) => {
       const m = new THREE.InstancedMesh(geo, material, n);
       m.frustumCulled = false;
@@ -634,7 +683,7 @@ const VEHICLES = [
 
 export class Traffic {
   constructor(scene, count = 76) {
-    this.mat = new THREE.MeshLambertMaterial({ vertexColors: true });
+    this.mat = new THREE.MeshStandardMaterial({ vertexColors: true });
     this.geos = VEHICLES.map(make => make());
     this.bodies = this.geos.map(g => new THREE.InstancedMesh(g, this.mat, count));
     const l = new Boxes();
@@ -672,7 +721,7 @@ export class Traffic {
   }
 
   update(t, px, pz, night) {
-    const { d } = this, n = this.count, now = performance.now(), shoreZ = BEACH_J * CELL - 27;
+    const { d } = this, n = this.count, now = performance.now();
     this.lightMat.opacity = Math.max(0.15, night);
     for (let k = 0; k < n; k++) {
       const c = this.cars[k], body = this.bodies[c.kind];
@@ -684,7 +733,8 @@ export class Traffic {
       if (c.axis) d.position.set(lane - c.dir * 2.7, 0, a);   // mão direita
       else d.position.set(a, 0, lane + c.dir * 2.7);
       // nem areia nem parque têm rua
-      if (d.position.z > shoreZ || inFun(Math.floor(d.position.x / CELL), Math.floor(d.position.z / CELL))) { c.gone = now + 800; body.setMatrixAt(c.slot, this.zero); this.lights.setMatrixAt(k, this.zero); continue; }
+      const ci = Math.floor(d.position.x / CELL), cj = Math.floor(d.position.z / CELL);
+      if (!onLand(ci, cj) || inFun(ci, cj) || onBridgeFoot(d.position.x, d.position.z)) { c.gone = now + 800; body.setMatrixAt(c.slot, this.zero); this.lights.setMatrixAt(k, this.zero); continue; }
       d.rotation.y = c.axis ? (c.dir > 0 ? 0 : Math.PI) : (c.dir > 0 ? Math.PI / 2 : -Math.PI / 2);
       c.x = d.position.x; c.z = d.position.z;
       d.updateMatrix();

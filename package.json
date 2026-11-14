@@ -1,0 +1,11 @@
+{
+  "name": "voo-livre",
+  "private": true,
+  "description": "Jogo de gancho pra jogar com os amigos no navegador. Sem dependências.",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

@@ -14,14 +14,18 @@ import { roofLayout, courtLayout, groundLift, buildRoof, buildCourt } from './ro
 import { Skyline } from './skyline.js';
 import { Whiteboard } from './board.js';
 import { Slime, SlimeWorld, SlimeStage, SLIME_SKINS } from './slime.js';
-import { Space, SUN, EARTH, MOON, BODIES } from './space.js';
+import { Space, SUN, EARTH, MOON, BODIES, BEND as MOON_BEND } from './space.js';
 import { Backrooms, BACK_H } from './backrooms.js';
 import { Portals, PORTAL_W, PORTAL_H, PORTAL_COLORS } from './portals.js';
+import { PortalWater } from './water.js';
 import { Art, ART_STYLES, compileAll } from './art.js';
 import { Flyers, Sea } from './god.js';
 import { SpeedFx } from './speedfx.js';
-import { Mine, BlockBody, REACH } from './mine.js';
-import { FunPark, Beach, funLot, inFun, sandY, BEACH_J, WATER_Y, WATER_Z, BEACH_SPOT, FUN_GATE } from './places.js';
+import { Mine, BlockBody, REACH, B as VB } from './mine.js';
+import { Nether, End, Dragon, MoonFrame, MoonVox, NETHER_LIGHT, END_LIGHT } from './dims.js';
+import { CraftGui } from './craft.js';
+import { Bridge, bridgeParts, BRIDGE_TOP } from './bridge.js';
+import { FunPark, Beach, funLot, inFun, sandY, WATER_Y, BEACH_SPOT, FUN_GATE, ISLE, ISLE_SHAPE, SEA_IN, onLand, inSea, ISLET, MAP } from './places.js';
 import { Sinuca, Pong, Basket } from './games.js';
 
 const $ = s => document.querySelector(s);
@@ -50,6 +54,8 @@ const WALL_REACH = 1.1, WALL_PUSH = 17, WALL_UP = 14;     // pulo na parede
 // estilingue: a teia estica até SLING_MAX, ou mais SLING_TUG com um amigo puxando; quanto mais longe, mais pesado
 const SLING_MAX = 24, SLING_TUG = 28, SLING_POWER = 9, BRACE_WALK = 0.7;
 const THROW = 60, CARRY_Y = 2.7;                          // arremessar quem está no colo
+// pouso: CTRL no ar, mirando num telhado ou no chão, as duas teias levam você até ali. Vai embalado e só freia no fim.
+const LAND_PACE = 70, LAND_BRAKE = 150, LAND_GRIP = 7, LAND_ARC = 0.22, LAND_ARC_TOP = 16, LAND_INSET = 2.5, LAND_CLEAR = 3;
 const WARP_REEL = 24, WARP_PULL = 34;                      // teia que entra num portal: recolhe e leva você pra boca dele
 // espaço: a teia alcança muito mais, o jato empurra de leve e, solto, o excesso de velocidade vai embora devagar
 const SPACE_ROPE = 620, SPACE_JET = 34, SPACE_TURBO = 90, SPACE_CRUISE = 260, SPACE_FADE = 0.55, SPACE_KICK = 34;
@@ -57,6 +63,7 @@ const PLANET_PULL = 230, PLANET_TOP = 3200;                // teia presa num ast
 // a teia é uma mola: estica até um limite e devolve, em vez de ser uma barra rígida que freia você
 const ROPE_K = 70, ROPE_DAMP = 5, ROPE_STRETCH = 0.16;
 const GROUND_CLEAR = 3.4, GUARD_RATE = 48;     // o arco da teia nunca passa rente ao chão (S segurado libera)
+const GUARD_LOW = 12, GUARD_SOFT = 2;          // teia atirada até essa altura da rua puxa você pra cima de uma vez; de mais alto é pêndulo
 const ASSIST = 5, ASSIST_TOP = 50;             // empurrãozinho pra manter o embalo enquanto balança
 const STEER_MIN = 20;                          // acima disso o voo desvia sozinho dos prédios
 const BOOST = 24;             // Shift preso na corda: empurra na direção do balanço
@@ -65,7 +72,7 @@ const R0 = 0.6;               // raio do corpo pra colisão, no tamanho normal
 let R = R0;
 // comilão: o que cada coisa pesa, e a partir de que tamanho dá pra comer
 const CAR_MASS = 6, EAT_CAR = 1.5, EAT_LOT = 6, GONE_MS = 60000;
-const GOD = { grav: 1, sea: 0, bend: 0, pace: 1 };   // painel de Deus: vale pra todo mundo da party
+const GOD = { grav: 1, sea: 0, bend: 0, pace: 1, map: 'ilha' };   // painel de Deus: vale pra todo mundo da party
 
 let prefs = {};
 try { prefs = JSON.parse(localStorage.getItem('voolivre') || '{}'); } catch { /* sem storage */ }
@@ -80,24 +87,63 @@ function savePrefs() {
     localStorage.setItem('voolivre', JSON.stringify(Object.assign(p, prefs)));
   } catch { /* sem storage */ }
 }
+// Modo leve, pra PC fraco: 3d.html?leve liga (e ?leve=0 desliga), e fica guardado. Imagem bem menor, sem sombra, sem
+// estilos de arte, pouca gente e pouco carro, e a tela de carregamento só prepara o que esse modo usa.
+const leveArg = new URLSearchParams(location.search).get('leve');
+if (leveArg !== null) { prefs.leve = leveArg !== '0'; savePrefs(); }
+const LEVE = !!prefs.leve;
+if (LEVE) QUALITY[0] = { name: 'Leve', pr: 0.4, view: 1, detail: 70, far: 600, shadow: 0, range: 0, every: 1, crowd: 35, cars: 8, clouds: false, lamps: false };
 
 // ------------------------------------------------------------------ cidade procedural
 
 const lots = new Map();
 const eatenLots = new Set();
+// Marcos: a cidade é a de sempre, mas de vez em quando abre uma praça e no meio dela sobe do nada
+// UMA torre altíssima, ou duas torres gêmeas. Um marco no máximo por bloco de 8x8 quarteirões.
+const MARK_G = 8;
+function landmark(i, j) {
+  const gi = Math.floor(i / MARK_G), gj = Math.floor(j / MARK_G);
+  if (rnd(gi, gj, 71) > 0.5) return null;
+  const ci = gi * MARK_G + 2 + Math.floor(rnd(gi, gj, 72) * 4), cj = gj * MARK_G + 2 + Math.floor(rnd(gi, gj, 73) * 4);
+  if (Math.abs(ci) <= 3 && Math.abs(cj) <= 3) return null;           // em volta do começo fica como sempre foi
+  const twin = rnd(gi, gj, 85) < 0.45, alongI = rnd(gi, gj, 75) < 0.5;
+  const ti = twin && alongI ? 1 : 0, tj = twin && !alongI ? 1 : 0;
+  if (i < ci - 1 || i > ci + 1 + ti || j < cj - 1 || j > cj + 1 + tj) return null;
+  const tower = (i === ci && j === cj) || (twin && i === ci + ti && j === cj + tj);
+  return { tower, twin, ci, cj, h: twin ? 300 + rnd(gi, gj, 76) * 120 : 260 + rnd(gi, gj, 77) * 240, s: twin ? 22 : 24 + rnd(gi, gj, 78) * 4 };
+}
+const STRUCT = bridgeParts();
 function lot(i, j) {
-  const key = i + ',' + j;
-  let L = lots.get(key);
+  const L = lots.get(i + ',' + j);
   if (L) return L;
+  const N = lotRaw(i, j);
+  if (!MAP.infinite) {
+    const x0 = i * CELL, x1 = x0 + CELL, z0 = j * CELL, z1 = z0 + CELL;
+    for (const b of STRUCT.boxes) {
+      if (b[3] <= x0 || b[0] >= x1 || b[5] <= z0 || b[2] >= z1) continue;
+      N.boxes.push([Math.max(b[0], x0), b[1], Math.max(b[2], z0), Math.min(b[3], x1), b[4], Math.min(b[5], z1)]);
+    }
+    for (const a of STRUCT.anchors) if (a.x >= x0 && a.x < x1 && a.z >= z0 && a.z < z1) N.anchors.push(a);
+  }
+  return N;
+}
+function lotRaw(i, j) {
+  const key = i + ',' + j;
+  let L;
   const cx = (i + 0.5) * CELL, cz = (j + 0.5) * CELL;
-  if (j >= BEACH_J) { L = { cx, cz, w: 0, d: 0, h: 0, park: true, beach: true, anchors: [], boxes: [] }; lots.set(key, L); return L; }
+  if (!onLand(i, j)) { L = { cx, cz, w: 0, d: 0, h: 0, park: true, beach: true, anchors: [], boxes: [] }; lots.set(key, L); return L; }
   if (inFun(i, j)) { L = funLot(i, j); lots.set(key, L); return L; }
   if (i === CINEMA.i && j === CINEMA.j) { L = cinemaLot(cx, cz); lots.set(key, L); return L; }
   if (i === COURT.i && j === COURT.j) { L = courtLot(cx, cz); lots.set(key, L); return L; }
+  const mark = landmark(i, j);
   let park = rnd(i, j, 1) < 0.07 || eatenLots.has(key);
   let low = !park && rnd(i, j, 12) < 0.13;    // sobradinho comercial no meio dos prédios
   let w = 14 + rnd(i, j, 2) * 12, d = 14 + rnd(i, j, 3) * 12, h = 16 + Math.pow(rnd(i, j, 4), 2.2) * 120;
   if (low) { w = 22 + rnd(i, j, 2) * 7; d = 22 + rnd(i, j, 3) * 7; h = 8 + rnd(i, j, 4) * 6; }
+  if (mark) {
+    if (mark.tower) { park = low = false; w = d = mark.s; h = mark.h; }
+    else { park = true; low = false; }      // a praça aberta em volta
+  }
   if (i === 0 && j === 0) { park = false; low = false; w = 22; d = 22; h = 95; }
   const anchors = [];
   if (!park) {
@@ -110,8 +156,16 @@ function lot(i, j) {
   }
   // caixas de colisão [x0, y0, z0, x1, y1, z1]
   const boxes = park ? [] : [[cx - w / 2 - 0.4, 0, cz - d / 2 - 0.4, cx + w / 2 + 0.4, h + 0.8, cz + d / 2 + 0.4]];
-  L = { cx, cz, w, d, h, park, low, anchors, boxes };
-  styleLot(L, i, j);
+  L = { cx, cz, w, d, h, park, low, anchors, boxes, mark: mark && mark.tower };
+  if (L.mark) styleLot(L, mark.ci, mark.cj);       // gêmeas de verdade: a mesma fachada e a mesma coroa
+  else styleLot(L, i, j);
+  // torre alta: pontos de teia também no meio da altura, senão de baixo não dá pra subir nela
+  if (!park && !L.low && L.h > 150 && !L.kind) {
+    for (let y = 95, n = 0; y < L.h - 40; y += 95, n++) {
+      const sx = n % 2 ? 1 : -1, sz = (n >> 1) % 2 ? 1 : -1, hw = L.w / 2, hd = L.d / 2;
+      L.anchors.push({ x: cx + sx * (hw + 2.5), y: y + 3, z: cz + sz * (hd + 2.5), bx: cx + sx * hw, bz: cz + sz * hd, roof: y, id: (i * 4099 + j) * 2 + 3000000 + n });
+    }
+  }
   if (lots.size > 20000) lots.clear();
   lots.set(key, L);
   return L;
@@ -182,10 +236,14 @@ function inCinema(p) {
 
 // o que tem de sólido por perto no mundo em que você está
 function lotsNear(x, z, r) {
-  if (voxels()) return [{ boxes: mine.around(x, me.pos.y, z, 1 + R) }];
+  const V = vox();
+  if (V) return me.where === 'moon' && moonFrame.placed ? [{ boxes: V.around(x, me.pos.y, z, 1 + R) }, { boxes: moonFrame.boxes }] : [{ boxes: V.around(x, me.pos.y, z, 1 + R) }];
+  if (me.where === 'moon') return moonFrame.placed ? [{ boxes: moonFrame.boxes }] : [];
   return me.where === 'city' ? lotsAround(x, z, r) : me.where === 'back' ? back.near(x, z) : [];
 }
 const voxels = () => mine?.active && me.where === 'city';
+// o mundo de blocos em que você está: a cidade no modo Minecraft, o inferno ou o fim
+const vox = () => (voxels() ? mine : me.where === 'nether' ? nether : me.where === 'end' ? theEnd : me.where === 'moon' && mine?.active && moonVox?.built ? moonVox : null);
 
 function lotsAround(x, z, r) {
   const out = [];
@@ -209,7 +267,7 @@ function softwareGpu() {
   return /swiftshader|llvmpipe|software|basic render/i.test(name);
 }
 const SOFTWARE = softwareGpu();
-const renderer = new THREE.WebGLRenderer({ canvas, antialias: !SOFTWARE && !['0', '1'].includes(prefs.quality), alpha: true, powerPreference: 'high-performance' });
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: !SOFTWARE && !LEVE && !['0', '1'].includes(prefs.quality), alpha: true, powerPreference: 'high-performance' });
 renderer.setClearColor(0x000000, 0);
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
@@ -236,14 +294,20 @@ const glowMat = new THREE.PointsMaterial({
 });
 
 // chão com ruas (textura de um quarteirão que se repete)
-const ground = new THREE.Mesh(new THREE.PlaneGeometry(CELL * 120, CELL * 120), new THREE.MeshLambertMaterial({ map: groundTexture() }));
+// a ilha tem tamanho certo: o chão cobre só os lotes dela, e a areia em volta cobre as beiradas
+const ISLE_W = (ISLE.i1 - ISLE.i0 + 1) * CELL, ISLE_D = (ISLE.j1 - ISLE.j0 + 1) * CELL;
+const groundTex = groundTexture();
+groundTex.repeat.set(ISLE.i1 - ISLE.i0 + 1, ISLE.j1 - ISLE.j0 + 1);
+const ground = new THREE.Mesh(new THREE.PlaneGeometry(ISLE_W, ISLE_D), new THREE.MeshLambertMaterial({ map: groundTex }));
 ground.rotation.x = -Math.PI / 2;
+ground.position.set(ISLE.i0 * CELL + ISLE_W / 2, 0, ISLE.j0 * CELL + ISLE_D / 2);
 ground.receiveShadow = true;
 city.add(ground);
-// na geleia o chão ondula, e pra isso precisa de vértices
-const flatGround = ground.geometry;
-let jellyGround = null;
-const denseGround = () => jellyGround || (jellyGround = new THREE.PlaneGeometry(CELL * 120, CELL * 120, 300, 300));
+// com o mundo enrolado o chão curva, e pra isso precisa de vértices
+const isleFlat = ground.geometry, GROUND_INF = CELL * 120;
+let isleDense = null, infFlat = null, infDense = null;
+const flatGround = () => (MAP.infinite ? infFlat || (infFlat = new THREE.PlaneGeometry(GROUND_INF, GROUND_INF)) : isleFlat);
+const denseGround = () => (MAP.infinite ? infDense || (infDense = new THREE.PlaneGeometry(GROUND_INF, GROUND_INF, 300, 300)) : isleDense || (isleDense = new THREE.PlaneGeometry(ISLE_W, ISLE_D, 240, 240)));
 
 // ---- o prédio do cinema
 const hallMat = new THREE.MeshLambertMaterial({ color: '#3a2147' });
@@ -422,7 +486,31 @@ function updateChunks(x, z) {
       chunks.delete(k);
     }
   }
-  ground.position.set(Math.round(x / CELL) * CELL, 0, Math.round(z / CELL) * CELL);
+  if (MAP.infinite) ground.position.set(Math.round(x / CELL) * CELL, 0, Math.round(z / CELL) * CELL);
+}
+function dropChunks() {
+  for (const [k, c] of chunks) {
+    city.remove(c.group);
+    c.group.traverse(o => { if ((o.isMesh || o.isPoints) && !o.geometry.userData.shared) o.geometry.dispose(); if (o.isInstancedMesh) o.dispose(); });
+    chunks.delete(k);
+  }
+  skyline.dirty = true;
+}
+// Ilha ou cidade infinita: vale pra party inteira (painel de Deus). Refaz a cidade toda com a regra nova.
+function setMap(infinite) {
+  if (MAP.infinite === infinite) return;
+  MAP.infinite = infinite;
+  lots.clear();
+  dropChunks();
+  if (mine.active) { for (const c of mine.chunks.values()) mine.drop(c); mine.chunks.clear(); mine.at = null; }
+  groundTex.repeat.set(infinite ? 120 : ISLE.i1 - ISLE.i0 + 1, infinite ? 120 : ISLE.j1 - ISLE.j0 + 1);
+  ground.geometry = GOD.bend ? denseGround() : flatGround();
+  if (infinite) ground.position.set(Math.round(me.pos.x / CELL) * CELL, 0, Math.round(me.pos.z / CELL) * CELL);
+  else ground.position.set(ISLE.i0 * CELL + ISLE_W / 2, 0, ISLE.j0 * CELL + ISLE_D / 2);
+  beach.group.visible = bridge.group.visible = !infinite;
+  for (const id of ['go-beach', 'go-bridge']) $('#' + id).style.display = infinite ? 'none' : '';
+  $('#map-pick').querySelectorAll('button').forEach(b => b.classList.toggle('on', (b.dataset.v === 'inf') === infinite));
+  showToast(infinite ? '♾️ Cidade infinita' : '🏝️ A cidade é uma ilha');
 }
 
 // ------------------------------------------------------------------ bonecos de teste
@@ -441,13 +529,14 @@ function glowTexture(color) {
 
 const slimes = new SlimeWorld(scene, renderer, day);
 const portals = new Portals(scene, renderer, slimes);
+const water = new PortalWater(scene, portals, { level: waterLevel, hit: waterHit, few: LEVE });
 const art = new Art(renderer, slimes);
 const speedFx = new SpeedFx(renderer);
 
 // a arma de portais: ela aponta pra +z do grupo
 function makeGun() {
   const g = new THREE.Group();
-  const shell = art.rigid(new THREE.MeshLambertMaterial({ color: '#e9edf2' })), dark = art.rigid(new THREE.MeshLambertMaterial({ color: '#23262e' }));
+  const shell = new THREE.MeshLambertMaterial({ color: '#e9edf2' }), dark = new THREE.MeshLambertMaterial({ color: '#23262e' });
   const add = (geo, mat, x, y, z) => { const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); g.add(m); return m; };
   add(new THREE.BoxGeometry(0.2, 0.2, 0.5), shell, 0, 0.03, 0.08);
   add(new THREE.BoxGeometry(0.12, 0.24, 0.13), dark, 0, -0.14, -0.04);
@@ -479,19 +568,19 @@ function makeBody(skin, color, amount) {
 const SIT_Y = 0.55 + 0.55;   // do chão da fileira até o centro do boneco sentado
 
 function makeRope(skin, color) {
-  const m = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.07, 1, 6, 1), art.rigid(new THREE.MeshBasicMaterial({ color: SLIME_SKINS[skin]?.arm ? color : '#f4f6ff' })));
+  const m = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.07, 1, 6, 1), new THREE.MeshBasicMaterial({ color: SLIME_SKINS[skin]?.arm ? color : '#f4f6ff' }));
   m.visible = false;
   scene.add(m);
   return m;
 }
 const UP = new V3(0, 1, 0);
 // a teia sai da mão e voa até o ponto; nas skins sem teia quem faz esse papel é o próprio braço
-const ropeEnd = new V3(), ropeTip = new V3(), roofSway = new V3(), ZERO3 = new V3();
+const ropeEnd = new V3();
 function placeRopes(ropes, hooks, body) {
   ropes.forEach((rope, i) => {
     const h = hooks[i];
     if (!h || body.armOnly) { rope.visible = false; return; }
-    placeRope(rope, body.hands[i], ropeEnd.copy(body.hands[i]).lerp(art.bent(h.p, ropeTip), Math.min(1, h.t / 0.12 || 1)));
+    placeRope(rope, body.hands[i], ropeEnd.copy(body.hands[i]).lerp(h.p, Math.min(1, h.t / 0.12 || 1)));
   });
 }
 function placeRope(rope, a, b) {
@@ -568,7 +657,7 @@ function startFlip() {
 const me = {
   pos: new V3(), vel: new V3(), onGround: false, hooks: [null, null], airJumps: 1, flipT: 0, flipAxis: new V3(1, 0, 0), boosting: false, seat: null, wet: false,
   sling: null, braced: false, strain: 0, airT: 0, tug: null, carry: 0, carried: 0, wallCool: 0, where: 'city', home: new V3(),
-  size: 1, base: 1, mass: 0, eaten: 0, rock: null,
+  size: 1, base: 1, mass: 0, eaten: 0, rock: null, land: null,
   mesh: makeBody(SKIN3, COLOR, SLIME), ropes: [makeRope(SKIN3, COLOR), makeRope(SKIN3, COLOR)], ropes2: [makeRope(SKIN3, COLOR), makeRope(SKIN3, COLOR)],
   gun: makeGun(),
   get hook() { return this.hooks[0] || this.hooks[1]; },        // uma teia qualquer, a que estiver presa
@@ -648,7 +737,7 @@ function hookTargets() {
   }
   // o que dá pra ver pelo buraco também é alvo: a teia entra num portal e sai no outro
   for (const p of portals.list) {
-    const q = p.where === me.where && p.open > 0.5 ? portals.partner(p) : null;
+    const q = p.where === me.where && p.open > 0.5 ? portals.link(p) : null;
     if (!q) continue;
     const left = reach() - p.c.distanceTo(me.pos);
     if (left < 5 || (me.pos.x - p.c.x) * p.n.x + (me.pos.y - p.c.y) * p.n.y + (me.pos.z - p.c.z) * p.n.z <= 0) continue;
@@ -669,11 +758,11 @@ function findTarget(dt) {
   const dir = new V3(0, 0, -1).applyQuaternion(camera.quaternion);
   watchSky(dir);
   if (gaze.ready && dir.dot(skyDir()) > 0.994) return { p: me.pos.clone(), sky: true };
-  if (voxels()) {
-    const top = reach(), h = mine.ray(camera.position, dir, top + 12);
-    if (!h || h.t < REACH + camera.position.distanceTo(me.pos)) return null;
-    const p = camera.position.clone().addScaledVector(dir, h.t);
-    return p.distanceTo(me.pos) > top ? null : { p, id: 500000000 + (h.x * 73 + h.y * 179 + h.z * 283) };
+  if (vox()) {
+    const top = reach(), h = vox().ray(camera.position, dir, top + 12);
+    const near = !h || h.t < REACH + camera.position.distanceTo(me.pos), p = h && camera.position.clone().addScaledVector(dir, h.t);
+    if (!near && p.distanceTo(me.pos) <= top) return { p, id: 500000000 + (h.x * 73 + h.y * 179 + h.z * 283) };
+    if (me.where !== 'moon' || (h && near)) return null;       // na Lua, as pedras com ponto de teia continuam valendo
   }
   let best = null, bestA = 0.22;
   const top = reach();
@@ -693,8 +782,13 @@ function findTarget(dt) {
   return best;
 }
 
+// Pisando na rua ou voando bem perto dela: a teia precisa tirar você de lá. Em cima de um prédio não, mesmo baixo.
+function nearStreet() {
+  return me.pos.y - R - groundAt(me.pos.x, me.pos.z) < (me.onGround ? 1.5 : GUARD_LOW);
+}
+
 function attach(t, hand = 0) {
-  me.hooks[hand] = { p: t.p.clone(), L: clamp(t.p.distanceTo(me.pos), ROPE_MIN, reach() + 10), pid: t.pid || 0, id: t.id, t: 0, warp: t.via ? { a: t.via[0], b: t.via[1] } : null, real: t.real || null };
+  me.hooks[hand] = { p: t.p.clone(), L: clamp(t.p.distanceTo(me.pos), ROPE_MIN, reach() + 10), snap: nearStreet(), pid: t.pid || 0, id: t.id, t: 0, warp: t.via ? { a: t.via[0], b: t.via[1] } : null, real: t.real || null };
   me.airJumps = 1;
 }
 
@@ -706,6 +800,89 @@ function release(hand) {
   else { me.hooks[hand] = null; if (me.hook) return; }
   const s = me.vel.length();
   if (s > 5) me.vel.addScaledVector(me.vel, RELEASE_BOOST / s);
+}
+
+// Onde uma reta cai pra pousar: topo de alguma coisa ou chão. Na parede não dá, a não ser perto do topo:
+// quem está mais baixo que o telhado não enxerga o topo, então mirar a beirada vale como mirar o telhado.
+function surfaceOn(from, dir, top) {
+  const solid = -Math.max(0, R - R0), hit = me.where === 'moon' ? null : sweep(from, dir, top, solid);     // a mira vê o prédio de verdade, sem a folga do corpo
+  if (!vox() && dir.y < -0.01) {
+    let g = groundAt(from.x, from.z), t = 0;
+    for (let k = 0; k < 4; k++) { t = (from.y - g) / -dir.y; g = groundAt(from.x + dir.x * t, from.z + dir.z * t); }
+    if (t > 0 && t < (hit ? hit.t : top)) return new V3(from.x + dir.x * t, g, from.z + dir.z * t);
+  }
+  if (!hit) return null;
+  const p = from.clone().addScaledVector(dir, hit.t), b = hit.box;
+  if (hit.axis === 1 && hit.sign < 0) return null;
+  if (hit.axis !== 1 && (!b || b[4] - p.y > clamp(hit.t * 0.12, 3, 12))) return null;
+  if (b) {
+    const m = hit.axis === 1 ? R + 0.5 : R + LAND_INSET, inside = (v, lo, hi) => (hi - lo < m * 2 ? (lo + hi) / 2 : clamp(v, lo + m, hi - m));
+    p.x = inside(p.x, b[0], b[3]);
+    p.z = inside(p.z, b[2], b[5]);
+    const sky = b[4] + 60, over = sweep(new V3(p.x, sky, p.z), DOWN, 70, solid);
+    p.y = over ? sky - over.t : b[4];
+    if (p.y - b[4] > 3) return null;             // tem mais prédio em cima dessa caixa
+  }
+  return p;
+}
+function landSpot() {
+  if (inSpace()) return null;
+  const look = new V3(0, 0, -1).applyQuaternion(camera.quaternion), dir = new V3(), top = reach() + camera.position.distanceTo(me.pos);
+  // um pouco acima da beirada também vale: a mira raramente fica exata no meio do voo
+  for (const dip of [0, 0.03, 0.06]) {
+    dir.copy(look).setY(look.y - dip).normalize();
+    const p = surfaceOn(camera.position, dir, top);
+    if (p) return p.distanceTo(me.pos) <= reach() ? p : null;
+  }
+  return null;
+}
+function startLand(p) {
+  standUp();
+  const d = p.distanceTo(me.pos);
+  me.land = { p: p.clone().setY(p.y + R), v0: me.vel.length(), left: 1.6 + d / 35 };
+  for (let i = 0; i < 2; i++) {
+    me.hooks[i] = { p: p.clone(), L: 1e9, pid: 0, id: -3, t: 0, warp: null, real: null };
+    hookWait[i] = true;                           // os botões presos não disparam teia nova sozinhos
+  }
+  me.sling = null;
+  me.airJumps = 1;
+  sound.hook();
+}
+// CTRL no ar: pousa onde a mira cai. No chão o CTRL continua sendo o pé fincado pra puxar.
+function ctrlLand() {
+  if (me.onGround || me.airT < 0.1 || me.land || act || me.carried || me.ride || trip.on || inSpace() || me.seat) return;
+  const p = landSpot();
+  if (p) startLand(p);
+  else sound.miss();
+}
+// Velocidade desejada até o ponto: o embalo que você já tinha (ou o ritmo do pouso), freando só no fim.
+// A cada passo refaz a conta, então uma batida no meio não estraga a chegada.
+function landPull(acc, dt) {
+  const L = me.land, gap = lookTmp.subVectors(L.p, me.pos), d = gap.length();
+  L.left -= dt;
+  // com um prédio no caminho, sobe primeiro: mira acima da beirada até a reta ficar livre
+  const wall = d > 1 ? sweep(me.pos, new V3().copy(gap).divideScalar(d), d, 0.4) : null;
+  if (wall && wall.box) {
+    if (wall.axis !== 1) { gap.x *= wall.t / d; gap.z *= wall.t / d; }
+    gap.y = Math.max(gap.y, wall.box[4] + LAND_CLEAR + R - me.pos.y);
+  }
+  const flat = Math.hypot(gap.x, gap.z);
+  gap.y += Math.min(flat * LAND_ARC, LAND_ARC_TOP) * sstep(3, 25, flat);    // de longe chega por cima, de perto só desce
+  const k = Math.max(1, big()), top = Math.max(LAND_PACE, Math.min(L.v0, 160)) * k;
+  const want = Math.min(top, Math.sqrt(2 * LAND_BRAKE * k * d) + 1.5);
+  acc.copy(gap).setLength(want).sub(me.vel).multiplyScalar(LAND_GRIP);
+}
+function landDone() {
+  const L = me.land, d = me.pos.distanceTo(L.p), far = Math.hypot(L.p.x - me.pos.x, L.p.z - me.pos.z);
+  if (d > 0.9 * big() && !(me.onGround && far < 1.6 * big())) {
+    if (L.left < 0) { me.land = null; me.hooks[0] = me.hooks[1] = null; }       // ficou preso em alguma coisa: solta
+    return;
+  }
+  // chegou: um restinho do embalo vira um passo, sem parada seca
+  me.land = null;
+  me.hooks[0] = me.hooks[1] = null;
+  me.vel.set(me.vel.x * 0.15, Math.min(0, me.vel.y) * 0.1, me.vel.z * 0.15);
+  sound.splat(0.25);
 }
 
 // CTRL no chão finca o pé: a teia não te leva. Quem puxa é você andando pra trás, e quanto mais estica, mais pesa.
@@ -794,9 +971,9 @@ function touched(m) {
 // colisão esfera x caixas (prédios) + chão
 function collide() {
   me.onGround = false;
-  if (me.where === 'moon') { moonCollide(); return; }
-  if (inSpace()) { spaceCollide(); return; }
-  const land = voxels() ? -1e9 : me.where === 'city' ? sandY(me.pos.z) : 0;
+  if (me.where === 'moon') moonCollide();
+  else if (inSpace()) { spaceCollide(); return; }
+  const land = vox() || me.where === 'moon' ? -1e9 : me.where === 'city' ? sandY(me.pos.x, me.pos.z) : 0;
   if (me.pos.y < R + land) { me.pos.y = R + land; if (me.vel.y < 0) me.vel.y = 0; me.onGround = true; }
   if (me.where === 'back' && me.pos.y > BACK_H - 1.15) { me.pos.y = BACK_H - 1.15; if (me.vel.y > 0) me.vel.y = 0; }
   if (!powers.ghost) for (const L of lotsNear(me.pos.x, me.pos.z, CELL + R * 2)) for (const b of L.boxes) {
@@ -819,7 +996,7 @@ function collide() {
     if (vn < 0) {
       const s0 = me.vel.length();
       me.vel.addScaledVector(n, -vn);
-      if (s0 > 14 && n.y < 0.7) {
+      if (s0 > 14 && n.y < 0.7 && !me.land) {
         // em alta velocidade a parede não para você: de raspão escorrega nela, de frente corre pro canto mais perto
         const s1 = me.vel.length();
         if (s1 > s0 * 0.5) me.vel.multiplyScalar(s0 * 0.96 / s1);
@@ -863,7 +1040,8 @@ function spaceCollide() {
 }
 
 function moonCollide() {
-  const floor = space.height(me.pos.x, me.pos.z) + R;
+  // dentro da Lua de blocos quem segura são os blocos (dá pra cavar); fora dela, o chão liso
+  const floor = mine.active && moonVox.inside(me.pos.x, me.pos.z) ? moonVox.oy - 50 : space.height(me.pos.x, me.pos.z) + R;
   if (me.pos.y < floor) { me.pos.y = floor; if (me.vel.y < 0) me.vel.y = 0; me.onGround = true; }
   for (const r of space.rocksNear(me.pos.x, me.pos.z, 6)) {
     const dx = me.pos.x - r.x, dy = me.pos.y - r.y, dz = me.pos.z - r.z, d = Math.hypot(dx, dy, dz), far = r.r + R;
@@ -896,7 +1074,7 @@ function step(dt) {
   const onMoon = me.where === 'moon', tall = big(), jump = (onMoon ? JUMP * 1.6 : JUMP) * Math.sqrt(me.size);
   const acc = new V3(0, space3d ? 0 : (onMoon ? -G / 5 : -G) * GOD.grav, 0);
   const well = space3d ? gravity(acc) : false;
-  const waterTop = me.where === 'city' ? Math.max(GOD.sea, me.pos.z > WATER_Z ? WATER_Y : 0) : 0, seaUp = waterTop > 0 && me.pos.y < waterTop;
+  const waterTop = me.where === 'city' ? Math.max(GOD.sea, inSea(me.pos.x, me.pos.z) ? WATER_Y : 0) : 0, seaUp = waterTop > 0 && me.pos.y < waterTop;
   const wet = me.where === 'city' && (seaUp || inPool());
   if (wet && !me.wet && me.vel.y < -3) { sound.splash(); if (!seaUp) splash(me.pos); }
   me.wet = wet;
@@ -905,16 +1083,20 @@ function step(dt) {
     const w = nearWall();
     if (w) { wallJump(w); jumpPressed = false; }
   }
+  if (me.land && !me.hook) me.land = null;
 
   me.airT = me.onGround ? 0 : me.airT + dt;
-  const braced = me.airT < 0.08 && pulling() && !!me.hook, tied = me.hook && !braced;
+  const braced = !me.land && me.airT < 0.08 && pulling() && !!me.hook, tied = me.hook && !braced;
   if (braced && !me.braced) for (const h of me.hooks) if (h) h.L = me.pos.distanceTo(h.p);    // a teia fica do tamanho que está
   me.braced = braced;
   if (!braced) {
     me.strain = 0;
     if (me.sling) launch();
   }
-  if (wet && !tied) {
+  if (me.land) {
+    landPull(acc, dt);
+    if (jumpPressed && me.airJumps > 0) { me.land = null; release(); airJump(wish, fwd); acc.set(0, -G * GOD.grav, 0); }
+  } else if (wet && !tied) {
     const top = seaUp ? waterTop : lot(CINEMA.i, CINEMA.j).roof.pool.water, k = Math.min(1, dt * 5), swim = (seaUp ? 14 : 5.5) * tall;
     me.vel.x += (wish.x * swim - me.vel.x) * k;
     me.vel.z += (wish.z * swim - me.vel.z) * k;
@@ -952,19 +1134,25 @@ function step(dt) {
     const f = wish.clone().multiplyScalar(PUMP);
     f.addScaledVector(n, -f.dot(n));
     acc.add(f);
-    // perto do chão a teia encurta sozinha, pra você passar por cima em vez de arrastar o pé
     for (const h of me.hooks) {
       if (!h || !h.warp) continue;
       h.L = Math.max(ROPE_MIN, h.L - WARP_REEL * dt);
       acc.addScaledVector(new V3().subVectors(h.warp.a.c, me.pos).normalize(), WARP_PULL);
     }
     for (const h of me.hooks) if (h && h.planet) acc.addScaledVector(lookTmp.subVectors(h.planet.c, me.pos).normalize(), PLANET_PULL);
+    // Perto do chão a teia encurta sozinha, pra você passar por cima em vez de arrastar o pé.
+    // Atirada da rua, ela puxa de uma vez. Atirada lá do alto é um pêndulo: só encolhe enquanto você desce, na medida
+    // pra chegar embaixo do tamanho que não raspa. Parado num telhado ela não puxa nada.
     if (!keys.KeyS && !space3d) for (const h of me.hooks) {
       if (!h || h.pid || h.warp) continue;
       // conta quanto a teia vai esticar nessa velocidade, senão a mola leva você pro chão do mesmo jeito
       const sag = Math.min(h.L * ROPE_STRETCH + 1.5, me.vel.lengthSq() / (Math.max(h.L, 4) * ROPE_K));
       const safe = Math.max(ROPE_MIN, h.p.y - GROUND_CLEAR - sag);
-      if (h.L > safe) h.L = Math.max(safe, h.L - (GUARD_RATE + Math.max(0, -me.vel.y) * 1.2) * dt);
+      if (h.L <= safe) continue;
+      if (me.onGround && nearStreet()) h.snap = true;      // voltou pra rua: precisa sair de novo
+      const down = Math.max(0, -me.vel.y), top = GUARD_RATE + down * 1.2;
+      const rate = h.snap ? top : Math.min(top, (h.L - safe) / Math.max(GUARD_SOFT, me.pos.y - (h.p.y - safe)) * down);
+      h.L = Math.max(safe, h.L - rate * dt);
     }
     // ajuda a manter o embalo: empurra de leve pra onde você já está indo
     const along = me.vel.clone().addScaledVector(n, -me.vel.dot(n)), sp = along.length();
@@ -1024,6 +1212,9 @@ function step(dt) {
     const top = speedCfg.top / 3.6;
     if (s > top) me.vel.multiplyScalar((top + (s - top) * Math.exp(-OVERSPEED * dt)) / s);
   }
+  const inJet = water.jets.size ? water.push(me.pos, me.vel, dt, me.where, R) : false;      // jato de água de portal e redemoinho
+  if (inJet && !me.inJet) sound.splash();
+  me.inJet = inJet;
   me.pos.addScaledVector(me.vel, dt);
   portalCross();
 
@@ -1036,9 +1227,10 @@ function step(dt) {
   const fall = -me.vel.y, wasDown = me.onGround;
   collide();
   if (me.pos.y > 1400 && GOD.grav < 0) { me.pos.y = 1400; if (me.vel.y > 0) me.vel.y = 0; }   // gravidade ao contrário: o céu tem teto
-  if (me.onGround && !wasDown && voxels()) mine.fell(fall);
+  if (me.onGround && !wasDown && mine.active && !trip.landing) mine.fell(fall);      // chegar na Lua não machuca
   if (me.onGround && !wasDown && fall > 30) landed(fall);
   if (braced) holdRopes();
+  if (me.land) landDone();
 }
 
 // A gravidade dos astros. É alta de propósito: perto deles você cai sozinho. Devolve se está dentro do poço de algum.
@@ -1081,6 +1273,11 @@ function portalCross() {
     if (!portals.inside(p, me.pos, rope ? 1.3 : me.vel.length() > 40 ? 1.14 : 1.03)) continue;
     const q = portals.partner(p);
     if (!q) continue;
+    if (q.where !== me.where) {
+      goWorld(q.where);              // o par está em outro mundo: muda de mundo e sai pela boca de lá
+      veilEl.style.background = PORTAL_COLORS[q.color];
+      fx.veil = Math.max(fx.veil, 0.7);
+    }
     goThrough(p, q);
     return;
   }
@@ -1101,6 +1298,7 @@ function goThrough(p, q) {
   me.mesh.userData.head = null;
   me.onGround = false;
   me.mesh.userData.slime.reset();
+  if (me.land) { me.land = null; me.hooks[0] = me.hooks[1] = null; }     // o ponto do pouso ficou do outro lado
   // a teia atravessa junto: a que entrava por aqui volta pro ponto de verdade, a outra passa a cruzar o portal
   me.hooks.forEach((h, i) => {
     if (!h) return;
@@ -1183,8 +1381,8 @@ function wallJump(n) {
 
 // Reta contra as caixas dos prédios, com uma folga em volta. Devolve a distância, o eixo da face e a caixa.
 function sweep(from, dir, max, pad) {
-  if (voxels()) {
-    const h = mine.ray(from, dir, Math.min(max, 200));
+  if (vox()) {
+    const h = vox().ray(from, dir, Math.min(max, 200));
     return h ? { t: h.t, axis: h.nx ? 0 : h.ny ? 1 : 2, sign: h.nx + h.ny + h.nz, box: null } : null;
   }
   pad += Math.max(0, R - R0);
@@ -1248,10 +1446,11 @@ function avoid(dt) {
 
 // altura do que está embaixo de um ponto: telhado, degrau ou a rua
 const DOWN = new V3(0, -1, 0);
+const groundAt = (x, z) => (me.where === 'moon' ? space.height(x, z) : me.where === 'city' ? Math.max(sandY(x, z), GOD.sea, inSea(x, z) ? WATER_Y : 0) : 0);
 function floorUnder(p) {
   if (me.where === 'moon') return space.height(p.x, p.z);
   const hit = sweep(p, DOWN, 40, 0);
-  return hit ? p.y - hit.t : sandY(p.z);
+  return hit ? p.y - hit.t : sandY(p.x, p.z);
 }
 
 function airJump(wish, fwd) {
@@ -1288,7 +1487,6 @@ const roofFx = buildRoof(CINE, mats, city, day);
 const courtFx = buildCourt(COURT_LOT, mats, city, day);
 const crowd = new Crowd(city);
 const traffic = new Traffic(city);
-for (const m of [crowd.torso.material, crowd.extraMat, traffic.mat, mats.small, mats.canopy]) art.markFine(m);
 const skyline = new Skyline(city, lot, CELL);
 const ctx = { scene: city, mats, sound, send: o => net.send(o), toast: t => showToast(t), myId: () => myId, myName: () => NAME };
 const board = new Whiteboard(ctx, CINE.roof.board);
@@ -1622,27 +1820,47 @@ const artUi = $('#art-pick');
 let artAuto = false, artClock = 0;
 // o mundo de blocos toma o lugar dos prédios; gente, carros, horizonte, parque e praia continuam
 const mineHid = new Set();     // só volta o que estava à vista: o que já vivia escondido continua escondido
+function mineWorld() {
+  if (me.where === 'nether') return nether;
+  if (me.where !== 'moon') return null;
+  if (!moonVox.built) {
+    ensureMoonFrame();
+    // a moldura desce até ficar em cima de um patamar de blocos (altura inteira)
+    const f = moonFrame.group.position, top = Math.round(moonFrame.y + 1);
+    moonFrame.place(f.x, top - 1, f.z);
+    moonVox.setup(f.x, f.z, (x, z) => space.height(x, z), { x: f.x, z: f.z, y: top });
+    moonVox.build();
+  }
+  return moonVox;
+}
 function syncMine() {
-  const on = !!art.style.mine && me.where === 'city';
+  const on = !!art.style.mine && (me.where === 'city' || me.where === 'nether' || me.where === 'moon');
+  const w = on ? mineWorld() : null;
+  mine.setWorld(w);
+  moonVox.group.visible = on && me.where === 'moon';
+  for (const b of moonFrame.base) b.visible = !(on && me.where === 'moon');      // na Lua de blocos, a base é de blocos
+  if (on && me.where === 'moon') space.setHole(moonVox.ox + 1, moonVox.oz + 1, moonVox.ox + moonVox.W - 1, moonVox.oz + moonVox.D - 1);
+  else space.setHole();
   if (on === mine.active) return;
   const keep = new Set([skyline.mesh, crowd.torso, crowd.head, crowd.legs, crowd.arms, crowd.hats, crowd.skirts, crowd.bags, crowd.dogs, ...traffic.bodies, traffic.lights, fun.group, coast.mesh, beach.group]);
   if (on) { for (const c of city.children) if (!keep.has(c) && c.visible) { c.visible = false; mineHid.add(c); } }
   else { for (const c of mineHid) c.visible = true; mineHid.clear(); }
   crowd.head.geometry = on ? squareHead : roundHead;
   crowd.hair.visible = !on;
-  beach.sand.visible = beach.walk.visible = !on;
+  beach.sand.visible = beach.walk.visible = beach.islet.visible = !on;
   mine.setActive(on);
   selectSlot(on ? mine.slot : -1);
   skyline.dirty = true;
   slimes.blocky = on ? (skin, color) => new BlockBody(scene, skin, color) : null;
-  if (on) showToast('⛏️ Perto: segure o clique pra quebrar · Longe: teia em qualquer bloco · E = mochila · Direito = põe bloco ou come');
+  if (on) showToast('⛏️ Perto: segure o clique pra quebrar · Longe: teia em qualquer bloco · E = inventário · Direito = põe bloco, come ou abre a mesa');
 }
 function setArt(id, quiet) {
+  if (LEVE) id = 'normal';           // no modo leve não tem estilo de arte (cada um desenha a tela duas vezes)
   art.set(id);
   moment('arte ' + art.style.id);
   prefs.art = art.style.id;
   savePrefs();
-  ground.geometry = art.style.jelly || GOD.bend ? denseGround() : flatGround;
+  ground.geometry = GOD.bend ? denseGround() : flatGround();
   glowMat.opacity = art.glow;
   syncMine();
   artUi.querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.v === art.style.id));
@@ -1702,6 +1920,7 @@ function applyQuality(level) {
 function renderQuality() {
   const pref = prefs.quality ?? 'auto';
   qualSeg.querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.v === pref));
+  if (LEVE) { $('#quality-note').textContent = 'modo leve ligado: a qualidade fica no mínimo'; return; }
   $('#quality-note').textContent = pref === 'auto' ? `agora em ${Q.name}${SOFTWARE ? ' · seu navegador está sem aceleração de vídeo' : ''}` : '';
 }
 function setQuality(v) {
@@ -1711,8 +1930,13 @@ function setQuality(v) {
   perf.hold = performance.now() + 4000;
   applyQuality(v === 'auto' ? qLevel : Number(v));
 }
+if (LEVE) qualSeg.style.display = "none";
 qualSeg.onclick = e => { const b = e.target.closest('button'); if (b) setQuality(b.dataset.v); };
-applyQuality(['0', '1', '2', '3'].includes(prefs.quality) ? Number(prefs.quality) : SOFTWARE ? 0 : 3);
+applyQuality(LEVE ? 0 : ['0', '1', '2', '3'].includes(prefs.quality) ? Number(prefs.quality) : SOFTWARE ? 0 : 3);
+$('#opt-leve').textContent = LEVE ? '🐢 Modo leve ligado (clique pra voltar ao normal)' : '🐢 Ligar o modo leve';
+$('#opt-leve').classList.toggle('on', LEVE);
+$('#opt-leve').onclick = () => { location.href = '3d.html?leve=' + (LEVE ? 0 : 1); };
+if (LEVE) $('#tabs [data-tab="arte"]').style.display = "none";
 
 const report = { at: performance.now() + 15000, sum: 0, n: 0, worst: 0, best: 1000, spikes: [] };
 const gpuName = (() => {
@@ -1737,7 +1961,7 @@ function watchFrames(ms, now) {
     report.at = now + 15000; report.sum = report.n = report.worst = 0; report.best = 1000; report.spikes = [];
   }
   perf.sum = perf.n = perf.worst = 0;
-  if ((prefs.quality ?? 'auto') !== 'auto' || now < perf.hold) return;
+  if (LEVE || (prefs.quality ?? 'auto') !== 'auto' || now < perf.hold) return;
   if (avg > 28 && qLevel > 0) {
     if (now - perf.raisedAt < 20000) perf.ceiling = qLevel - 1;   // subiu e não aguentou: fica aqui nesta sessão
     perf.good = 0;
@@ -1762,7 +1986,26 @@ function teleport(p) {
 }
 $('#go-roof').onclick = () => { teleport(new V3(CINE.cx + 8, CINE.roof.Y + 0.7, CINE.cz + 4)); yaw = 0; lockMouse(); };
 $('#go-court').onclick = () => { teleport(new V3(COURT_LOT.cx - 13, COURT_LOT.courtData.Y + 0.7, COURT_LOT.cz)); yaw = -Math.PI / 2; lockMouse(); };
+// convite: os endereços pelos quais o amigo entra neste servidor, com botão de copiar
+fetch('/api/info').then(r => r.json()).then(info => {
+  const ips = info.ips.filter(i => i.radmin).concat(info.ips.filter(i => !i.radmin)).slice(0, 3);
+  if (!ips.length) return;
+  const wrap = $('#invite3-links');
+  for (const ip of ips) {
+    const url = `https://${ip.host}:${info.port}`, row = document.createElement('div');
+    row.className = 'musicrow';
+    row.innerHTML = `<code style="user-select:all;font-weight:600">${url}</code><small>${ip.radmin ? 'Radmin' : String(ip.name).replace(/[<>&]/g, '')}</small>`;
+    const btn = document.createElement('button');
+    btn.className = 'small';
+    btn.textContent = 'copiar';
+    btn.onclick = () => { navigator.clipboard?.writeText(url); btn.textContent = 'copiado!'; };
+    row.appendChild(btn);
+    wrap.appendChild(row);
+  }
+  $('#invite3').style.display = '';
+}).catch(() => {});
 $('#go-park').onclick = () => { teleport(FUN_GATE); yaw = Math.PI / 2; pitch = 0; lockMouse(); };
+$('#go-bridge').onclick = () => { teleport(BRIDGE_TOP); yaw = -Math.PI / 2; pitch = -0.2; lockMouse(); };
 $('#go-beach').onclick = () => { teleport(BEACH_SPOT); yaw = Math.PI; pitch = -0.05; lockMouse(); };
 
 // ------------------------------------------------------------------ mundos: cidade, viagem, lua e backrooms
@@ -1770,9 +2013,10 @@ $('#go-beach').onclick = () => { teleport(BEACH_SPOT); yaw = Math.PI; pitch = -0
 const space = new Space(scene);
 const back = new Backrooms(scene);
 const sea = new Sea(scene, slimes.u.uSun.value);
-const coast = new Sea(city, slimes.u.uSun.value, WATER_Z);
+const coast = new Sea(city, slimes.u.uSun.value, ISLE_SHAPE, SEA_IN, [ISLET.x, ISLET.z, ISLET.r + 60]);
 const fun = new FunPark(city);
 const beach = new Beach(city);
+const bridge = new Bridge(city);
 const underEl = $('#under');
 let timeK = 1, worldT = null, worldStopped = false;
 const fx = { veil: 0, chill: 0, veilOn: 0, chillOn: 0, ring: 0 };
@@ -1789,11 +2033,60 @@ function setWhere(w) {
   day.sky.visible = day.stars.visible = !out;
   space.show(w === 'trip' ? 'trip' : w === 'moon' ? 'moon' : 'off');
   back.group.visible = w === 'back';
-  renderer.setClearColor(w === 'back' ? 0x5e5226 : 0x000000, out ? 1 : 0);    // nas backrooms, o fim do corredor some na neblina
-  slimes.override = w === 'back' ? BACK_LIGHT : out ? SPACE_LIGHT : null;
+  nether.group.visible = w === 'nether';
+  theEnd.group.visible = w === 'end';
+  dragon.group.visible = w === 'end' && !dragon.gone;
+  moonFrame.group.visible = w === 'moon';
+  bossEl.style.display = w === 'end' ? 'block' : 'none';
+  document.body.classList.toggle('in-end', w === 'end');
+  renderer.setClearColor(w === 'back' ? 0x5e5226 : w === 'nether' ? 0x3a0a06 : w === 'end' ? 0x0b0614 : 0x000000, out ? 1 : 0);    // nas backrooms, o fim do corredor some na neblina
+  slimes.override = w === 'back' ? BACK_LIGHT : w === 'nether' ? NETHER_LIGHT : w === 'end' ? END_LIGHT : out ? SPACE_LIGHT : null;
   sound.hum(w === 'back');
   art.setBend(w === 'city' ? GOD.bend * 1.5e-5 : 0);
   if (mine) syncMine();
+}
+
+// pula direto pra outro mundo, sem a viagem: pelo portal ou indo até um amigo. Cada mundo arruma o que precisa antes.
+function goWorld(w) {
+  if (w === me.where) return;
+  const from = me.where;
+  leaveAct();
+  standUp();
+  me.hooks[0] = me.hooks[1] = null;
+  me.sling = null;
+  hookWait[0] = hookWait[1] = true;
+  trip.on = trip.landing = false;
+  view.roll = 0;
+  if (from === 'city') { me.home.copy(me.pos); quest.back.copy(me.pos); }
+  if (w === 'moon') { trip.earth.copy(space.earthSky); trip.earthA = 0.055; space.sunOnMoon(); }
+  if (w === 'nether') {
+    nether.build();
+    quest.cool = 2.5;
+    if (!quest.back.lengthSq()) { const L = lot(0, 0); quest.back.set(L.cx, L.h + R + 0.05, L.cz + L.d / 2 - 3); }
+  }
+  if (w === 'end') { theEnd.build(); quest.hp = 20; }
+  setWhere(w);
+  if (w === 'moon') ensureMoonFrame();
+}
+// T: vai até um amigo, em qualquer mundo (ele na Lua e você na Terra, por exemplo). Com mais de um, cada T vai pro próximo.
+let friendTurn = 0;
+function goFriend() {
+  if (trip.on) return;
+  const list = [...remotes.values()].filter(x => x.pos && !x.stale);
+  if (!list.length) { showToast('👀 Não tem mais ninguém no jogo agora'); return; }
+  const r = list[friendTurn++ % list.length], name = r.info?.name || 'seu amigo';
+  if (r.where === 'trip') { showToast(`🚀 ${name} está viajando pelo espaço. Espera chegar e aperta T de novo`); return; }
+  if (r.where !== me.where) {
+    goWorld(r.where);
+    veilEl.style.background = '#fff';
+    fx.veil = Math.max(fx.veil, 0.8);
+    sound.warp();
+    showToast(`✨ Foi até ${name}, ${({ city: 'na cidade', moon: 'na Lua', nether: 'no inferno', end: 'no fim', back: 'nas backrooms' })[r.where] || 'lá'}`);
+  }
+  standUp();
+  me.pos.copy(r.pos).add(new V3(0, 2.5, 0));
+  me.vel.copy(r.vel || new V3());
+  me.hook = null;
 }
 
 function warp(color, fn) {
@@ -1932,6 +2225,17 @@ function nearestBody() {
   for (const b of BODIES) { const d = me.pos.distanceTo(b.c) - b.r; if (d < bd) { bd = d; best = b; } }
   return { b: best, d: bd };
 }
+function moonSpot() {
+  const rock = space.rocksNear(0, 0, 1200).filter(r => r.anchor).sort((p, q) => Math.hypot(p.x, p.z) - Math.hypot(q.x, q.z))[0];
+  return { x: rock.x - 48, z: rock.z };
+}
+function ensureMoonFrame() {
+  if (moonFrame.placed) return;
+  const { x, z } = moonSpot(), fx0 = x + 30, fz0 = z + 10;
+  let top = -1e9;
+  for (let a = -6; a <= 6; a += 2) for (let b = -6; b <= 6; b += 2) top = Math.max(top, space.height(fx0 + a, fz0 + b));
+  moonFrame.place(fx0, top - 0.2, fz0);
+}
 function landOnMoon() {
   trip.on = false;
   trip.landing = true;
@@ -1944,6 +2248,7 @@ function landOnMoon() {
   // cai perto de uma pedra com ponto de teia, senão não sobra nada pra se agarrar
   const rock = space.rocksNear(0, 0, 1200).filter(r => r.anchor).sort((p, q) => Math.hypot(p.x, p.z) - Math.hypot(q.x, q.z))[0];
   const x = rock.x - 48, z = rock.z;
+  ensureMoonFrame();
   me.pos.set(x, space.height(x, z) + 150, z);
   me.vel.set(0, -62, 0);
   yaw = -Math.PI / 2;
@@ -1978,7 +2283,6 @@ function arriveHome() {
 
 const ITEMS = [
   { kind: 'portal', color: 0, tint: PORTAL_COLORS[0] }, { kind: 'portal', color: 1, tint: PORTAL_COLORS[1] },
-  { kind: 'rain', what: 'carro', tint: '#ff5a3a', icon: '🚗', name: 'Chuva de carros' },
 ];
 let held = -1;
 const heldItem = () => (held >= 0 ? ITEMS[held] : null);
@@ -2007,25 +2311,60 @@ function selectSlot(i) {
   }
 }
 
-// onde o tiro bate: caixas dos prédios, chão e (nas backrooms) teto
+// onde o tiro bate: caixas dos prédios (ou blocos), o chão de verdade e (nas backrooms) teto
 function portalRay(from, dir) {
-  if (me.where === 'moon') {
-    for (let t = 2; t < 900; t += 2 + t * 0.02) {
-      const x = from.x + dir.x * t, y = from.y + dir.y * t, z = from.z + dir.z * t, h = space.height(x, z);
-      if (y > h) continue;
-      const e = 2, n = new V3(space.height(x - e, z) - space.height(x + e, z), 2 * e, space.height(x, z - e) - space.height(x, z + e)).normalize();
-      return { at: new V3(x, h, z), n };
-    }
-    return null;
-  }
   const hit = sweep(from, dir, 1400, 0);
   let t = hit ? hit.t : Infinity, n = null;
   if (hit) n = new V3().setComponent(hit.axis, hit.sign);
-  if (dir.y < 0 && -from.y / dir.y < t) { t = -from.y / dir.y; n = new V3(0, 1, 0); }
+  const g = groundRay(from, dir, Math.min(t, 1400));
+  if (g) { t = g.t; n = g.n; }
   if (me.where === 'back' && dir.y > 0 && (BACK_H - from.y) / dir.y < t) { t = (BACK_H - from.y) / dir.y; n = new V3(0, -1, 0); }
   if (!n) return null;
   const onBox = hit && hit.t === t;
   return { at: from.clone().addScaledVector(dir, t), n, box: onBox ? hit.box : null, axis: onBox ? hit.axis : 1 };
+}
+// o chão de cada mundo com o morro dele: a areia da praia sobe até 4,6 m (antes o portal ia pra altura 0 e ficava
+// enterrado), o mar tem a água por cima e a Lua tem crateras. No inferno e no fim o chão são os blocos.
+function floorH(x, z) {
+  if (me.where === 'moon') return space.height(x, z);
+  if (me.where === 'city') return Math.max(sandY(x, z), GOD.sea, inSea(x, z) ? WATER_Y : 0);
+  return 0;
+}
+function groundRay(from, dir, max) {
+  if (me.where !== 'city' && me.where !== 'moon' && me.where !== 'back') return null;
+  let prev = 0;
+  for (let t = 0.5; t < max; t += 0.5 + t * 0.02) {
+    if (from.y + dir.y * t > floorH(from.x + dir.x * t, from.z + dir.z * t)) { prev = t; continue; }
+    let a = prev, b = t;
+    for (let k = 0; k < 14; k++) { const m = (a + b) / 2; if (from.y + dir.y * m > floorH(from.x + dir.x * m, from.z + dir.z * m)) a = m; else b = m; }
+    const x = from.x + dir.x * b, z = from.z + dir.z * b, e = 1.5;
+    return { t: b, n: new V3(floorH(x - e, z) - floorH(x + e, z), 2 * e, floorH(x, z - e) - floorH(x, z + e)).normalize() };
+  }
+  return null;
+}
+// a água em volta de um portal: o mar, a cidade alagada pelo Deus ou a piscina da laje (null = está no seco)
+function waterLevel(p) {
+  if (p.where !== 'city') return null;
+  const c = p.c, sea = Math.max(GOD.sea, inSea(c.x, c.z) ? WATER_Y : 0);
+  if (sea > 0 && c.y <= sea + 0.3) return sea;
+  const W = lot(CINEMA.i, CINEMA.j).roof?.pool;
+  if (W && c.x > W.x0 && c.x < W.x1 && c.z > W.z0 && c.z < W.z1 && c.y <= W.water + 0.3 && c.y > W.floor - 0.6) return W.water;
+  return null;
+}
+// onde o jato de água bate no caminho de a até b, no mundo em que você está; up = caiu deitado (dá poça)
+function waterHit(a, b) {
+  const d = new V3().subVectors(b, a), L = d.length();
+  if (L < 1e-6) return null;
+  d.divideScalar(L);
+  const h = sweep(a, d, L, 0);
+  let t = h ? h.t : Infinity, up = !!h && h.axis === 1 && h.sign > 0;
+  const g = groundRay(a, d, Math.min(t, L));
+  if (g) { t = g.t; up = g.n.y > 0.6; }
+  else if (t > L && (me.where === 'city' || me.where === 'moon' || me.where === 'back') && b.y < floorH(b.x, b.z)) { t = L; up = true; }
+  if (t > L) return null;
+  const p = a.clone().addScaledVector(d, t);
+  if (me.where === 'city' && inSea(p.x, p.z) && p.y < WATER_Y + 0.5) up = false;     // caiu no mar: não faz poça
+  return { p, up };
 }
 const fit = (v, lo, hi) => (lo > hi ? (lo + hi) / 2 : clamp(v, lo, hi));
 function firePortal(color) {
@@ -2108,7 +2447,7 @@ let eatLevel = 0;
 function floorAt(x, y, z) {
   if (me.where !== 'city') return -1e9;
   const L = lot(Math.floor(x / CELL), Math.floor(z / CELL));
-  return !L.park && Math.abs(x - L.cx) < L.w / 2 && Math.abs(z - L.cz) < L.d / 2 && y > L.h - 6 ? L.h + (L.cinema || L.court ? 0 : 0.8) : sandY(z);
+  return !L.park && Math.abs(x - L.cx) < L.w / 2 && Math.abs(z - L.cz) < L.d / 2 && y > L.h - 6 ? L.h + (L.cinema || L.court ? 0 : 0.8) : sandY(x, z);
 }
 function gobble(key, x, y, z, color, scale, mass) {
   me.mass += mass;
@@ -2162,7 +2501,6 @@ function eatStep(now) {
     eatLot(Math.floor(L.cx / CELL), Math.floor(L.cz / CELL), true);
     sound.boom(0.6);
     view.shake = 1.2 * big();
-    art.ripple(L.cx, L.cz, 1);
   }
 }
 // o prédio desaba no lugar: uma caixa da cor dele afunda no chão
@@ -2174,10 +2512,9 @@ function biteLot(L) {
   bites.push({ m, t: 0, h: L.h });
 }
 
-// pancada: no chão ela vira onda na geleia; com o Pouso bomba (ou bem grande) joga tudo que estiver em volta pro alto
+// pancada: com o Pouso bomba (ou bem grande) joga tudo que estiver em volta pro alto
 function landed(v) {
   const k = clamp(v / 90, 0.2, 1.6) * big();
-  art.ripple(me.pos.x, me.pos.z, k);
   if (me.where !== 'city' || (!powers.slam && me.size < 4)) return;
   blast(me.pos, clamp(v * 0.9, 25, 130) * big(), true);
 }
@@ -2194,7 +2531,6 @@ function blast(p, r, send) {
     c.gone = now + GONE_MS;
     fling('carro', c.x, c.z, c.color, 0.3);
   }
-  art.ripple(x, z, 1.4);
   sound.boom(clamp(1 - near / 500, 0.15, 1));
   view.shake = Math.max(view.shake, clamp(2.4 - near / 80, 0, 2.4));
   if (send) net.send({ t: 'e3', k: 'blast', p: [x, p.y, z], r });
@@ -2245,13 +2581,14 @@ function updateGod(dt) {
 // o painel de Deus chega pelo servidor, igual pra todos
 function applyGod(g) {
   Object.assign(GOD, g);
+  setMap(GOD.map === 'inf');
   for (const [k, id, fmt] of GOD_UI) {
     const el = $('#god-' + id);
     if (document.activeElement !== el) el.value = k === 'grav' || k === 'pace' ? GOD[k] * 100 : GOD[k];
     $('#god-' + id + '-l').textContent = fmt(GOD[k]);
   }
   art.setBend(me.where === 'city' ? GOD.bend * 1.5e-5 : 0);
-  ground.geometry = art.style.jelly || GOD.bend ? denseGround() : flatGround;
+  ground.geometry = GOD.bend ? denseGround() : flatGround();
 }
 // Velocidade de cada jogador. "Antes" é o ajuste anterior a esta atualização, pra comparar e escolher.
 const SPEED_OLD = { top: 360, gain: 140, drag: 0 }, SPEED_NEW = { top: 470, gain: 100, drag: 100 };
@@ -2285,12 +2622,13 @@ function sendGod(patchGod) {
   else applyGod(g);
 }
 for (const [k, id] of GOD_UI) $('#god-' + id).oninput = e => sendGod({ [k]: Number(e.target.value) / (k === 'grav' || k === 'pace' ? 100 : 1) });
+$('#map-pick').onclick = e => { const b = e.target.closest('button'); if (b) sendGod({ map: b.dataset.v }); };
 $('#god-reset').onclick = () => sendGod({ grav: 1, sea: 0, bend: 0, pace: 1 });
 $('#god-city').onclick = () => { const m = { t: 'e3', k: 'city' }; godEvent(m); net.send(m); };
 
 // Passado: tudo fica guardado pra rebobinar (Z), sem limite: são 5 MB por hora de jogo, em blocos de números.
 // O mesmo passeio vira clone (H).
-const PAST_N = 11, PAST_BLOCK = 3600, WORLDS = ['city', 'trip', 'moon', 'back'];
+const PAST_N = 11, PAST_BLOCK = 3600, WORLDS = ['city', 'trip', 'moon', 'back', 'nether', 'end'];
 const past = { blocks: [], n: 0 };
 let pastT = 0, recording = null, backT = 0;
 const echoes = [];
@@ -2377,7 +2715,265 @@ const roundHead = crowd.head.geometry, squareHead = new THREE.BoxGeometry(0.3, 0
 const mine = new Mine({
   scene, me, lot, cell: CELL, sound, flyers, items: ITEMS, toast: t => showToast(t), send: o => net.send(o),
   onDie: () => { start(); me.vel.set(0, 0, 0); },
+  mortal: () => me.where === 'end',          // fora do fim ninguém morre: a vida para em meio coração
+  onTable: () => openCraft(3),
 });
+
+// ------------------------------------------------------------------ outros mundos: inferno, a moldura da Lua e o fim
+// O caminho: no Minecraft a mochila tem obsidiana e isqueiro. Moldura acesa leva pro inferno, onde um baú do outro lado da
+// lava tem pérolas e varas. Na mesa de trabalho viram olhos; doze olhos abrem a moldura da Lua, que leva pro fim e pro dragão.
+const craftGui = new CraftGui(mine, {
+  sound,
+  onClose: how => { if (how !== 'esc') lockMouse(); },      // o Esc não conta como clique pro navegador: aí volta pro menu
+  onEye: () => { if (mine.count('olho') >= 12 && !moonFrame.open) showToast('👁️ Doze olhos! A moldura velha da Lua está esperando'); },
+});
+function openCraft(size) {
+  if (craftGui.open) return;
+  unlockMouse();
+  craftGui.show(size);
+}
+addEventListener('keydown', e => {
+  if (!craftGui.open || e.repeat) return;
+  if (e.code === 'KeyE' || e.code === 'Escape') { e.preventDefault(); craftGui.hide(e.code === 'Escape' ? 'esc' : 'key'); }
+});
+const nether = new Nether(scene, mine.u.uAtlas.value);
+const moonVox = new MoonVox(scene, mine.u.uAtlas.value, MOON_BEND);
+const theEnd = new End(scene, mine.u.uAtlas.value);
+const dragon = new Dragon(scene, sound);
+const moonFrame = new MoonFrame(scene);
+const quest = { portalT: 0, cool: 0, back: new V3(), hp: 20, arrowT: 0, credits: false };
+const frameFill = { on: false, t: 0, n: 0 };
+const arrows = [];
+const faceTo = (dx, dz) => { yaw = Math.atan2(-dx, -dz); pitch = -0.08; };
+const bossEl = document.createElement('div');
+bossEl.id = 'boss';
+bossEl.innerHTML = '<b>🐉 Dragão do Fim</b><div class="bar"><i></i></div><div class="me"></div><small>🏹 botão direito atira · a teia fica no esquerdo · desvie das bolas de fogo</small>';
+document.body.appendChild(bossEl);
+const creditsEl = document.createElement('div');
+creditsEl.id = 'credits';
+document.body.appendChild(creditsEl);
+const questCss = document.createElement('style');
+questCss.textContent = `
+  body.in-end #hotbar { display: none; }
+  #boss { display: none; position: fixed; top: 14px; left: 50%; transform: translateX(-50%); width: min(520px, 80vw); text-align: center; color: #fff; font-family: 'Press Start 2P', monospace; font-size: 11px; text-shadow: 2px 2px 0 #000; pointer-events: none; z-index: 3; }
+  #boss .bar { height: 10px; margin: 6px 0; background: #2a0a24; border: 2px solid #000; }
+  #boss .bar i { display: block; height: 100%; width: 100%; background: linear-gradient(#ff7ae0, #c02aa0); transition: width 0.3s; }
+  #boss .me { font-size: 13px; letter-spacing: 1px; }
+  #boss small { display: block; margin-top: 6px; font-size: 8px; opacity: 0.8; }
+  #credits { display: none; position: fixed; inset: 0; z-index: 20; background: #000; color: #fff; overflow: hidden; font-family: 'Press Start 2P', monospace; text-align: center; cursor: pointer; }
+  #credits .roll { position: absolute; left: 0; right: 0; top: 100%; animation: roll 34s linear forwards; line-height: 2.2; font-size: 13px; }
+  #credits h1 { font-size: 34px; margin: 0 0 40px; color: #ffcf3f; }
+  #credits h2 { font-size: 12px; margin: 50px 0 6px; color: #c8a8ff; font-weight: normal; }
+  #credits p { margin: 0; }
+  #credits .skip { position: absolute; right: 18px; bottom: 16px; font-size: 9px; opacity: 0.6; }
+  @keyframes roll { to { transform: translateY(calc(-100% - 100vh)); } }`;
+document.head.appendChild(questCss);
+
+function enterNether() {
+  if (me.where !== 'city') return;
+  const back = me.vel.clone().setY(0);
+  quest.back.copy(me.pos).addScaledVector(back.lengthSq() > 0.5 ? back.normalize() : new V3(-Math.sin(yaw), 0, -Math.cos(yaw)), -2.6);
+  sound.warp();
+  warp('#6c22c8', () => {
+    me.hooks[0] = me.hooks[1] = null;
+    me.sling = null;
+    standUp();
+    nether.build();
+    setWhere('nether');
+    me.pos.set(nether.spawn.x, nether.spawn.y + R, nether.spawn.z);
+    me.vel.set(0, 0, 0);
+    faceTo(nether.chest.x - nether.spawn.x, nether.chest.z - nether.spawn.z);
+  });
+  quest.cool = 2.5;
+  showToast(nether.opened ? '🔥 O inferno de novo' : '🔥 O inferno. Do outro lado do lago de lava tem um baú... a teia pega no teto');
+}
+function leaveNether() {
+  sound.warp();
+  warp('#6c22c8', () => {
+    me.hooks[0] = me.hooks[1] = null;
+    setWhere('city');
+    me.pos.copy(quest.back);
+    me.vel.set(0, 0, 0);
+  });
+  quest.cool = 2.5;
+}
+function openChest() {
+  nether.opened = true;
+  mine.give('perola', 12);
+  mine.give('vara', 12);
+  sound.kill();
+  showToast('📦 12 pérolas do fim e 12 varas de blaze! Na mesa de trabalho: a vara vira pó, e pérola + pó vira olho');
+}
+function useFrame() {
+  if (mine.count('olho') < 12) { showToast('🕳️ Doze encaixes vazios. Parece coisa de um mundo de blocos... lá na Terra'); return; }
+  mine.take('olho', 12);
+  frameFill.on = true;
+  frameFill.t = 0;
+  frameFill.n = 0;
+}
+function enterEnd() {
+  sound.warp();
+  warp('#000', () => {
+    me.hooks[0] = me.hooks[1] = null;
+    me.sling = null;
+    theEnd.build();
+    if (dragon.gone) { dragon.reset(); for (const m of dragon.mats) m.emissive.setRGB(0.07, 0.04, 0.12); theEnd.closeExit(); for (const c of theEnd.crystals) { c.alive = true; c.g.visible = true; } }
+    setWhere('end');
+    me.pos.set(theEnd.spawn.x, theEnd.spawn.y + R, theEnd.spawn.z);
+    me.vel.set(0, 0, 0);
+    faceTo(-theEnd.spawn.x, -theEnd.spawn.z);
+    quest.hp = 20;
+  });
+  showToast('🐉 O fim. Botão direito atira com o arco, a teia fica no esquerdo. Desvie das bolas de fogo!');
+}
+function hurtEnd(n, dir) {
+  if (quest.credits) return;
+  quest.hp -= n;
+  me.vel.addScaledVector(dir, 20);
+  me.vel.y += 9;
+  sound.hurt();
+  veilEl.style.background = '#a01030';
+  fx.veil = Math.max(fx.veil, 0.45);
+  if (quest.hp <= 0) {
+    showToast('☠️ O dragão te derrubou. De novo!');
+    me.hooks[0] = me.hooks[1] = null;
+    me.pos.set(theEnd.spawn.x, theEnd.spawn.y + R, theEnd.spawn.z);
+    me.vel.set(0, 0, 0);
+    quest.hp = 20;
+  }
+}
+// a flecha: cabo, ponta e pena, cai um pouco e fica espetada onde bate
+const arrowGeo = (() => {
+  const g = new THREE.BoxGeometry(0.07, 0.07, 1.3);
+  return g;
+})(), arrowMat = new THREE.MeshLambertMaterial({ color: '#a07040' }), tipMat = new THREE.MeshLambertMaterial({ color: '#c8c8c8' }), featherMat = new THREE.MeshLambertMaterial({ color: '#f0f0f0' });
+function shootArrow() {
+  if (quest.arrowT > 0 || quest.credits) return;
+  quest.arrowT = 0.45;
+  const dir = new V3(0, 0, -1).applyQuaternion(camera.quaternion);
+  const m = new THREE.Group();
+  m.add(new THREE.Mesh(arrowGeo, arrowMat));
+  const tip = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.16, 0.25), tipMat); tip.position.z = 0.75; m.add(tip);
+  const fe = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.02, 0.3), featherMat); fe.position.z = -0.55; m.add(fe);
+  m.position.copy(me.pos).addScaledVector(dir, 1.4).add(new V3(0, 0.5, 0));
+  scene.add(m);
+  arrows.push({ m, v: dir.multiplyScalar(100).addScaledVector(me.vel, 0.4), life: 6, stuck: false });
+  sound.twang(0.5);
+}
+function stepArrows(dt) {
+  const parts = dragon.gone ? [] : dragon.hitParts(), tmp = new V3();
+  for (let k = arrows.length - 1; k >= 0; k--) {
+    const a = arrows[k];
+    a.life -= dt;
+    if (a.life <= 0 || me.where !== 'end') { scene.remove(a.m); arrows.splice(k, 1); continue; }
+    if (a.stuck) continue;
+    const from = a.m.position.clone();
+    a.v.y -= 14 * dt;
+    a.m.position.addScaledVector(a.v, dt);
+    a.m.lookAt(tmp.copy(a.m.position).add(a.v));
+    // a reta inteira deste quadro: rápida demais pra testar só a ponta
+    const seg = a.m.position.clone().sub(from), len = seg.length();
+    let done = false;
+    for (let s = 0; s <= 4 && !done; s++) {
+      const q = from.clone().addScaledVector(seg, s / 4);
+      if (!dragon.dead && parts.some((pt, i) => pt.distanceTo(q) < (i === 1 ? 4.2 : 3))) {
+        dragon.hit();
+        sound.hitMark();
+        showToast(dragon.dead ? '💥 Último tiro!' : `💥 Acertou o dragão! Faltam ${dragon.hp}`);
+        scene.remove(a.m); arrows.splice(k, 1); done = true; break;
+      }
+      for (const c of theEnd.crystals) {
+        if (c.alive && c.g.position.distanceTo(q) < 1.8) {
+          c.alive = false; c.g.visible = false;
+          sound.boom(1);
+          for (let i = 0; i < 18; i++) flyers.add('bloco', q.x, q.y, q.z, { vx: (Math.random() - 0.5) * 30, vy: Math.random() * 20, vz: (Math.random() - 0.5) * 30, color: '#ff6ad0', life: 1.2, scale: 0.6 });
+          scene.remove(a.m); arrows.splice(k, 1); done = true; break;
+        }
+      }
+      if (!done && theEnd.at(q) && theEnd.at(q) !== VB.PORTAL) { a.stuck = true; a.life = 8; a.m.position.copy(q); done = true; }
+    }
+    void len;
+  }
+}
+function startCredits() {
+  quest.credits = true;
+  creditsEl.innerHTML = `<div class="roll">
+    <h1>VOO LIVRE</h1>
+    <p>${esc(NAME)} derrotou o Dragão do Fim</p>
+    <h2>ideia, testes e direção</h2><p>Mika</p>
+    <h2>jogando junto</h2><p>os amigos da party</p>
+    <h2>teia, cidade, gelatina, ilha e os outros mundos</h2><p>feitos à mão, linha por linha, com o Claude</p>
+    <h2>servidor</h2><p>Node, sem nenhuma biblioteca</p>
+    <h2>gráficos</h2><p>Three.js</p>
+    <h2>música</h2><p>a que vocês puseram no rádio</p>
+    <h2>agradecimento especial</h2><p>a todo mundo que caiu na lava pelo menos uma vez</p>
+    <h2>&nbsp;</h2><p>A ilha continua lá. A Lua também.</p>
+    <h2>&nbsp;</h2><h1>obrigado por jogar</h1>
+  </div><div class="skip">clique pra pular</div>`;
+  creditsEl.style.display = 'block';
+  sound.stage();
+  unlockMouse();
+  // por baixo dos créditos você já volta pra casa
+  theEnd.closeExit();
+  setWhere('city');
+  start();
+  const end = () => { if (!quest.credits) return; quest.credits = false; creditsEl.style.display = 'none'; showToast('🏝️ De volta à ilha'); };
+  creditsEl.onclick = end;
+  creditsEl.querySelector('.roll').addEventListener('animationend', end);
+}
+function questStep(dt) {
+  const t = performance.now() / 1000;
+  quest.cool = Math.max(0, quest.cool - dt);
+  quest.arrowT = Math.max(0, quest.arrowT - dt);
+  if (quest.credits) { me.vel.set(0, 0, 0); return; }
+  // no Minecraft: parado dentro do portal aceso por um instante, vai pro inferno
+  if (voxels() && quest.cool <= 0) {
+    const inside = [0, -0.4].some(dy => mine.get(Math.floor(me.pos.x), Math.floor(me.pos.y + dy), Math.floor(me.pos.z)) === VB.PORTAL);
+    quest.portalT = inside ? quest.portalT + dt : 0;
+    if (quest.portalT > 0.7) { quest.portalT = 0; enterNether(); }
+  }
+  if (me.where === 'nether') {
+    nether.update(dt, camera.position);
+    if (quest.cool <= 0 && (nether.at(me.pos) === VB.PORTAL || nether.at(me.pos, -0.4) === VB.PORTAL)) leaveNether();
+    else if (nether.inLava(me.pos) || me.pos.y < -5) {
+      sound.hurt();
+      for (let i = 0; i < 14; i++) flyers.add('bloco', me.pos.x, me.pos.y, me.pos.z, { vx: (Math.random() - 0.5) * 8, vy: 4 + Math.random() * 6, vz: (Math.random() - 0.5) * 8, color: '#ff8a20', life: 0.9, scale: 0.4 });
+      me.hooks[0] = me.hooks[1] = null;
+      me.pos.set(nether.spawn.x, nether.spawn.y + R, nether.spawn.z);
+      me.vel.set(0, 0, 0);
+      showToast('🔥 Você caiu na lava. Use a teia no teto pra atravessar');
+    }
+  }
+  if (me.where === 'moon') {
+    moonFrame.update(t, camera.position, MOON_BEND);
+    if (frameFill.on && (frameFill.t -= dt) <= 0) {
+      frameFill.t = 0.18;
+      moonFrame.fill(++frameFill.n);
+      sound.place();
+      if (frameFill.n >= 12) { frameFill.on = false; sound.stage(); showToast('🌌 A moldura abriu. Pule dentro dela...'); }
+    }
+    if (moonFrame.inside(me.pos)) enterEnd();
+  }
+  if (me.where === 'end') {
+    theEnd.update(dt, camera.position, t);
+    quest.hp = Math.min(20, quest.hp + dt * 0.4);
+    const r = dragon.update(dt, me, hurtEnd, q => { const b = theEnd.at(q); return !!b && b !== VB.PORTAL; });
+    dragon.group.visible = !dragon.gone;
+    if (r === 'dead') {
+      const q = dragon.pos;
+      for (let i = 0; i < 40; i++) flyers.add('bloco', q.x, q.y, q.z, { vx: (Math.random() - 0.5) * 50, vy: (Math.random() - 0.3) * 40, vz: (Math.random() - 0.5) * 50, color: ['#ff6ad0', '#1b1724', '#5c4a78'][i % 3], life: 2.5, scale: 1.2 });
+      theEnd.openExit();
+      showToast('🏆 O dragão caiu! Entre no portal que abriu no meio da ilha');
+    }
+    stepArrows(dt);
+    if (me.pos.y < -20) hurtEnd(100, new V3());
+    if (dragon.gone && [0, -0.5].some(dy => theEnd.at(me.pos, dy) === VB.PORTAL)) startCredits();
+    bossEl.querySelector('.bar i').style.width = (dragon.gone ? 0 : dragon.hp / 5 * 100) + '%';
+    bossEl.querySelector('b').textContent = dragon.gone ? '🏆 Dragão derrotado · entre no portal do meio' : '🐉 Dragão do Fim';
+    const hearts = Math.ceil(quest.hp / 2);
+    bossEl.querySelector('.me').textContent = '❤'.repeat(hearts) + '·'.repeat(10 - hearts);
+  } else if (arrows.length) stepArrows(dt);
+}
 
 // ------------------------------------------------------------------ o que o F faz aqui
 
@@ -2414,6 +3010,8 @@ function nearbyAction() {
   if (me.seat) return { hint: 'F = levantar', run: standUp };
   if (me.where === 'back') return back.exitNear(p.x, p.z) ? { hint: 'F = sair daqui', run: leaveBack } : null;
   if (me.ride) return { hint: 'F ou Espaço = pular fora', run: leaveRide };
+  if (me.where === 'nether' && !nether.opened && p.distanceTo(nether.chest) < 3) return { hint: 'F = abrir o baú', run: openChest };
+  if (me.where === 'moon' && moonFrame.near(p, 7) && !moonFrame.open && !frameFill.on) return { hint: mine.count('olho') >= 12 ? 'F = encaixar os 12 olhos' : 'F = olhar a moldura', run: useFrame };
   if (me.where !== 'city') return null;
   if (me.carry) return { hint: `F = arremessar ${remotes.get(me.carry)?.info.name || 'amigo'}`, run: throwFriend };
   const friend = me.carried ? null : nearFriend();
@@ -2471,7 +3069,7 @@ addEventListener('keydown', e => {
   if (e.code === 'Escape' && freeMouse) { unlockMouse(); return; }
   if (e.code === 'KeyB' && !e.repeat) nextArt();
   if (e.code === 'KeyG' && !e.repeat) setFirstPerson(!firstPerson);
-  if (e.code === 'KeyE' && !e.repeat && mine.active && !me.hook) { unlockMouse(); openTab('mochila'); }
+  if (e.code === 'KeyE' && !e.repeat && mine.active && !me.hook) { openCraft(2); return; }
   if (e.code === 'KeyH' && !e.repeat) toggleRecord();
   if (e.code === 'KeyJ' && !e.repeat) clearEchoes();
   if (e.code === 'KeyN' && !e.repeat) { worldStopped = !worldStopped; showToast(worldStopped ? '⏸️ O mundo parou' : '▶️ O mundo voltou'); }
@@ -2487,11 +3085,9 @@ addEventListener('keydown', e => {
   if (slot && !e.repeat) selectSlot(Number(slot[1]) - 1);
   if (e.code === 'Space') { if (!e.repeat) jumpPressed = true; e.preventDefault(); }
   if (e.code === 'KeyQ' && !e.repeat && !me.onGround && me.flipT <= 0) startFlip();
+  if ((e.code === 'ControlLeft' || e.code === 'ControlRight' || e.code === 'KeyC') && !e.repeat) ctrlLand();
   if (e.code === 'KeyR' && !trip.on) { trip.landing = false; view.roll = 0; start(); }
-  if (e.code === 'KeyT') {
-    const r = [...remotes.values()].find(x => x.pos && !x.stale);
-    if (r && r.where === me.where) { standUp(); me.pos.copy(r.pos).add(new V3(0, 2.5, 0)); me.vel.copy(r.vel || new V3()); me.hook = null; }
-  }
+  if (e.code === 'KeyT' && !e.repeat) goFriend();
   if (e.code === 'KeyF' && !e.repeat) nearbyAction()?.run();
   if (e.code === 'KeyY' && !e.repeat) {
     // solta o mouse pra poder colar o link
@@ -2508,9 +3104,10 @@ canvas.addEventListener('mousedown', e => {
   if (locked && act) act.down(e.button);
   else if (locked && e.button === 0 && basket.mine) basket.startCharge();
   else if (locked && e.button === 0) { mouseDown = true; hitPress = true; }
+  else if (locked && e.button === 2 && me.where === 'end') shootArrow();
   else if (locked && e.button === 2) {
     const item = heldItem();
-    if (mine.active && voxels() && mine.useRight()) return;
+    if (mine.active && mine.useRight()) return;
     if (item && !trip.on) useItem(item);
     else if (!item) mouseRight = true;
   }
@@ -2524,9 +3121,25 @@ addEventListener('mouseup', e => {
   if (e.button === 2) mouseRight = false;
   if (e.button === 0 && basket.charging) basket.shoot(new V3(0, 0, -1).applyQuaternion(camera.quaternion));
 });
+// Com o mouse travado, o Chrome e o Edge no Windows às vezes entregam um salto enorme de uma vez, sem a mão ter mexido,
+// e a câmera ia parar apontada pro céu. Movimento de verdade vem acelerando; o salto aparece do nada, num evento só.
+const mouseSeen = { rate: 0, at: 0, dropped: 0 };
+function mouseJump(e) {
+  const size = Math.hypot(e.movementX, e.movementY), gap = Math.max(4, e.timeStamp - mouseSeen.at), rate = size / gap;
+  mouseSeen.at = e.timeStamp;
+  if (size > 100 && rate > 8 && rate > mouseSeen.rate * 5 && mouseSeen.dropped < 2) {
+    mouseSeen.dropped++;
+    if (report.spikes.length < 8) report.spikes.push(`salto do mouse ${e.movementX},${e.movementY}`);      // aparece no desempenho.log
+    return true;
+  }
+  mouseSeen.rate = Math.max(rate, mouseSeen.rate * Math.exp(-gap / 80));
+  mouseSeen.dropped = 0;
+  return false;
+}
 addEventListener('mousemove', e => {
   if (!locked) return;
   if (freeMouse) { edgeX = edgeOf(e.clientX / innerWidth); edgeY = edgeOf(e.clientY / innerHeight); }
+  if (mouseJump(e)) return;
   if (act) { act.mouse(e.movementX, e.movementY); return; }
   yaw -= e.movementX * 0.0022;
   pitch = clamp(pitch - e.movementY * 0.0022, -1.4, 1.25);
@@ -2593,8 +3206,8 @@ resize();
 function rayBoxes(from, to) {
   let tmin = 1;
   const d = new V3().subVectors(to, from);
-  if (voxels()) {
-    const len = d.length(), h = mine.ray(from, lookTmp.copy(d).divideScalar(len), len);
+  if (vox()) {
+    const len = d.length(), h = vox().ray(from, lookTmp.copy(d).divideScalar(len), len);
     return h ? Math.max(0, (h.t - 0.2) / len) : 1;
   }
   for (const L of lotsNear(from.x, from.z, 20)) for (const bx of L.boxes) {
@@ -2729,7 +3342,7 @@ function updateHud(now) {
   const high = Math.abs(me.pos.y - CINE.roof.Y) < 8;
   const onCourt = high && Math.hypot(me.pos.x - COURT_LOT.cx, me.pos.z - COURT_LOT.cz) < 24;
   const onRoof = high && Math.hypot(me.pos.x - CINE.cx, me.pos.z - CINE.cz) < 24;
-  hud.biome.textContent = me.where === 'moon' ? 'LUA' : me.where === 'trip' ? 'ESPAÇO' : me.where === 'back' ? '???' : inside ? 'CINEMA · TELÃO' : onCourt ? 'QUADRA' : onRoof ? 'LAJE' : 'CIDADE · 3D (TESTE)';
+  hud.biome.textContent = me.where === 'nether' ? 'INFERNO' : me.where === 'end' ? 'O FIM' : me.where === 'moon' ? 'LUA' : me.where === 'trip' ? 'ESPAÇO' : me.where === 'back' ? '???' : inside ? 'CINEMA · TELÃO' : onCourt ? 'QUADRA' : onRoof ? 'LAJE' : 'CIDADE · 3D (TESTE)';
   renderTime();
   const nearAstro = inSpace() ? nearestBody() : null;
   if (nearAstro) hud.biome.textContent = `ESPAÇO · ${nearAstro.b.name.toUpperCase()}`;
@@ -2790,19 +3403,19 @@ function simulate(now, dt) {
     if (freeMouse && !act) { yaw -= edgeX * EDGE_TURN * dt; pitch = clamp(pitch - edgeY * EDGE_TURN * 0.5 * dt, -1.4, 1.25); }
     const held = [mouseDown, mouseRight];
     // de perto, o esquerdo é pra quebrar bloco e bater em zumbi; a teia só sai pra longe
-    if (voxels() && !act && !me.seat) {
+    if (mine.active && !act && !me.seat) {
       const breaking = mine.mineStep(dt, mouseDown && !heldItem(), camera, me.mesh.userData.slime.block || {});
       if (mine.mobs(dt, day, hitPress) || (breaking && !me.hooks[0])) held[0] = false;
     }
     hitPress = false;
     for (let i = 0; i < 2; i++) {
-      if (!held[i]) hookWait[i] = false;
+      if (!(i ? mouseRight : mouseDown)) hookWait[i] = false;     // o botão de verdade: quebrando bloco, held[0] mente
       if (held[i] && !hookWait[i] && !me.hooks[i] && target && !act && !me.carried) {
         if (target.sky) startTrip(i);
         else if (target.planet) attachPlanet(target.planet, i);
         else { standUp(); attach(target, i); if (firstHook < 0) firstHook = now; }
       }
-      if (!held[i] && me.hooks[i]) release(i);
+      if (!held[i] && me.hooks[i] && !me.land) release(i);     // o pouso vai até o fim, mesmo num clique rápido
     }
     if (me.sling && !pulling()) launch();
   }
@@ -2847,7 +3460,7 @@ function simulate(now, dt) {
     }
   } else if (!me.seat && !act) {
     if (inSpace()) { space.followBelt(me.pos); if (!me.hook) bodyAssist(dt); skyInSpace(); }
-    else if (!portalAssist(dt) && !me.hooks.some(h => h && h.warp)) avoid(dt);
+    else if (!me.land && !portalAssist(dt) && !me.hooks.some(h => h && h.warp)) avoid(dt);
     // rápido demais, os passos da física encurtam: nunca anda mais que meio metro de uma vez
     const n = clamp(Math.ceil(Math.max(dt * 240, me.vel.length() * dt / 0.5)), 1, 64);
     for (let i = 0; i < n; i++) step(dt / n);
@@ -2858,7 +3471,8 @@ function simulate(now, dt) {
   updateGod(dt);
   if (artAuto && (artClock += dt) > 25) { artClock = 0; nextArt(true); }
 
-  if (voxels()) { mine.stream(me.pos.x, me.pos.z); mine.live(dt, me.vel.length()); }
+  if (mine.active) mine.live(dt, me.vel.length());
+  if (voxels()) mine.stream(me.pos.x, me.pos.z);
   else if (me.where === 'city') updateChunks(me.pos.x, me.pos.z);
   // teia que cruza um portal: pro corpo ela vai até a boca dele; o resto sai do outro lado
   const shown = trip.on ? trip.hooks : me.hooks.map(h => {
@@ -2870,14 +3484,15 @@ function simulate(now, dt) {
     return { p: x, t: h.t };
   });
   if (trip.landing) settleOnMoon(dt);
-  if (!me.seat && !(trip.landing && !me.onGround)) orient(me.mesh, me.pos, me.vel, hookCenter(shown), me.onGround, dt, me.braced);
+  // pousando, a teia fica abaixo do boneco: ele voa como solto e, perto do ponto, já desce de pé
+  const footing = me.onGround || (!!me.land && me.pos.distanceTo(me.land.p) < 12 * Math.max(1, big()));
+  if (!me.seat && !(trip.landing && !me.onGround)) orient(me.mesh, me.pos, me.vel, me.land ? null : hookCenter(shown), footing, dt, me.braced);
   me.mesh.position.copy(me.pos);
   updateCamera(0);
   const body = me.mesh.userData.slime, aimDir = new V3(0, 0, -1).applyQuaternion(camera.quaternion);
-  roofSway.lerp(art.style.jelly && me.onGround ? art.bent(me.pos, ropeTip).sub(me.pos) : ZERO3, 1 - Math.exp(-dt * 7));
   bodyT += dt;
-  if (bodyT < BODY_STEP && !slimes.blocky) body.follow(me.pos, roofSway);
-  else body.update(bodyT, { shift: roofSway, pos: me.pos, vel: me.vel, quat: me.mesh.quaternion, hooks: shown, onGround: me.onGround, flip: me.flipT > 0 ? 1 - me.flipT / 0.5 : 0, flipAxis: me.flipAxis, sit: !!me.seat || !!me.ride, wet: me.wet, floor: me.where === 'trip' ? undefined : me.onGround ? me.pos.y - R : floorUnder(me.pos), sling: me.sling ? me.sling.x / (SLING_MAX + SLING_TUG) * 1.6 : 0, braced: me.braced, hold: !!me.carry, aim: heldItem() ? aimDir : null, visible: me.mesh.visible });
+  if (bodyT < BODY_STEP && !slimes.blocky) body.follow(me.pos);
+  else body.update(bodyT, { pos: me.pos, vel: me.vel, quat: me.mesh.quaternion, hooks: shown, onGround: me.onGround, flip: me.flipT > 0 ? 1 - me.flipT / 0.5 : 0, flipAxis: me.flipAxis, sit: !!me.seat || !!me.ride, wet: me.wet, floor: me.where === 'trip' ? undefined : me.onGround ? me.pos.y - R : floorUnder(me.pos), sling: me.sling ? me.sling.x / (SLING_MAX + SLING_TUG) * 1.6 : 0, braced: me.braced, hold: !!me.carry, aim: heldItem() ? aimDir : null, visible: me.mesh.visible });
   if (bodyT >= BODY_STEP || slimes.blocky) bodyT = 0;
   body.group.visible = !slimes.blocky && me.mesh.visible;
   placeRopes(me.ropes, shown, body);
@@ -2914,6 +3529,7 @@ function simulate(now, dt) {
   } else fx.veilAt = 0;
   if (me.where === 'trip' || me.where === 'moon') space.update(dt, camera.position, trip.earth, trip.earthA, trip.moon, trip.moonA);
   if (me.where === 'moon') { space.followFloor(me.pos.x, me.pos.z); space.setGlow(day.uniforms.moonGlow.value); }
+  questStep(dt);
   if (me.where === 'back') back.update(dt, camera.position, new V3(0, 0, -1).applyQuaternion(camera.quaternion), d => !sweep(me.pos, new V3(0, 0, -1).applyQuaternion(camera.quaternion).setY(0).normalize(), d, 0));
   fx.veil = trip.on ? fx.veil : Math.max(fx.veilAt || 0, fx.veil - dt * 1.1);
   fx.chill += ((inSpace() ? 1 : 0) - fx.chill) * Math.min(1, dt * 1.6);
@@ -2943,13 +3559,14 @@ function simulate(now, dt) {
   updateSplash(dt);
   sea.update(GOD.sea, me.where === 'city', camera, T, day);
   if (me.where === 'city') {
-    coast.update(WATER_Y, camera.position.z > WATER_Z - 2400, camera, T, day);
+    coast.update(WATER_Y, !MAP.infinite, camera, T, day);
     beach.update(camera);
+    if (!MAP.infinite) bridge.update(performance.now() / 1000, day.night);
     fun.update(dt, Math.hypot(camera.position.x + 286, camera.position.z + 52) < 1500);
   }
   flyers.update(dt, belly.set(me.pos.x, me.pos.y + 0.2 * me.size, me.pos.z), R * 1.05);
   for (const e of echoes) e.update(dt);
-  const under = me.where === 'city' && (camera.position.y < GOD.sea || (camera.position.z > WATER_Z + 8 && camera.position.y < WATER_Y)) ? 0.5 : 0;
+  const under = me.where === 'city' && (camera.position.y < GOD.sea || (inSea(camera.position.x, camera.position.z) && camera.position.y < WATER_Y)) ? 0.5 : 0;
   if (under !== fx.under) underEl.style.opacity = fx.under = under;
 
   if (net.connected && now - lastSend > 50) {
@@ -2979,10 +3596,15 @@ function simulate(now, dt) {
   // o desenho da visão dos portais vem antes do quadro: cada um é a cidade inteira de novo, então só nas qualidades de cima
   if (portals.list.length) {
     camera.updateMatrixWorld();
-    portals.update(dt, me.where);
+    portals.update(dt, me.where, me.where === 'moon' ? MOON_BEND : 1e9);
     if (art.on) art.fit();
     portals.render(camera, me.where, Q.pr >= 1 ? 2 : Q.pr >= 0.85 ? 1 : 0, art.on ? art.size : null);
   }
+  if (water.jets.size || portals.list.length > 1) {
+    const light = me.where === 'city' ? 1 - 0.7 * day.night : me.where === 'moon' ? 0.95 : me.where === 'end' ? 0.6 : 0.8;
+    water.update(dt, me.where, camera, { grav: w => (w === 'moon' ? G / 5 : G) * GOD.grav, light, bend: me.where === 'moon' ? MOON_BEND : 1e9, height: art.on ? art.size.y : renderer.domElement.height });
+  }
+  if (water.loud || sound.waterV) sound.water(water.loud);
   renderer.shadowMap.needsUpdate = Q.shadow > 0 && perf.drew++ % Q.every === 0;
   art.update(dt, camera, slimes.u.uSun.value, me.where === 'city' ? day.night : 0);
   art.render(scene, camera);
@@ -2996,7 +3618,7 @@ function simulate(now, dt) {
   // sobe devagar, pra um ganho repentino não dar tranco na tela; desce rápido, pro topo do balanço parecer lento
   speedK += (speedWant - speedK) * (1 - Math.exp(-dt * (speedWant > speedK ? 1.5 : 9)));
   speedWind += dt * (1 + 2 * speedK);
-  speedFx.draw(speedK, view.fp, speedWind, speedDir, camera.fov);
+  if (!LEVE) speedFx.draw(speedK, view.fp, speedWind, speedDir, camera.fov);
   // o telão só existe por perto do cinema: de longe a camada CSS 3D nem precisa ser desenhada
   const nearScreen = me.where === 'city' && me.pos.y < CINEMA.hall + 20 && Math.hypot(me.pos.x - CINE.cx, me.pos.z - CINE.cz) < 60;
   if (nearScreen !== cssOn) { cssOn = nearScreen; cssRenderer.domElement.style.visibility = nearScreen ? 'visible' : 'hidden'; }
@@ -3036,15 +3658,19 @@ async function preload() {
   skyline.rebuild(me.pos.x, me.pos.z, isLoaded);
 
   await say(50, 'Montando a Lua, os asteroides e as backrooms...');
-  if (!space.floor) space.buildFloor();
-  if (!space.belt) space.buildBelt();
-  space.followBelt(new V3(0, 0, -30000));
-  space.followFloor(0, 0);
-  const warmChunks = mine.warm(me.pos.x, me.pos.z);
+  // no modo leve a Lua, os asteroides e o Minecraft só são montados se alguém for até lá
+  if (!LEVE) {
+    if (!space.floor) space.buildFloor();
+    if (!space.belt) space.buildBelt();
+    space.followBelt(new V3(0, 0, -30000));
+    space.followFloor(0, 0);
+  }
+  const warmChunks = LEVE ? [] : mine.warm(me.pos.x, me.pos.z);
 
   // o que só aparece mais tarde também passa por aqui: portal e boneco quadrado
   const extras = new THREE.Group(), block = new BlockBody(extras, 'spider', COLOR);
   extras.add(new THREE.Mesh(portals.geo, portals.base));
+  water.warm(extras);
   extras.visible = false;
   scene.add(extras);
 
@@ -3065,10 +3691,10 @@ async function preload() {
   // Shaders: uma vez como vão pra tela, outra como vão pros estilos de arte, com todos os mundos à vista.
   // Mudar a quantidade de luzes acesas recompila todos os materiais, e isso acontece ao se afastar da laje, ao sair da
   // cidade ou quando a qualidade automática desliga a sombra. Por isso cada combinação é compilada aqui, de uma vez.
-  const shown = [city, space.sky, space.moon, space.floor, space.beltGroup, back.group, mine.group, day.sky, day.stars, extras, sea.mesh, coast.mesh, fun.group, beach.group];
+  const shown = [city, space.sky, space.moon, space.floor, space.beltGroup, back.group, mine.group, day.sky, day.stars, extras, sea.mesh, coast.mesh, fun.group, beach.group].filter(Boolean);
   const was = shown.map(o => o.visible);
   shown.forEach(o => { o.visible = true; });
-  const rt = new THREE.WebGLRenderTarget(8, 8, { type: THREE.HalfFloatType }), combos = [[true, true], [true, false], [false, true], [false, false]];
+  const rt = new THREE.WebGLRenderTarget(8, 8, { type: THREE.HalfFloatType }), combos = LEVE ? [[false, false]] : [[true, true], [true, false], [false, true], [false, false]];
   // Depois de compilar, um desenho de verdade por combinação, com uma câmera que vê a cidade inteira e sem descartar nada:
   // joga cada malha na placa de vídeo e cobre o que compilar não cobre, como a sombra, que tem shader próprio por quantidade de luzes.
   const wide = new THREE.OrthographicCamera(-4000, 4000, 4000, -4000, -6000, 6000), culled = [];
@@ -3093,8 +3719,7 @@ async function preload() {
   day.light.castShadow = Q.shadow > 0;
   roofFx.setLamps(Q.lamps);
   courtFx.setLamps(Q.lamps);
-  await say(80, 'Compilando os estilos de arte...');
-  await art.warmUp();
+  if (!LEVE) { await say(80, 'Compilando os estilos de arte...'); await art.warmUp(); }
   rt.dispose();
   shown.forEach((o, k) => { o.visible = was[k]; });
   warmChunks.forEach(c => mine.drop(c));
@@ -3108,9 +3733,8 @@ async function preload() {
   simulate(last, 1 / 60);
   const ahead = new V3(0, 0, -1).applyQuaternion(camera.quaternion), side = new V3(1, 0, 0).applyQuaternion(camera.quaternion), top = new V3(0, 1, 0).applyQuaternion(camera.quaternion);
   [-6, 6].forEach((s, color) => portals.set('ensaio', color, { c: camera.position.clone().addScaledVector(ahead, 24).addScaledVector(side, s).toArray(), n: ahead.clone().negate().toArray(), u: top.toArray(), where: me.where }));
-  for (const S of ART_STYLES) {
+  for (const S of LEVE ? [] : ART_STYLES) {
     art.set(S.id);
-    ground.geometry = S.jelly ? denseGround() : flatGround;
     last = performance.now();
     simulate(last, 1 / 60);
     await say(87);
@@ -3120,8 +3744,8 @@ async function preload() {
 
   // o Minecraft também: liga, joga uns quadros (o boneco quadrado, a tela de vida e fome) e devolve você onde estava
   const wanted = prefs.art || 'normal', spot = me.pos.clone();
-  setArt('blocos', true);
-  for (let k = 0; k < 20; k++) {
+  if (!LEVE) setArt('blocos', true);
+  for (let k = 0; k < (LEVE ? 0 : 20); k++) {
     last = performance.now();
     simulate(last, 1 / 60);
     await say(88);
@@ -3134,10 +3758,11 @@ async function preload() {
   toast = null;
   if (mine.active) { mine.stream(me.pos.x, me.pos.z); while (mine.queue.length) { mine.stream(me.pos.x, me.pos.z); await say(92); } }
   // alguns quadros de verdade atrás da tela: o navegador otimiza o código antes de você entrar
-  for (let k = 0; k < 90; k++) {
+  const warm = LEVE ? 20 : 90;
+  for (let k = 0; k < warm; k++) {
     last = performance.now();
     simulate(last, 1 / 60);
-    await say(90 + 10 * k / 90);
+    await say(90 + 10 * k / warm);
   }
   await say(100, 'Pronto!');
 }
@@ -3153,13 +3778,13 @@ function enter() {
     me, remotes, keys, camera, lotsAround, lot, cinema, CINEMA, nearestSeat, sitDown, standUp, setCinema, inCinema,
     quality: () => ({ pref: prefs.quality ?? 'auto', level: qLevel, name: Q.name, software: SOFTWARE, fps: Math.round(perf.fps) }), setQuality, skyline, buildChunk,
     day, setTime, hourNow, board, sinuca, pong, basket, voice, renderer, enterAct, leaveAct, nearbyAction, chunks, crowd, traffic, net,
-    setRadio, radioYt, radioSp, inPool, COURT, sweep,
+    setRadio, radioYt, radioSp, inPool, COURT, sweep, goWorld, goFriend, groundRay, goThrough, water, waterLevel, waterHit, sound,
     get act() { return act; },
     get timeState() { return timeState; },
     get cineState() { return cineState; },
     setLook: (y, p) => { yaw = y; pitch = p; },
     lookAt: p => { const d = new V3().subVectors(p, camera.position); yaw = Math.atan2(-d.x, -d.z); pitch = Math.atan2(d.y, Math.hypot(d.x, d.z)); },
-    fun, beach, coast, FUN_GATE, BEACH_SPOT, teleport, boardRide, leaveRide, past, rewind, mine, art, setArt, powers, setPower, GOD, sendGod, flyers, godEvent, setBase, setFirstPerson, view, speedFx, speedCfg, setSpeed, get speedK() { return speedK; }, echoes, toggleRecord, eatenLots, eatLot, useItem, ITEMS, sea, blast, space, back, trip, fx, gaze, startTrip, setWhere, enterBack, leaveBack, nearbyAction, setMouse: v => { mouseDown = v; }, setRight: v => { mouseRight = v; }, lock: v => { locked = v; }, slimes, view, launch, nearWall, grabFriend, portals, firePortal, selectSlot, portalRay, get held() { return held; }, get target() { return target; },
+    fun, beach, coast, FUN_GATE, BEACH_SPOT, teleport, boardRide, leaveRide, past, rewind, mine, art, setArt, powers, setPower, GOD, sendGod, flyers, godEvent, setBase, setFirstPerson, view, speedFx, speedCfg, setSpeed, get speedK() { return speedK; }, echoes, toggleRecord, eatenLots, eatLot, useItem, ITEMS, bridge, setMap, ctrlLand, landSpot, startLand, attach, nether, theEnd, dragon, moonFrame, moonVox, craftGui, openCraft, quest, enterNether, enterEnd, landOnMoon, startTrip, shootArrow, openChest, useFrame, sea, blast, space, back, trip, fx, gaze, startTrip, setWhere, enterBack, leaveBack, nearbyAction, setMouse: v => { mouseDown = v; }, setRight: v => { mouseRight = v; }, lock: v => { locked = v; }, slimes, view, launch, nearWall, grabFriend, portals, firePortal, selectSlot, portalRay, get held() { return held; }, get target() { return target; },
     tick(dt = 1 / 60) { last += dt * 1000; simulate(last, dt); },
   };
 }

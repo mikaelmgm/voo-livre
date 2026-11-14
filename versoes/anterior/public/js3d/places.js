@@ -487,13 +487,79 @@ export const WATER_Y = 3.2;
 export const WATER_Z = SAND_Z + 96;
 export const BEACH_SPOT = new THREE.Vector3(0, 6, SAND_Z + 62);
 
-export function sandY(z) {
-  if (z <= SAND_Z) return 0;
-  const a = z - SAND_Z;
+// A cidade é uma ilha: um retângulo de lotes com os cantos arredondados, areia em volta e mar depois.
+// A linha da areia passa no meio da última fileira de lotes, igual à praia do sul de antes.
+export const ISLE = { i0: -24, i1: 23, j0: -34, j1: BEACH_J - 1 };
+const ISLE_R = 8 * CELL;      // raio da curva dos cantos
+const IX0 = (ISLE.i0 + 0.5) * CELL + ISLE_R, IX1 = (ISLE.i1 + 0.5) * CELL - ISLE_R;
+const IZ0 = (ISLE.j0 + 0.5) * CELL + ISLE_R, IZ1 = SAND_Z - ISLE_R;
+export const ISLE_SHAPE = [IX0, IZ0, IX1, IZ1, ISLE_R];
+export const SEA_IN = WATER_Z - SAND_Z;   // da linha da areia até a água
+// quanto um ponto já passou da linha da areia, pra fora (dentro da ilha dá zero ou menos)
+// O mapa da party: a ilha (com a ponte e a ilhota do farol) ou a cidade infinita de antes, sem mar
+export const MAP = { infinite: false };
+export function shore(x, z) {
+  if (MAP.infinite) return -1e9;
+  const dx = Math.max(IX0 - x, 0, x - IX1), dz = Math.max(IZ0 - z, 0, z - IZ1);
+  return Math.hypot(dx, dz) - ISLE_R;
+}
+export const onLand = (i, j) => shore((i + 0.5) * CELL, (j + 0.5) * CELL) <= 1;
+
+// a ilhota do farol, do outro lado da ponte: um platô redondo com gramado, praia em volta e mar
+export const ISLET = { x: 2330, z: -520, r: 110, top: 6 };
+export const isletDist = (x, z) => Math.hypot(x - ISLET.x, z - ISLET.z);
+export function isletY(x, z) {
+  if (MAP.infinite) return -1e9;
+  const a = isletDist(x, z) - ISLET.r;
+  if (a <= 0) return ISLET.top;
+  if (a < 30) { const t = a / 30; return ISLET.top - (ISLET.top - 4.6) * t * t * (3 - 2 * t); }
+  if (a < 110) { const t = (a - 30) / 80; return 4.6 - 4.5 * t * t * (3 - 2 * t); }
+  if (a < 170) return 0.1;
+  return 0.1 - Math.min(1, (a - 170) / 600) * 30;
+}
+export const inSea = (x, z) => !MAP.infinite && shore(x, z) > SEA_IN && isletDist(x, z) > ISLET.r + 60;
+
+export function sandY(x, z) {
+  if (MAP.infinite) return 0;
+  return Math.max(mainY(x, z), isletY(x, z));
+}
+function mainY(x, z) {
+  const a = shore(x, z);
+  if (a <= 0) return 0;
   if (a < 40) { const t = a / 40; return 4.6 * t * t * (3 - 2 * t); }
   if (a < 70) return 4.6;
   if (a < 170) { const t = (a - 70) / 100; return 4.6 - 4.5 * t * t * (3 - 2 * t); }
-  return 0.1;
+  if (a < 240) return 0.1;
+  // depois o fundo do mar desce, sem chão de rua aparecendo
+  return 0.1 - Math.min(1, (a - 240) / 600) * 30;
+}
+
+// a volta da ilha: pontos na linha da areia com a direção pra fora, cantos em arco
+function islePath(step = 10) {
+  const out = [];
+  const corners = [[IX1, IZ1, 0], [IX0, IZ1, 1], [IX0, IZ0, 2], [IX1, IZ0, 3]];
+  for (const [cx, cz, q] of corners) {
+    for (let k = 0; k <= step; k++) {
+      const t = (q + k / step) * Math.PI / 2, nx = Math.cos(t), nz = Math.sin(t);
+      out.push([cx + nx * ISLE_R, cz + nz * ISLE_R, nx, nz]);
+    }
+  }
+  return out;
+}
+// lugares espalhados pela areia, a cada `gap` metros, a `off` metros da linha da areia
+function aroundIsle(gap, off) {
+  const path = islePath(24), out = [];
+  let carry = 0;
+  for (let k = 0; k < path.length; k++) {
+    const A = path[k], B = path[(k + 1) % path.length];
+    const len = Math.hypot(B[0] - A[0], B[1] - A[1]);
+    for (let d = carry; d < len; d += gap) {
+      const t = d / len, nx = A[2] + (B[2] - A[2]) * t, nz = A[3] + (B[3] - A[3]) * t, n = Math.hypot(nx, nz) || 1;
+      out.push([A[0] + (B[0] - A[0]) * t + nx / n * off, A[1] + (B[1] - A[1]) * t + nz / n * off, nx / n, nz / n]);
+    }
+    carry = ((carry - len) % gap + gap) % gap;
+  }
+  return out;
 }
 
 function palmGeo() {
@@ -532,56 +598,94 @@ export class Beach {
       }
     });
     tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
-    tex.repeat.set(26, 18);
-    const geo = new THREE.PlaneGeometry(2600, 460, 1, 110).rotateX(-Math.PI / 2).translate(0, 0, 230);
-    const p = geo.attributes.position;
-    for (let i = 0; i < p.count; i++) p.setY(i, sandY(p.getZ(i) + SAND_Z) + 0.02);
+    // a areia é um anel em volta da ilha: cada ponto da volta vira uma fileira que vai da linha da areia até o fundo do mar
+    const rows = [];
+    for (let a = 0; a < 240; a += 3) rows.push(a);
+    rows.push(240, 360, 480, 840, 1600);
+    const path = islePath(), P = [], UV = [], I = [];
+    for (const [x, z, nx, nz] of path) {
+      for (const a of rows) {
+        const px = x + nx * a, pz = z + nz * a;
+        P.push(px, sandY(px, pz) + 0.02, pz);
+        UV.push(px / 100, -pz / 100);
+      }
+    }
+    const R = rows.length, N = path.length;
+    for (let k = 0; k < N; k++) {
+      const k2 = (k + 1) % N;
+      for (let r = 0; r < R - 1; r++) {
+        const a = k * R + r, b = k2 * R + r;
+        I.push(a, a + 1, b, b, a + 1, b + 1);
+      }
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(P, 3));
+    geo.setAttribute('uv', new THREE.Float32BufferAttribute(UV, 2));
+    geo.setIndex(I);
     geo.computeVertexNormals();
+    if (geo.attributes.normal.getY(0) < 0) { geo.index.array.reverse(); geo.computeVertexNormals(); }
     this.sand = new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ map: tex }));
-    this.sand.position.z = SAND_Z;
     this.sand.receiveShadow = true;
+    this.sand.frustumCulled = false;
     this.group.add(this.sand);
+    // calçadão de madeira na volta toda, e o posto do salva-vidas na praia do sul
     const walk = new Boxes();
-    walk.tint('#a07a54').box(-1300, 4.6, SAND_Z + 42, 1300, 4.72, SAND_Z + 48);
+    walk.tint('#a07a54');
+    const boards = aroundIsle(6, 45);
+    for (const [x, z] of boards) walk.box(x - 3.2, 4.6, z - 3.2, x + 3.2, 4.72, z + 3.2);
     walk.tint('#fff').box(-30, 4.6, SAND_Z + 54, -26, 8.6, SAND_Z + 58);
     walk.tint('#e8483a').box(-30.5, 8.6, SAND_Z + 53.5, -25.5, 9, SAND_Z + 58.5);
     this.walk = new THREE.Mesh(walk.build(), new THREE.MeshLambertMaterial({ vertexColors: true }));
     this.group.add(this.walk);
-    this.tile = 240;
-    this.palms = new THREE.InstancedMesh(palmGeo(), new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide }), 33);
+    const palms = aroundIsle(80, 22), umbs = aroundIsle(54, 64);
+    this.palms = new THREE.InstancedMesh(palmGeo(), new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide }), palms.length);
     this.palms.castShadow = true;
     const umb = new Boxes();
     umb.tint('#d8d8d0').box(-0.05, 0, -0.05, 0.05, 2.3, 0.05);
     umb.rgb(1, 1, 1).prism(0, 2.15, 2.65, 0, 1.9, 8, 0.08);
     umb.tint('#f0e8e0').box(-0.45, 0.02, 0.6, 0.45, 0.06, 2.4);
-    this.umbs = new THREE.InstancedMesh(umb.build(), new THREE.MeshLambertMaterial({ vertexColors: true }), 42);
+    this.umbs = new THREE.InstancedMesh(umb.build(), new THREE.MeshLambertMaterial({ vertexColors: true }), umbs.length);
     this.palms.frustumCulled = this.umbs.frustumCulled = false;
     const m = new THREE.Matrix4(), c = new THREE.Color();
-    let n = 0, u = 0;
-    for (let a = -5; a <= 5; a++) {
-      for (const [dx, dz, ry] of [[-70, 22, 0.4], [10, 30, 2.1], [84, 18, 4.2]]) {
-        const z = SAND_Z + dz;
-        m.makeRotationY(ry).setPosition(a * this.tile + dx, sandY(z), z);
-        this.palms.setMatrixAt(n++, m);
-      }
-      for (let k = 0; k < 4 && u < 42; k++) {
-        const x = a * this.tile - 90 + k * 54, z = SAND_Z + 62 + (k % 2) * 12;
-        m.makeTranslation(x, sandY(z), z);
-        this.umbs.setMatrixAt(u, m);
-        this.umbs.setColorAt(u++, c.set(['#e8483a', '#3c9ae8', '#f0c030', '#3cc87a'][(k + a + 8) % 4]));
-      }
-    }
-    this.umbs.count = u;
+    palms.forEach(([x, z], k) => {
+      const zz = z + ((k * 37) % 17) - 8, xx = x + ((k * 53) % 13) - 6;
+      m.makeRotationY(k * 2.1).setPosition(xx, sandY(xx, zz), zz);
+      this.palms.setMatrixAt(k, m);
+    });
+    umbs.forEach(([x, z], k) => {
+      m.makeTranslation(x, sandY(x, z), z);
+      this.umbs.setMatrixAt(k, m);
+      this.umbs.setColorAt(k, c.set(['#e8483a', '#3c9ae8', '#f0c030', '#3cc87a'][k % 4]));
+    });
     this.group.add(this.palms, this.umbs);
-    this.group.visible = false;
+    const rings = [0, 20, 40, 60, 80, 96, 104, 110, 116, 124, 134, 146, 160, 180, 200, 220, 240, 280, 340, 420, 600, 1000], seg = 64, IP = [], IC = [], II = [], col = new THREE.Color();
+    for (const d of rings) for (let k = 0; k <= seg; k++) {
+      const a = k / seg * Math.PI * 2, x = ISLET.x + Math.cos(a) * d, z = ISLET.z + Math.sin(a) * d;
+      IP.push(x, isletY(x, z) + 0.03, z);
+      col.set(d < ISLET.r - 3 ? (k % 3 ? '#6aa84f' : '#5f9a46') : '#e6d39c');
+      IC.push(col.r, col.g, col.b);
+    }
+    for (let r = 0; r < rings.length - 1; r++) for (let k = 0; k < seg; k++) {
+      const a = r * (seg + 1) + k, b = a + seg + 1;
+      II.push(a, a + 1, b, a + 1, b + 1, b);    // de frente pra cima
+    }
+    const ig = new THREE.BufferGeometry();
+    ig.setAttribute('position', new THREE.Float32BufferAttribute(IP, 3));
+    ig.setAttribute('color', new THREE.Float32BufferAttribute(IC, 3));
+    ig.setIndex(II);
+    ig.computeVertexNormals();
+    this.islet = new THREE.Mesh(ig, new THREE.MeshLambertMaterial({ vertexColors: true }));
+    this.islet.receiveShadow = true;
+    this.islet.frustumCulled = false;
+    const ipalms = new THREE.InstancedMesh(this.palms.geometry, this.palms.material, 14);
+    for (let k = 0; k < 14; k++) {
+      const a = k / 14 * Math.PI * 2 + 0.2, d = ISLET.r + 8 + (k % 3) * 9, x = ISLET.x + Math.cos(a) * d, z = ISLET.z + Math.sin(a) * d;
+      m.makeRotationY(k * 1.7).setPosition(x, isletY(x, z), z);
+      ipalms.setMatrixAt(k, m);
+    }
+    ipalms.castShadow = true;
+    ipalms.frustumCulled = false;
+    this.group.add(this.islet, ipalms);
   }
-  update(camera) {
-    const near = camera.position.z > SAND_Z - 900;
-    this.group.visible = near;
-    if (!near) return;
-    const snap = Math.round(camera.position.x / this.tile) * this.tile;
-    this.palms.position.x = this.umbs.position.x = this.walk.position.x = snap;
-    this.sand.position.x = camera.position.x;
-    this.sand.material.map.offset.x = camera.position.x / 2600 * 26 % 1;
-  }
+  update() {}
 }

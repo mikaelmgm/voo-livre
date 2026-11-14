@@ -188,6 +188,30 @@ export class Sound {
     }
     this.humGain.gain.setTargetAtTime(on ? 0.05 : 0, c.currentTime, 0.4);
   }
+  // água correndo (jato de portal): ruído contínuo, mais alto quanto mais perto
+  water(v) {
+    const c = this.ctx;
+    if (!c) return;
+    if (!this.waterGain) {
+      if (v <= 0.001) return;
+      this.waterGain = c.createGain();
+      this.waterGain.gain.value = 0;
+      const src = c.createBufferSource();
+      src.buffer = this.noise;
+      src.loop = true;
+      const lp = c.createBiquadFilter();
+      lp.type = 'lowpass';
+      lp.frequency.value = 1300;
+      const pk = c.createBiquadFilter();
+      pk.type = 'peaking';
+      pk.frequency.value = 480;
+      pk.gain.value = 7;
+      src.connect(lp).connect(pk).connect(this.waterGain).connect(this.master);
+      src.start();
+    }
+    const want = Math.min(1, v) * 0.15;
+    if (Math.abs(want - (this.waterV || 0)) > 0.004 || (want === 0 && this.waterV)) { this.waterV = want; this.waterGain.gain.setTargetAtTime(want, c.currentTime, 0.3); }
+  }
   portal(color = 0) { this.tone(color ? 620 : 880, 0.22, 0.09, 'sine', 0, color ? 240 : 320); this.burst(0.22, 2600, 500, 2, 0.12); }
   warp() { this.tone(180, 0.28, 0.12, 'sine', 0, 900); this.burst(0.3, 400, 3000, 1, 0.14); }
   gulp(k = 1) { this.tone(320 - 120 * k, 0.09, 0.14, 'sine', 0, 110); this.tone(150, 0.12, 0.12, 'sine', 0.08, 70); }

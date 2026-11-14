@@ -33,7 +33,38 @@
   .mark3 b { display: block; font-size: 16px; line-height: 1; }
   #start3 { position: fixed; inset: 0; z-index: 3; display: flex; align-items: center; justify-content: center; padding: 16px; background: rgba(10, 4, 24, 0.45); backdrop-filter: blur(2px); }
   #start3 .panel { width: min(660px, 100%); max-height: calc(100vh - 32px); overflow-y: auto; }
-  #start3 .controls { text-align: left; font-size: 13.5px; }
+  /* aba Jogar: o desenho de cada tecla e o que ela faz */
+  .howto { display: flex; flex-direction: column; gap: 12px; border-top: 1px solid var(--line); padding-top: 14px; }
+  .how-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 20px; }
+  .how-grid.more { grid-template-columns: repeat(3, 1fr); gap: 8px 14px; border-top: 1px solid var(--line); padding-top: 12px; }
+  .how { display: flex; align-items: center; gap: 10px; min-height: 40px; font-size: 13.5px; line-height: 1.3; color: var(--ink); }
+  .how b { font-weight: 800; color: #fff3c4; }
+  .how .ks { flex: none; width: 96px; display: flex; align-items: center; justify-content: center; gap: 5px; }
+  .how-grid.more .how { min-height: 34px; font-size: 13px; }
+  .how-grid.more .ks { width: 44px; }
+  kbd.k { display: inline-flex; align-items: center; justify-content: center; box-sizing: border-box; min-width: 32px; height: 32px; margin-bottom: 4px; padding: 0 8px; border: 0; border-radius: 7px; font: 800 13.5px var(--font); color: #2b1c44; background: linear-gradient(180deg, #ffffff, #e2dcf0); box-shadow: 0 4px 0 #8f87ad, 0 6px 8px rgba(0, 0, 0, 0.4); }
+  kbd.k.wide { min-width: 60px; }
+  kbd.k.bar { min-width: 96px; }
+  .wasd { display: grid; grid-template-columns: repeat(3, 27px); grid-auto-rows: 29px; gap: 0 3px; }
+  .wasd kbd.k { min-width: 0; height: 25px; margin: 0; padding: 0; font-size: 12px; box-shadow: 0 3px 0 #8f87ad; }
+  .wasd kbd.k:nth-child(1) { grid-area: 1 / 2; }
+  .wasd kbd.k:nth-child(2) { grid-area: 2 / 1; }
+  .wasd kbd.k:nth-child(3) { grid-area: 2 / 2; }
+  .wasd kbd.k:nth-child(4) { grid-area: 2 / 3; }
+  svg.mouse { width: 28px; height: 38px; filter: drop-shadow(0 3px 3px rgba(0, 0, 0, 0.4)); }
+  svg.mouse.left { --ml: #ffb02e; }
+  svg.mouse.right { --mr: #ffb02e; }
+  svg.mouse.wheel { --mw: #ff6a3d; }
+  .m-b { fill: #f2eef9; stroke: #8f87ad; stroke-width: 1.5; }
+  .m-l { fill: var(--ml, none); }
+  .m-r { fill: var(--mr, none); }
+  .m-w { fill: var(--mw, #8f87ad); }
+  .m-c { fill: none; stroke: #8f87ad; stroke-width: 1.2; }
+  .how-tips { font-size: 13px; color: var(--muted); }
+  .how-tips summary { cursor: pointer; font-weight: 700; color: var(--ink); }
+  .how-tips ul { margin: 8px 0 0; padding-left: 18px; line-height: 1.6; }
+  .how-tips b { color: var(--ink); font-weight: 600; }
+  @media (max-width: 520px) { .how-grid { grid-template-columns: 1fr; } .how-grid.more { grid-template-columns: 1fr 1fr; } }
   #start3 a { color: #9fe8ff; text-align: center; font-size: 14px; font-weight: 600; text-decoration: none; }
   #err3 { color: #ffb0a0; text-align: center; font-size: 13px; }
   #hud-time { font-size: 13px; margin-top: 4px; color: var(--muted); }
@@ -100,10 +131,10 @@
   .legend { font-size: 13px; line-height: 1.6; color: var(--ink); }
   .val { font-size: 13px; color: var(--ink); font-weight: 600; white-space: nowrap; min-width: 62px; text-align: right; }
   /* a tela inteira em pixels pede letra de pixel e canto reto */
-  body[data-art="pixel"] #hud3, body[data-art="gameboy"] #hud3 { font-family: 'Press Start 2P', monospace; font-size: 80%; }
-  body[data-art="pixel"] #hud3 *, body[data-art="gameboy"] #hud3 * { border-radius: 0 !important; }
-  body[data-art="pixel"] #hint, body[data-art="gameboy"] #hint { font-size: 10px; line-height: 1.7; white-space: normal; max-width: 86vw; text-align: center; }
-  body[data-art="pixel"] #cross, body[data-art="gameboy"] #cross { border-radius: 0 !important; }
+  body[data-art="pixel"] #hud3 { font-family: 'Press Start 2P', monospace; font-size: 80%; }
+  body[data-art="pixel"] #hud3 * { border-radius: 0 !important; }
+  body[data-art="pixel"] #hint { font-size: 10px; line-height: 1.7; white-space: normal; max-width: 86vw; text-align: center; }
+  body[data-art="pixel"] #cross { border-radius: 0 !important; }
   #eat-hud { position: absolute; left: 22px; top: 128px; font-size: 15px; font-weight: 800; padding: 5px 10px; border-radius: 8px; background: rgba(10, 6, 20, 0.62); }
   #board-ui .size { color: var(--muted); padding-left: 6px; white-space: nowrap; }
 </style>
@@ -180,27 +211,59 @@
       <button data-tab="versao">🔄 Última atualização</button>
     </div>
     <section class="tab on" data-tab="jogar">
+      <div id="invite3" class="box" style="display:none">
+        <div class="box-h">👋 Chamar um amigo <small>(mande o link: no aviso do navegador ele clica em Avançado &gt; Continuar)</small></div>
+        <div id="invite3-links"></div>
+      </div>
       <div class="quick">
       <button id="go-roof">🍖 Ir pra laje</button>
       <button id="go-court">🏀 Ir pra quadra</button>
       <button id="go-park">🎡 Ir pro parque</button>
       <button id="go-beach">🏖️ Ir pra praia</button>
+      <button id="go-bridge">🌉 Ir pra ponte</button>
     </div>
-      <div class="controls inline">
-      <div><b>Mouse</b> olha em volta · <b>segure o clique</b> mirando num ponto brilhante (ou no amigo) → teia · <b>solte</b> → voa · <b>botão direito</b> = a outra mão</div>
-      <div><b>Os dois botões juntos</b> mirando num telhado ou no chão: as teias te levam até ali e você <b>para sem escorregar</b> · de baixo, mire a beirada do prédio · Espaço cancela · em cima de um ponto brilhante continua sendo teia dupla</div>
-      <div><b>CTRL</b> (ou C) no chão, com a teia presa: você finca o pé e ela não te leva. <b>Ande pra trás</b> pra puxar: o amigo vem arrastado e, num prédio, a teia estica feito estilingue. <b>Solte</b> e saia voando</div>
-      <div><b>Shift preso na corda = BOOST</b> (prende, boosta rapidinho, solta e acumula velocidade) · Shift solto no ar = mergulho · no chão = correr</div>
-      <div><b>W A S D</b> andar / impulso no balanço / controle no ar (combine pra ir na diagonal)</div>
-      <div><b>Espaço</b> pula · no ar = pulo duplo · perto de uma parede = pula nela · <b>Q</b> rolamento no ar: segue o seu movimento, pra frente, de costas ou de lado · <b>E</b> ou <b>rodinha</b> encurta / alonga a corda</div>
-      <div><b>Cinema</b> (o prédio gigante na frente do início): entre pelas portas laterais · <b>Y</b> coloca vídeo no telão</div>
-      <div><b>Laje</b> em cima do cinema: pegue o elevador na calçada ou suba pelos pontos · a <b>passarela</b> leva à quadra de basquete</div>
-      <div><b>1 a 3</b> pegam o item na mão, de novo guarda · <b>1</b> portal azul · <b>2</b> portal laranja · <b>3</b> chuva de carros · <b>botão direito</b> usa. Dá pra jogar a teia num ponto brilhante visto pelo portal</div>
-      <div><b>Espaço de verdade</b>: olhe 2 s pra Lua à noite e segure o clique. Lá em cima solte, pendure nos asteroides, mire na Lua ou na Terra pra ser levado · <b>W/S</b> jato · <b>Shift</b> turbo</div>
-      <div><b>X</b> câmera lenta · <b>Z</b> rebobinar · <b>H</b> grava um clone · <b>J</b> apaga os clones · <b>N</b> para o mundo · <b>B</b> troca a arte · <b>G</b> primeira pessoa</div>
-      <div><b>F</b> usa o que estiver perto: sentar, rádio, quadro, sinuca, ping pong, bola, elevador · perto do amigo <b>pega</b>, de novo <b>arremessa</b></div>
-      <div><b>T</b> ir até o amigo · <b>R</b> voltar ao início · <b>V</b> muta a voz · <b>P</b> mostra o FPS · <b>Esc</b> solta o mouse</div>
-    </div>
+      <svg width="0" height="0" style="position:absolute" aria-hidden="true"><symbol id="m" viewBox="0 0 26 36"><rect class="m-b" x="1" y="1" width="24" height="34" rx="12"/><path class="m-l" d="M12.4 1.8A11.2 11.2 0 0 0 1.8 13v2.4h10.6z"/><path class="m-r" d="M13.6 1.8A11.2 11.2 0 0 1 24.2 13v2.4H13.6z"/><path class="m-c" d="M1.5 15.9h23M13 1.5v14"/><rect class="m-w" x="10.8" y="5.5" width="4.4" height="8" rx="2.2"/></symbol></svg>
+      <div class="howto">
+        <div class="how-grid">
+          <div class="how"><span class="ks"><svg class="mouse left" role="img" aria-label="botão esquerdo do mouse"><use href="#m"/></svg></span><span><b>Segure</b> no ponto brilhante: teia. <b>Solte</b>: voa</span></div>
+          <div class="how"><span class="ks"><svg class="mouse right" role="img" aria-label="botão direito do mouse"><use href="#m"/></svg></span><span>A teia da outra mão</span></div>
+          <div class="how"><span class="ks"><span class="wasd"><kbd class="k">W</kbd><kbd class="k">A</kbd><kbd class="k">S</kbd><kbd class="k">D</kbd></span></span><span>Anda e dá embalo na teia</span></div>
+          <div class="how"><span class="ks"><kbd class="k bar">Espaço</kbd></span><span>Pula. No ar, pulo duplo</span></div>
+          <div class="how"><span class="ks"><kbd class="k wide">Shift</kbd></span><span>Na teia: turbo. No chão: corre. No ar: mergulha</span></div>
+          <div class="how"><span class="ks"><kbd class="k wide">Ctrl</kbd></span><span>No ar: pousa onde mirar. No chão: estica a teia</span></div>
+          <div class="how"><span class="ks"><kbd class="k">E</kbd><svg class="mouse wheel" role="img" aria-label="rodinha do mouse"><use href="#m"/></svg></span><span>Encurta a teia. A rodinha também alonga</span></div>
+          <div class="how"><span class="ks"><kbd class="k">Q</kbd></span><span>Cambalhota no ar</span></div>
+          <div class="how"><span class="ks"><kbd class="k">F</kbd></span><span>Usa o que está perto</span></div>
+          <div class="how"><span class="ks"><kbd class="k">T</kbd></span><span>Vai até o amigo</span></div>
+          <div class="how"><span class="ks"><kbd class="k">R</kbd></span><span>Volta ao início</span></div>
+          <div class="how"><span class="ks"><kbd class="k">1</kbd><kbd class="k">2</kbd></span><span>Pega o portal azul e o laranja. O botão direito atira</span></div>
+        </div>
+        <div class="how-grid more">
+          <div class="how"><span class="ks"><kbd class="k">G</kbd></span><span>Primeira pessoa</span></div>
+          <div class="how"><span class="ks"><kbd class="k">B</kbd></span><span>Troca a arte</span></div>
+          <div class="how"><span class="ks"><kbd class="k">X</kbd></span><span>Câmera lenta</span></div>
+          <div class="how"><span class="ks"><kbd class="k">Z</kbd></span><span>Rebobina</span></div>
+          <div class="how"><span class="ks"><kbd class="k">H</kbd></span><span>Grava um clone</span></div>
+          <div class="how"><span class="ks"><kbd class="k">J</kbd></span><span>Apaga os clones</span></div>
+          <div class="how"><span class="ks"><kbd class="k">N</kbd></span><span>Para o mundo</span></div>
+          <div class="how"><span class="ks"><kbd class="k">Y</kbd></span><span>Vídeo no telão</span></div>
+          <div class="how"><span class="ks"><kbd class="k">V</kbd></span><span>Muta a voz</span></div>
+          <div class="how"><span class="ks"><kbd class="k">P</kbd></span><span>Mostra o FPS</span></div>
+          <div class="how"><span class="ks"><kbd class="k">Esc</kbd></span><span>Solta o mouse</span></div>
+        </div>
+        <details class="how-tips">
+          <summary>Dicas</summary>
+          <ul>
+            <li><b>Lua:</b> à noite, olhe 2 s pra ela e segure o clique. Lá em cima, W e S são o jato</li>
+            <li><b>Cinema:</b> é o prédio gigante na frente do início. Entre pelas portas laterais</li>
+            <li><b>Laje:</b> em cima do cinema. Pegue o elevador na calçada, e a passarela leva à quadra</li>
+            <li><b>Pousar num prédio alto:</b> de baixo, mire a beirada e aperte Ctrl</li>
+            <li><b>Estilingue:</b> teia presa, Ctrl no chão, ande pra trás e solte</li>
+            <li><b>Carregar o amigo:</b> F perto dele pega, F de novo arremessa</li>
+            <li><b>Rente ao chão:</b> segure S na teia pra o balanço não subir sozinho</li>
+          </ul>
+        </details>
+      </div>
       <a href="index.html">← voltar pro 2D</a>
     </section>
     <section class="tab" data-tab="boneco">
@@ -276,6 +339,7 @@
     </div>
       <div class="box">
         <div class="box-h">🌍 Painel de Deus <small>(vale pra todo mundo)</small></div>
+        <div class="musicrow"><span>mapa</span><div class="seg" id="map-pick"><button data-v="ilha" class="on">🏝️ Ilha</button><button data-v="inf">♾️ Cidade infinita</button></div></div>
         <div class="musicrow"><label class="vol wide-vol">gravidade <input type="range" id="god-grav" min="-100" max="300" step="5"></label><span id="god-grav-l" class="val"></span></div>
         <div class="musicrow"><label class="vol wide-vol">nível do mar <input type="range" id="god-sea" min="0" max="220" step="2"></label><span id="god-sea-l" class="val"></span></div>
         <div class="musicrow"><label class="vol wide-vol">mundo enrolado <input type="range" id="god-bend" min="-100" max="100" step="1"></label><span id="god-bend-l" class="val"></span></div>
@@ -325,6 +389,11 @@
         <button data-v="3">Alta</button>
       </div>
       <div id="quality-note"></div>
+      <small style="color:var(--muted)">Média e Alta ligam a luz de cinema: brilho, sombra nos cantos e raios de sol.</small>
+    </div>
+      <div class="box">
+      <div class="box-h">🐢 Modo leve <small>(pra PC fraco: imagem menor, sem sombra, sem estilos de arte e menos gente na rua)</small></div>
+      <div class="seg"><button id="opt-leve">🐢 Ligar o modo leve</button></div>
     </div>
       <div class="box">
       <div class="box-h">🎥 Câmera <small>(G troca no meio do jogo)</small></div>
@@ -333,7 +402,7 @@
     </section>
     <section class="tab" data-tab="mochila">
       <div class="box">
-        <div class="box-h">🎒 Mochila <small>(clique num item e depois em outro lugar · a fila de baixo é a sua barra)</small></div>
+        <div class="box-h">🎒 Mochila <small>(clique num item e depois em outro lugar · a fila de baixo é a sua barra · no jogo, E abre o inventário e o botão direito na mesa de trabalho abre a grade 3x3)</small></div>
         <div id="mine-inv"></div>
       </div>
     </section>

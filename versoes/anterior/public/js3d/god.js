@@ -33,7 +33,6 @@ export class Flyers {
     this.kinds = {};
     const add = (key, geo, max) => {
       const mat = new THREE.MeshLambertMaterial({ vertexColors: true });
-      mat.defines = { ART_RIGID: 1 };
       const m = new THREE.InstancedMesh(geo, mat, max);
       m.frustumCulled = false;
       m.count = 0;
@@ -161,7 +160,7 @@ function rockGeo() {
   return geo;
 }
 const SEA_VERT = 'varying vec3 vW; void main(){ vec4 w = modelMatrix * vec4(position, 1.0); vW = w.xyz; gl_Position = projectionMatrix * viewMatrix * w; }';
-const SEA_FRAG = `varying vec3 vW; uniform vec3 uSun, uHor, uDeep; uniform float uTime, uNight, uFogD, uShore;
+const SEA_FRAG = `varying vec3 vW; uniform vec3 uSun, uHor, uDeep; uniform float uTime, uNight, uFogD, uShore, uIsleR; uniform vec4 uIsle; uniform vec3 uIslet;
   float hash(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
   float noise(vec2 p){ vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
     return mix(mix(hash(i), hash(i + vec2(1, 0)), f.x), mix(hash(i + vec2(0, 1)), hash(i + vec2(1, 1)), f.x), f.y); }
@@ -178,7 +177,10 @@ const SEA_FRAG = `varying vec3 vW; uniform vec3 uSun, uHor, uDeep; uniform float
     float alpha = 0.72 + fr * 0.26;
     if (uShore > 0.0) {
       // na beira a água é rasa e clara, e a espuma vai e volta
-      float z = vW.z - uShore, beat = sin(uTime * 0.7 + p.x * 0.02) * 4.0, off = z - beat + (noise(p * 0.08) - 0.5) * 7.0;
+      // distância até a beira da ilha (retângulo de cantos redondos); dentro da ilha não tem mar
+      float z = min(length(max(max(uIsle.xy - p, p - uIsle.zw), 0.0)) - uIsleR - uShore, length(p - uIslet.xy) - uIslet.z);
+      if (z < -3.0) discard;
+      float beat = sin(uTime * 0.7 + p.x * 0.02) * 4.0, off = z - beat + (noise(p * 0.08) - 0.5) * 7.0;
       c = mix(mix(vec3(0.3, 0.8, 0.78), c, smoothstep(0.0, 70.0, z)), c, 0.15);
       float foam = smoothstep(4.0, 1.0, abs(off - 6.0)) * smoothstep(0.35, 0.7, noise(p * 0.5 + uTime * 0.3));
       c = mix(c, vec3(0.96, 0.98, 1.0), foam * 0.92);
@@ -191,10 +193,13 @@ const SEA_FRAG = `varying vec3 vW; uniform vec3 uSun, uHor, uDeep; uniform float
 
 // o mar sobe por cima da cidade: um plano só, que acompanha a câmera
 export class Sea {
-  constructor(scene, sun, shore = 0) {
-    this.shore = shore;
-    this.u = { uSun: { value: sun }, uHor: { value: new THREE.Color() }, uDeep: { value: new THREE.Color('#0b4f78') }, uTime: { value: 0 }, uNight: { value: 0 }, uFogD: { value: 0 }, uShore: { value: shore } };
-    this.mesh = new THREE.Mesh(new THREE.PlaneGeometry(9000, 9000).rotateX(-Math.PI / 2), new THREE.ShaderMaterial({ vertexShader: SEA_VERT, fragmentShader: SEA_FRAG, uniforms: this.u, transparent: true, side: THREE.DoubleSide, toneMapped: false }));
+  // isle = [x0, z0, x1, z1, raio] da ilha e shore = da linha da areia até a água; sem isle o mar cobre tudo (nível do mar do painel de Deus)
+  constructor(scene, sun, isle = null, shore = 0, islet = [0, 0, -1e6]) {
+    this.shore = isle ? shore : 0;
+    const box = isle || [0, 0, 0, 0, 0];
+    this.u = { uSun: { value: sun }, uHor: { value: new THREE.Color() }, uDeep: { value: new THREE.Color('#0b4f78') }, uTime: { value: 0 }, uNight: { value: 0 }, uFogD: { value: 0 }, uShore: { value: this.shore },
+      uIsle: { value: new THREE.Vector4(box[0], box[1], box[2], box[3]) }, uIsleR: { value: box[4] }, uIslet: { value: new THREE.Vector3(...islet) } };
+    this.mesh = new THREE.Mesh(new THREE.PlaneGeometry(isle ? 16000 : 9000, isle ? 16000 : 9000).rotateX(-Math.PI / 2), new THREE.ShaderMaterial({ vertexShader: SEA_VERT, fragmentShader: SEA_FRAG, uniforms: this.u, transparent: true, side: THREE.DoubleSide, toneMapped: false }));
     this.mesh.frustumCulled = false;
     this.mesh.visible = false;
     this.mesh.renderOrder = 1;
@@ -203,7 +208,7 @@ export class Sea {
   update(level, on, camera, t, day) {
     this.mesh.visible = on && level > 0;
     if (!this.mesh.visible) return;
-    this.mesh.position.set(camera.position.x, level, this.shore ? this.shore + 4500 : camera.position.z);
+    this.mesh.position.set(camera.position.x, level, camera.position.z);
     this.u.uTime.value = t;
     this.u.uHor.value.copy(day.cur.hor);
     this.u.uNight.value = day.night;

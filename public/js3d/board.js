@@ -21,11 +21,11 @@ export class Whiteboard {
 
     const group = new THREE.Group();
     group.position.set(o.x, o.y, o.z);
-    const board = new THREE.Mesh(new THREE.PlaneGeometry(o.w, o.h), new THREE.MeshLambertMaterial({ map: this.tex, emissive: 0xffffff, emissiveMap: this.tex, emissiveIntensity: 0.45 }));
+    const board = new THREE.Mesh(new THREE.PlaneGeometry(o.w, o.h), new THREE.MeshStandardMaterial({ map: this.tex, emissive: 0xffffff, emissiveMap: this.tex, emissiveIntensity: 0.45 }));
     board.rotation.y = Math.PI;
-    const frame = new THREE.Mesh(new THREE.BoxGeometry(o.w + 0.3, o.h + 0.3, 0.12), new THREE.MeshLambertMaterial({ color: '#8a8e94' }));
+    const frame = new THREE.Mesh(new THREE.BoxGeometry(o.w + 0.3, o.h + 0.3, 0.12), new THREE.MeshStandardMaterial({ color: '#8a8e94' }));
     frame.position.z = 0.09;
-    const tray = new THREE.Mesh(new THREE.BoxGeometry(o.w * 0.6, 0.06, 0.26), new THREE.MeshLambertMaterial({ color: '#6a6e74' }));
+    const tray = new THREE.Mesh(new THREE.BoxGeometry(o.w * 0.6, 0.06, 0.26), new THREE.MeshStandardMaterial({ color: '#6a6e74' }));
     tray.position.set(0, -o.h / 2 - 0.1, -0.08);
     group.add(frame, board, tray);
     ctx.scene.add(group);

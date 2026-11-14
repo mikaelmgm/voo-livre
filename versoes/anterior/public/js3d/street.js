@@ -3,7 +3,8 @@
 import * as THREE from 'three';
 import { Boxes, rnd, solid, softDot } from './lib3d.js';
 import { TINTS, makeFacades, makeShops, grassTexture } from './textures.js';
-import { storeLayout, dressStore, storeSigns, inFun, BEACH_J } from './places.js';
+import { storeLayout, dressStore, storeSigns, inFun, onLand } from './places.js';
+import { onBridgeFoot } from './bridge.js';
 
 export const CELL = 52;       // lote + rua
 const WALK_MIN = 15.6;        // calçada por onde a gente anda (distância do centro do lote)
@@ -17,7 +18,7 @@ export function styleLot(L, i, j) {
   if (L.park) return;
   const { cx, cz, w, d, h } = L;
   if (L.low) { styleLow(L, i, j); return; }
-  if (!(i === 0 && j === 0) && styleShape(L, i, j)) return;
+  if (!(i === 0 && j === 0) && !L.mark && styleShape(L, i, j)) return;
   if (!L.low && h > 30 && rnd(i, j, 16) < 0.38) {
     const m = Math.min(3, 15 - w / 2, 15 - d / 2);
     if (m > 1) {
@@ -81,7 +82,11 @@ function styleLow(L, i, j) {
     for (let m = 0; m < n; m++) parts.push({ x: x - w / 2 + hw * (m + 0.5), z, w: hw - 0.3, d: d * 0.7, y0: 0, y1: h, house: m });
     L.kind = 'casas';
     setParts(L, i, j, parts, []);
-    L.anchors = [];
+    // postes altos nas esquinas do lote: no bairro de casas a teia pega neles
+    L.anchors = [[1, 1], [-1, -1]].map(([sx, sz], k) => {
+      const px = x + sx * 18.8, pz = z + sz * 18.8;
+      return { x: px, y: 14, z: pz, bx: px, bz: pz, roof: 0, id: (i * 4099 + j) * 2 + k + 5000000 };
+    });
   } else if (k < 0.86) {
     const nave = { x, z: z + d * 0.08, w: w * 0.46, d: d * 0.72, y0: 0, y1: 11 }, tw = { x, z: z - d * 0.37, w: 5.6, d: 5.6, y0: 0, y1: 30 };
     L.kind = 'igreja';
@@ -672,7 +677,7 @@ export class Traffic {
   }
 
   update(t, px, pz, night) {
-    const { d } = this, n = this.count, now = performance.now(), shoreZ = BEACH_J * CELL - 27;
+    const { d } = this, n = this.count, now = performance.now();
     this.lightMat.opacity = Math.max(0.15, night);
     for (let k = 0; k < n; k++) {
       const c = this.cars[k], body = this.bodies[c.kind];
@@ -684,7 +689,8 @@ export class Traffic {
       if (c.axis) d.position.set(lane - c.dir * 2.7, 0, a);   // mão direita
       else d.position.set(a, 0, lane + c.dir * 2.7);
       // nem areia nem parque têm rua
-      if (d.position.z > shoreZ || inFun(Math.floor(d.position.x / CELL), Math.floor(d.position.z / CELL))) { c.gone = now + 800; body.setMatrixAt(c.slot, this.zero); this.lights.setMatrixAt(k, this.zero); continue; }
+      const ci = Math.floor(d.position.x / CELL), cj = Math.floor(d.position.z / CELL);
+      if (!onLand(ci, cj) || inFun(ci, cj) || onBridgeFoot(d.position.x, d.position.z)) { c.gone = now + 800; body.setMatrixAt(c.slot, this.zero); this.lights.setMatrixAt(k, this.zero); continue; }
       d.rotation.y = c.axis ? (c.dir > 0 ? 0 : Math.PI) : (c.dir > 0 ? Math.PI / 2 : -Math.PI / 2);
       c.x = d.position.x; c.z = d.position.z;
       d.updateMatrix();

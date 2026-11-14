@@ -5,7 +5,7 @@ import { clamp, rnd, softDot } from './lib3d.js';
 
 const FAR = 3000;                  // distância em que os astros são desenhados
 const TILE = 1600;                 // o chão da Lua se repete a cada TILE metros
-const BEND = 3200;                 // curvatura do horizonte: é uma lua bem pequena
+export const BEND = 3200;                 // curvatura do horizonte: é uma lua bem pequena
 
 export const SUN = new THREE.Vector3();
 // O espaço de verdade: a Terra na origem e a Lua numa linha reta. g é a gravidade na superfície, bem maior que a real.
@@ -45,9 +45,9 @@ const EARTH_FRAG = `uniform vec3 uSun; uniform float uTime; varying vec3 vP, vN,
     // detalhe menor que um pixel cintila: some conforme a Terra fica pequena na tela
     float fine = 1.0 - smoothstep(0.012, 0.05, length(fwidth(p)));
     float lights = land * smoothstep(0.56, 0.72, fbm(p * 24.0)) * (0.4 + 0.6 * noise(p * 90.0)) * fine;
-    c += vec3(1.0, 0.72, 0.36) * lights * night * 1.3 * (1.0 - cloud);
+    c += vec3(1.0, 0.72, 0.36) * lights * night * 3.0 * (1.0 - cloud);
     float rim = pow(1.0 - max(dot(N, normalize(vV)), 0.0), 3.0);
-    c += vec3(0.25, 0.5, 1.0) * rim * (clamp(day * 1.4 + 0.25, 0.0, 1.0) + 0.04);
+    c += vec3(0.25, 0.5, 1.0) * rim * (clamp(day * 1.4 + 0.25, 0.0, 1.0) + 0.04) * 1.5;
     gl_FragColor = vec4(c, 1.0);
     #include <colorspace_fragment>
   }`;
@@ -94,14 +94,37 @@ const GROUND_VERT = `varying vec3 vW, vN; uniform float uBend;
     gl_Position = projectionMatrix * viewMatrix * w;
   }`;
 
-const GROUND_FRAG = `uniform vec3 uSun; uniform float uFlat; varying vec3 vW, vN; ${NOISE}
+const GROUND_FRAG = `uniform vec3 uSun, uEarth; uniform float uFlat; uniform vec4 uHole; varying vec3 vW, vN; ${NOISE}
+  // craterinhas: um buraco com a borda levantada em volta
+  float pits(vec2 p, float s){
+    vec2 g = p * s, id = floor(g), f = fract(g) - 0.5;
+    vec2 o = (vec2(hash(vec3(id, 1.0)), hash(vec3(id, 2.3))) - 0.5) * 0.4;
+    float r = 0.14 + 0.2 * hash(vec3(id, 4.1)), d = length(f - o) / r;
+    return (1.0 - smoothstep(0.75, 1.0, d)) * -0.5 + smoothstep(0.72, 0.98, d) * (1.0 - smoothstep(0.98, 1.3, d)) * 0.7;
+  }
   void main(){
+    if (vW.x > uHole.x && vW.x < uHole.z && vW.z > uHole.y && vW.z < uHole.w) discard;     // onde a Lua virou blocos
     vec3 N = uFlat > 0.5 ? normalize(cross(dFdx(vW), dFdy(vW))) : normalize(vN);
-    if (uFlat > 0.5 && N.y < 0.0 && dot(N, normalize(cameraPosition - vW)) < 0.0) N = -N;
-    float grain = fbm(vW * 0.09) * 0.55 + fbm(vW * 0.8) * 0.3 + fbm(vW * vec3(5.0)) * 0.15;
+    vec3 toEye = cameraPosition - vW;
+    float dist = length(toEye);
+    vec3 V = toEye / dist;
+    if (uFlat > 0.5 && N.y < 0.0 && dot(N, V) < 0.0) N = -N;
+    float mid = fbm(vW * 0.8), fine = fbm(vW * vec3(5.0));
+    float grain = fbm(vW * 0.09) * 0.55 + mid * 0.3 + fine * 0.15;
+    // relevo fino: o grão e as craterinhas inclinam a luz. Só de perto; de longe isso vira chuvisco.
+    float near = 1.0 - smoothstep(40.0, 200.0, dist), h = mid * 0.45;
+    if (uFlat < 0.5) h += pits(vW.xz, 0.1) * 0.4 + pits(vW.xz + 37.0, 0.33) * 0.1;
+    vec3 dpx = dFdx(vW), dpy = dFdy(vW), r1 = cross(dpy, N), r2 = cross(N, dpx);
+    float det = dot(dpx, r1);
+    N = normalize(abs(det) * N - sign(det) * (dFdx(h) * r1 + dFdy(h) * r2) * (uFlat > 0.5 ? 0.5 : 0.8) * near);
     float c = (uFlat > 0.5 ? 0.34 : 0.44) + (grain - 0.5) * 0.42;
-    float l = clamp(dot(N, uSun) * 1.12, 0.0, 1.0);
-    vec3 col = vec3(c) * vec3(0.98, 0.97, 1.0) * (l * 1.15 + 0.035);
+    // poeira de lua não é fosca como giz: de sol baixo ela ainda acende, e contra o sol dá um clarão
+    float l = clamp(dot(N, uSun), 0.0, 1.0), nv = max(dot(N, V), 0.0);
+    float lit = mix(l, 2.0 * l / (l + nv + 0.05), 0.4) * 1.12 + pow(max(dot(V, uSun), 0.0), 18.0) * 0.2 * l;
+    // a Terra acesa no céu clareia de azul o lado que o sol não pega
+    vec3 shine = vec3(0.045, 0.075, 0.14) * (0.5 + 0.5 * dot(N, uEarth));
+    vec3 tint = uFlat > 0.5 ? mix(vec3(1.0, 0.93, 0.85), vec3(0.82, 0.88, 1.0), fbm(vW * 0.012)) : vec3(0.98, 0.97, 1.0);
+    vec3 col = vec3(c) * tint * (lit * 1.18 + shine + 0.02);
     gl_FragColor = vec4(col, 1.0);
     #include <colorspace_fragment>
   }`;
@@ -137,6 +160,7 @@ export class Space {
     this.sky.visible = false;
     this.earthSky = new THREE.Vector3(0.32, 0.74, -0.59).normalize();    // onde a Terra fica no céu da Lua
     const sun = { value: SUN };
+    this.uEarth = { value: new THREE.Vector3(0.32, 0.74, -0.59).normalize() };      // de onde vem o clarão azul da Terra
     this.uTime = { value: 0 };
 
     // estrelas
@@ -154,7 +178,7 @@ export class Space {
     this.stars.frustumCulled = false;
 
     // sol
-    this.sun = new THREE.Sprite(new THREE.SpriteMaterial({ map: softDot(), color: 0xfff2d8, transparent: true, depthWrite: false, fog: false, blending: THREE.AdditiveBlending, toneMapped: false }));
+    this.sun = new THREE.Sprite(new THREE.SpriteMaterial({ map: softDot(), color: new THREE.Color(0xfff2d8).multiplyScalar(1.7), transparent: true, depthWrite: false, fog: false, blending: THREE.AdditiveBlending, toneMapped: false }));
     this.sun.scale.setScalar(760);
 
     this.earth = new THREE.Mesh(new THREE.SphereGeometry(1, 96, 64), new THREE.ShaderMaterial({ vertexShader: BALL_VERT, fragmentShader: EARTH_FRAG, uniforms: { uSun: sun, uTime: this.uTime, uZ: { value: 0.9999444 } }, toneMapped: false }));
@@ -168,6 +192,7 @@ export class Space {
     scene.add(this.sky);
 
     this.belt = null;                  // as pedras do espaço também só na primeira viagem
+    this.hole = { value: new THREE.Vector4(1, 1, -1, -1) };     // um retângulo do chão liso que não aparece
     this.floor = null;                 // o chão só é montado na primeira visita
     this.craters = [];
     const r2 = seeded(90210);
@@ -193,6 +218,8 @@ export class Space {
     scene.add(this.clouds);
   }
 
+  setHole(x0 = 1, z0 = 1, x1 = -1, z1 = -1) { this.hole.value.set(x0, z0, x1, z1); }
+
   height(x, z) {
     const a = 6.2832 / TILE;
     let h = 5 * Math.sin(a * 2 * x + 1.3) * Math.cos(a * 3 * z + 0.4) + 2.4 * Math.sin(a * 5 * x) * Math.sin(a * 4 * z + 2);
@@ -212,7 +239,7 @@ export class Space {
     for (let i = 0; i < p.count; i++) p.setY(i, this.height(p.getX(i), p.getZ(i)));
     geo.computeVertexNormals();
     const uBend = { value: BEND }, uSun = { value: SUN };
-    const mat = flat => new THREE.ShaderMaterial({ vertexShader: GROUND_VERT, fragmentShader: GROUND_FRAG, uniforms: { uBend, uSun, uFlat: { value: flat } }, toneMapped: false });
+    const mat = flat => new THREE.ShaderMaterial({ vertexShader: GROUND_VERT, fragmentShader: GROUND_FRAG, uniforms: { uBend, uSun, uEarth: this.uEarth, uFlat: { value: flat }, uHole: flat ? { value: new THREE.Vector4(1, 1, -1, -1) } : this.hole }, toneMapped: false });
     this.floor = new THREE.Group();
     this.ground = new THREE.InstancedMesh(geo, mat(0), 9);
     this.stones = new THREE.InstancedMesh(new THREE.IcosahedronGeometry(1, 1), mat(1), this.rocks.length * 9);
@@ -231,7 +258,7 @@ export class Space {
   // Pedras soltas no espaço. Saem de um sorteio fixo por pedaço, então todo jogador vê as mesmas.
   rockIn(i, j, k) {
     const id = Math.imul(i, 1009) ^ Math.imul(j, 2003) ^ Math.imul(k, 4001);
-    if (rnd(id, 5, 1) > 0.42) return null;
+    if (rnd(id, 5, 1) > 0.29) return null;        // um terço a menos de pedra que antes: sobra espaço pra voar
     const x = (i + 0.2 + rnd(id, 5, 2) * 0.6) * BELT_CELL, y = (j + 0.2 + rnd(id, 5, 3) * 0.6) * BELT_CELL, z = (k + 0.2 + rnd(id, 5, 4) * 0.6) * BELT_CELL;
     for (const b of BODIES) if (Math.hypot(x - b.c.x, y - b.c.y, z - b.c.z) < b.r * 1.35) return null;
     const v = rnd(id, 5, 5), r = 8 + v * v * v * 62;
@@ -246,7 +273,7 @@ export class Space {
       p.setXYZ(i, x * k, y * k, z * k);
     }
     geo.computeVertexNormals();
-    const mat = new THREE.ShaderMaterial({ vertexShader: GROUND_VERT, fragmentShader: GROUND_FRAG, uniforms: { uBend: { value: 1e9 }, uSun: { value: SUN }, uFlat: { value: 1 } }, toneMapped: false });
+    const mat = new THREE.ShaderMaterial({ vertexShader: GROUND_VERT, fragmentShader: GROUND_FRAG, uniforms: { uBend: { value: 1e9 }, uSun: { value: SUN }, uEarth: this.uEarth, uFlat: { value: 1 }, uHole: { value: new THREE.Vector4(1, 1, -1, -1) } }, toneMapped: false });
     this.belt = new THREE.InstancedMesh(geo, mat, BELT_MAX);
     this.belt.frustumCulled = false;
     this.belt.count = 0;
@@ -349,6 +376,7 @@ export class Space {
     this.stars.position.copy(c);
     this.sun.position.copy(c).addScaledVector(SUN, FAR + 400);
     this.place(this.earth, earthDir, earthAngle, c);
+    this.uEarth.value.copy(earthDir).normalize();
     this.air.position.copy(this.earth.position);
     this.air.scale.copy(this.earth.scale);
     if (this.moon.visible) this.place(this.moon, moonDir, moonAngle, c);

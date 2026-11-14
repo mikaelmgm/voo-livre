@@ -148,9 +148,9 @@ export function buildRoof(L, mats, scene, day) {
   const g = new THREE.Group();
   g.position.set(cx, R.Y, cz);
   const b = new Boxes(), tile = new Boxes(), deck = new Boxes(), pool = new Boxes();
-  const tileMat = new THREE.MeshLambertMaterial({ map: tileTex(), vertexColors: true });
-  const deckMat = new THREE.MeshLambertMaterial({ map: deckTex(), vertexColors: true });
-  const poolMat = new THREE.MeshLambertMaterial({ map: poolTileTex(), vertexColors: true });
+  const tileMat = new THREE.MeshStandardMaterial({ map: tileTex(), vertexColors: true });
+  const deckMat = new THREE.MeshStandardMaterial({ map: deckTex(), vertexColors: true });
+  const poolMat = new THREE.MeshStandardMaterial({ map: poolTileTex(), vertexColors: true });
 
   // laje: as quatro partes em volta da piscina
   const low = -P.depth;
@@ -285,7 +285,7 @@ export function buildRoof(L, mats, scene, day) {
 
   // boias
   const floats = [['#ff6fa8', -12, -14, 1.0], ['#ffcf3f', -7, -10, 0.85]].map(([c, x, z, s]) => {
-    const m = new THREE.Mesh(new THREE.TorusGeometry(0.75 * s, 0.28 * s, 8, 18).rotateX(Math.PI / 2), new THREE.MeshLambertMaterial({ color: c }));
+    const m = new THREE.Mesh(new THREE.TorusGeometry(0.75 * s, 0.28 * s, 8, 18).rotateX(Math.PI / 2), new THREE.MeshStandardMaterial({ color: c }));
     m.position.set(x, -P.water + 0.05, z);
     m.castShadow = true;
     g.add(m);
@@ -423,7 +423,7 @@ export function buildCourt(L, mats, scene, day) {
   const g = new THREE.Group();
   g.position.set(cx, R.Y, cz);
   const b = new Boxes();
-  const floor = new THREE.Mesh(new THREE.PlaneGeometry(34, 39).rotateX(-Math.PI / 2), new THREE.MeshLambertMaterial({ map: courtTex() }));
+  const floor = new THREE.Mesh(new THREE.PlaneGeometry(34, 39).rotateX(-Math.PI / 2), new THREE.MeshStandardMaterial({ map: courtTex() }));
   floor.position.y = 0.02;
   floor.receiveShadow = true;
   g.add(floor);
@@ -436,7 +436,7 @@ export function buildCourt(L, mats, scene, day) {
     b.tint('#f4f4f0').box(-0.95, 2.9, s * 14.1 - 0.04, 0.95, 4.05, s * 14.1 + 0.04);
     b.tint('#e85a2c').box(-0.3, 3.06, s * 14.05 - 0.05 * s, 0.3, 3.5, s * 14.05 + 0.05 * s);
     b.tint('#f4f4f0').box(-0.22, 3.12, s * 14.0 - 0.04, 0.22, 3.42, s * 14.0 + 0.04);
-    const rim = new THREE.Mesh(new THREE.TorusGeometry(0.5, 0.03, 8, 24).rotateX(Math.PI / 2), new THREE.MeshLambertMaterial({ color: '#e85a2c', emissive: '#401000' }));
+    const rim = new THREE.Mesh(new THREE.TorusGeometry(0.5, 0.03, 8, 24).rotateX(Math.PI / 2), new THREE.MeshStandardMaterial({ color: '#e85a2c', emissive: '#401000' }));
     rim.position.set(0, 3.05, s * 13.5);
     g.add(rim);
     const net = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.33, 0.55, 12, 1, true), new THREE.MeshBasicMaterial({ color: 0xffffff, wireframe: true, transparent: true, opacity: 0.55 }));
