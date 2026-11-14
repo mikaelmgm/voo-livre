@@ -1,0 +1,14 @@
+# Voo Livre na nuvem (Render, plano grátis): o link fixo pros amigos.
+# Cada envio pro GitHub neste branch atualiza o jogo sozinho em uns minutos.
+# Grátis: dorme depois de 15 min sem ninguém (a primeira entrada leva até 1 min) e tem 5 GB de tráfego por mês.
+services:
+  - type: web
+    name: voo-livre
+    runtime: node
+    plan: free
+    region: virginia          # o mais perto do Brasil que o Render tem
+    branch: laje-voz-cidade
+    buildCommand: node --version   # não tem dependências pra instalar
+    startCommand: node server.js
+    healthCheckPath: /api/versao
+    autoDeployTrigger: commit

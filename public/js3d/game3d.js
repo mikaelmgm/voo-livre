@@ -2003,13 +2003,16 @@ $('#go-roof').onclick = () => { teleport(new V3(CINE.cx + 8, CINE.roof.Y + 0.7, 
 $('#go-court').onclick = () => { teleport(new V3(COURT_LOT.cx - 13, COURT_LOT.courtData.Y + 0.7, COURT_LOT.cz)); yaw = -Math.PI / 2; lockMouse(); };
 // convite: os endereços pelos quais o amigo entra neste servidor, com botão de copiar
 fetch('/api/info').then(r => r.json()).then(info => {
-  const ips = info.ips.filter(i => i.radmin).concat(info.ips.filter(i => !i.radmin)).slice(0, 3);
+  // na nuvem é um link fixo só, sem aviso de certificado; em casa, os endereços da rede (Radmin primeiro)
+  const ips = info.site ? [{ url: info.site, tag: 'link fixo' }] : info.ips.filter(i => i.radmin).concat(info.ips.filter(i => !i.radmin)).slice(0, 3)
+    .map(ip => ({ url: `https://${ip.host}:${info.port}`, tag: ip.radmin ? 'Radmin' : ip.name }));
   if (!ips.length) return;
+  if (info.site) $('#invite3 .box-h small').textContent = '(é só mandar o link; se o servidor estiver dormindo, a primeira entrada leva até 1 minuto)';
   const wrap = $('#invite3-links');
-  for (const ip of ips) {
-    const url = `https://${ip.host}:${info.port}`, row = document.createElement('div');
+  for (const { url, tag } of ips) {
+    const row = document.createElement('div');
     row.className = 'musicrow';
-    row.innerHTML = `<code style="user-select:all;font-weight:600">${url}</code><small>${ip.radmin ? 'Radmin' : String(ip.name).replace(/[<>&]/g, '')}</small>`;
+    row.innerHTML = `<code style="user-select:all;font-weight:600">${String(url).replace(/[<>&]/g, '')}</code><small>${String(tag).replace(/[<>&]/g, '')}</small>`;
     const btn = document.createElement('button');
     btn.className = 'small';
     btn.textContent = 'copiar';

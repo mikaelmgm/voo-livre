@@ -13,6 +13,8 @@ const dns = require('dns');
 const { loadCert } = require('./cert.js');
 
 const PORT = Number(process.argv[2] || process.env.PORT || 3000);
+// Na nuvem (Render) o jogo tem um link fixo, que o próprio Render informa. Aí o convite mostra ele no lugar dos IPs da rede.
+const SITE = (process.env.SITE_URL || process.env.RENDER_EXTERNAL_URL || '').replace(/\/+$/, '');
 const PUBLIC = path.join(__dirname, 'public');
 // "Última atualização" do menu: dá pra servir o jogo guardado em versoes/anterior no lugar do atual, pra todo mundo.
 const OLD = path.join(__dirname, 'versoes', 'anterior');
@@ -101,7 +103,7 @@ function serve(req, res) {
   }
   if (url.pathname === '/api/info') {
     res.writeHead(200, { 'Content-Type': MIME['.json'], 'Cache-Control': 'no-store' });
-    res.end(JSON.stringify({ port: PORT, ips: lanAddresses(), https: true, players: [...clients.values()].filter(c => c.joined).length }));
+    res.end(JSON.stringify({ port: PORT, site: SITE || null, ips: SITE ? [] : lanAddresses(), https: true, players: [...clients.values()].filter(c => c.joined).length }));
     return;
   }
   if (url.pathname === '/api/versao') {
@@ -410,9 +412,13 @@ server.on('error', err => {
 });
 
 server.listen(PORT, '0.0.0.0', () => {
+  const line = '  ' + '─'.repeat(54);
+  if (SITE) {
+    console.log(`\n   VOO LIVRE — servidor ligado na nuvem: ${SITE}\n`);
+    return;
+  }
   const ips = lanAddresses();
   for (const ip of ips) dns.lookup(ip.host, { family: 4 }, (err, address) => { if (!err && address === ip.address) namesOk.add(ip.address); });
-  const line = '  ' + '─'.repeat(54);
   console.log('\n' + line);
   console.log('   VOO LIVRE — servidor ligado');
   console.log(line);

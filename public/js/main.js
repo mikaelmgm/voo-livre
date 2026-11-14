@@ -1107,14 +1107,15 @@ function buildLobby() {
 
   {
     fetch('/api/info').then(r => r.json()).then(info => {
-      const ips = info.ips.filter(i => i.radmin).concat(info.ips.filter(i => !i.radmin)).slice(0, 3);
+      // na nuvem é um link fixo só; em casa, os endereços da rede (Radmin primeiro)
+      const ips = info.site ? [{ url: info.site, tag: 'link fixo' }] : info.ips.filter(i => i.radmin).concat(info.ips.filter(i => !i.radmin)).slice(0, 3)
+        .map(ip => ({ url: `https://${ip.host}:${info.port}`, tag: ip.radmin ? 'Radmin' : ip.name }));
       if (!ips.length) return;
       const wrap = $('#invite-links');
-      for (const ip of ips) {
-        const url = `https://${ip.host}:${info.port}`;
+      for (const { url, tag } of ips) {
         const row = document.createElement('div');
         row.className = 'link';
-        row.innerHTML = `<code>${url}</code><small>${ip.radmin ? 'Radmin' : esc(ip.name)}</small>`;
+        row.innerHTML = `<code>${esc(url)}</code><small>${esc(tag)}</small>`;
         const btn = document.createElement('button');
         btn.className = 'copy';
         btn.textContent = 'copiar';
@@ -1122,7 +1123,9 @@ function buildLobby() {
         row.appendChild(btn);
         wrap.appendChild(row);
       }
-      $('#invite-note').textContent = 'No aviso de conexão do navegador: Avançado > Continuar. Esse endereço é o que libera o microfone e os vídeos do YouTube.';
+      $('#invite-note').textContent = info.site
+        ? 'É só mandar esse link. Se ninguém estiver jogando, o servidor dorme, e quem entra primeiro espera até 1 minuto.'
+        : 'No aviso de conexão do navegador: Avançado > Continuar. Esse endereço é o que libera o microfone e os vídeos do YouTube.';
       $('#invite').classList.remove('hidden');
     }).catch(() => {});
   }
